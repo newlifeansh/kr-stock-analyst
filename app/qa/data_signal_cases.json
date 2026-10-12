@@ -736,7 +736,7 @@
       "domain": "캘린더·콘텐츠 연동",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest Naver mobile news JSON normalization·empty/failure·retry·fresh-skip coverage·cache-header·release readiness fixtures + live source probe and latest-published checks + Playwright market/stock news freshness",
+      "automation": "pytest Naver mobile news JSON normalization·empty/failure·retry·fresh-skip coverage·cache-header·release readiness fixtures + live source probe and latest-published checks + Playwright market/stock news freshness; 국내 readiness는 canonical 150/0 및 live와 동일한 100/100 시그널 범위를 모두 확인한다.",
       "preconditions": ["네이버 모바일 금융 전역·종목 뉴스 JSON의 정상, 빈 결과, HTTP 실패 픽스처를 준비한다.", "신선한 종목 뉴스 스냅샷과 만료된 스냅샷을 각각 준비한다.", "us-market 사전운영 표면에 동일한 후보 이미지를 배포하고 전종목 뉴스 재수집이 끝나기 전의 stale 품질 응답을 준비한다."],
       "inputs": {"general_endpoint": "/front-api/news/category", "stock_endpoint": "/front-api/news/stock/list", "sample_code": "005930", "maximum_stock_snapshot_age_hours": 12, "retry_seconds": 900, "ingestion_rows_loaded": "refreshed plus already-fresh skipped snapshots", "api_cache_policy": "no-store"},
       "steps": ["현재 모바일 JSON의 articleId·officeId·datetime·title·body를 정규화하고 HTML entity, 12/14자리 발행시각, 원문 URL, 중복을 검증한다.", "전역 뉴스 원천이 비거나 실패하면 0건 성공으로 기록하지 않는지 확인한다.", "전 종목 뉴스 새로고침이 전량 실패하면 failed, 일부 실패하면 partial로 기록하고 15분 안에 재시도하는지 확인한다.", "모든 종목 스냅샷이 이미 신선해 전체 skip되는 정상 재배포는 refreshed=0을 보존하되 rows_loaded는 유효 커버리지 전체로 기록하는지 확인한다.", "만료된 종목 뉴스 갱신이 실패할 때 예전 기사를 현재 기사처럼 다시 노출하지 않는지 검사한다.", "/news-items·/stocks/{code}/news-items·/stocks/{code}/prices의 no-store 계약과 신호 데이터 품질 API의 news·stock_news 상태를 확인한다.", "배포 후 news·stock_news가 모두 ready이고 Top100 종목 뉴스 커버리지가 100%가 될 때까지 유한 대기한 뒤 live·e2e QA를 시작하는지 확인한다.", "us-market에서 실제 최신 발행시각과 종목 연결을 확인하고 피드·종목 소식 화면에서 재검증한다."],
@@ -2364,7 +2364,7 @@
       "domain": "국내 시그널 체결 가정",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest 독립 30초 종가체결 수집·30일/90일 보유/대기 종목의 신규 분봉 경로 저장·18시 이후 같은 거래일 봉인 재시도·다음날 봉인 거부·KIS 최근체결/분봉/일봉/이전 접두경로 검증·장애시 fail-closed fixture + KRX 장마감 스테이징 실경로 확인",
+      "automation": "pytest 독립 30초 종가체결 수집·30일/90일 보유/대기 종목의 신규 분봉 경로 저장·18시 이후 같은 거래일 봉인 재시도·다음날 봉인 거부·KIS 최근체결/분봉/일봉/이전 접두경로 검증·장애시 fail-closed fixture + KRX 장마감 스테이징 실경로 확인; 15:40 전 당일 봉인은 pending skip으로 기록하며 실제 장마감 검증 통과로 취급하지 않고 과거 분봉 검사를 유지한다. 시각 오류는 실패한다.",
       "preconditions": ["KRX 장중 신호의 미완료 날짜별 분봉 경로 또는 30일/90일 시그널의 보유·대기 종목이 있고 같은 거래일의 확정 OHLC가 있다.", "스테이징 서버의 KIS 현재일 분봉 인증이 가능하다."],
       "inputs": {"market_division": "J", "capture_window_kst": "15:31-15:39", "seal_window_kst": "15:40-23:59 same trade date", "chart_max_points": 391, "required_close_time": "153000", "historical_fallback": "unsealed_only", "auction_trade_source": "KIS inquire-ccnl KRX recent prints", "tracked_recent_days": [30, 90], "non_session_day_behavior": "skip with XKRX holiday/weekend evidence"},
       "steps": ["15:31~15:39 사이 KRX 최근체결 TR의 정확한 15:30·양수 가격/수량 체결을 현재일 09:00~15:19 분봉과 함께 영속 저장한다. 최근체결 응답에 거래일 필드가 없으므로 창 밖 응답은 사용하지 않는다.", "당일 분봉 스냅샷이 없는 보유·대기 종목도 30일·90일 신호 스냅샷에서 추적하여 새 경로와 종가 체결을 한 트랜잭션에 저장한다.", "정규장 종료 후 미봉인인 당일 시그널 경로를 현재일 KRX 분봉으로 조회하고 거래량 0인 15:30 표시 봉은 별도 보존된 실제 체결로만 교체한다.", "확정 일봉이 18:00까지 늦어도 같은 거래일 23:59까지 현재일 분봉과 저장된 종가 체결을 재대조하며 다음 날짜에는 이전 세션을 현재일 차트로 봉인하지 않는다.", "거래일·09:02 이전 시작·15:30 실제 체결·시각 연속성·양수 OHLC와 확정 일봉 전체 OHLC 및 저장된 완료 분봉 접두경로의 가격·시각 일치를 확인한다.", "15:20~15:29 동시호가의 거래량 0인 표시용 분봉은 체결 봉과 봉인 경로에서 제외한다.", "일치하는 경로만 영속적으로 is_final=true로 저장하고 다음날 과거 날짜 API 없이 재생한다.", "공급 장애·일봉 결측·접두경로 변경·다음날 시각이면 봉인하지 않고 해당 종목의 새 확정 알림을 억제한다."],
@@ -2394,7 +2394,7 @@
         "live",
         "e2e"
       ],
-      "automation": "pytest 커뮤니티 인기글 정렬·기준선·중복 방지·시장 분리·세션 재사용·총 대기시간·클라이언트 시간제한·강제 재시도·딥링크 fixture + live 삼성전자 인기글 원천 상태 검사 + Playwright 320/458px 알림 설정·이력·인기글 진입·재시도 E2E",
+      "automation": "pytest 커뮤니티 인기글 정렬·기준선·중복 방지·시장 분리·세션 재사용·총 대기시간·클라이언트 시간제한·강제 재시도·딥링크 fixture + live 삼성전자 인기글 원천 상태 검사 + Playwright 320/458px 알림 설정·이력·인기글 진입·재시도 E2E; 실패 응답의 비동기 요청이 완료된 후 실제 재시도 클릭을 검사한다.",
       "preconditions": [
         "삼성전자(005930)가 국내 관심종목에 저장되어 있다.",
         "community_popular 알림 조건을 선택한 유효한 Web Push 구독을 준비한다.",

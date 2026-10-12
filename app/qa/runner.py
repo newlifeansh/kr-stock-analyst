@@ -192,6 +192,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_signal_data_quality_surfaces_latest_stock_news_failure",
         "tests.test_release_data_readiness."
         "test_dashboard_readiness_requires_current_general_and_complete_stock_news",
+        "tests.test_release_data_readiness.test_dashboard_readiness_checks_canonical_and_exact_live_scope",
         "tests.test_release_data_readiness."
         "test_us_readiness_rejects_schema_upgrade_and_empty_recommendations",
     ),
@@ -403,6 +404,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-PUSH-COMMUNITY-002": (
         "tests.test_stock_community_deep_link.test_cold_stock_navigation_applies_community_route_after_hydration",
         "tests.test_data_signal_qa.test_community_notification_e2e_routes_the_async_history_response",
+        "tests.test_data_signal_qa.test_community_retry_e2e_settles_the_failed_request_before_click",
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
         "tests.test_app."
@@ -479,6 +481,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_market_ai_push_skips_frozen_unverified_replay_at_open_and_close",
     ),
     "SIG-KR-INTRADAY-SEAL-001": (
+        "tests.test_data_signal_qa.test_live_preclose_does_not_require_future_close_but_invalid_time_fails[2026-10-13T08:00:00+09:00-skip]",
+        "tests.test_data_signal_qa.test_live_preclose_does_not_require_future_close_but_invalid_time_fails[2026-10-13T15:39:59+09:00-skip]",
+        "tests.test_data_signal_qa.test_live_preclose_does_not_require_future_close_but_invalid_time_fails[2026-10-13T15:40:00+09:00-fail]",
+        "tests.test_data_signal_qa.test_live_preclose_does_not_require_future_close_but_invalid_time_fails[invalid-fail]",
         "tests.test_quant_signals."
         "test_v8_current_day_path_is_sealed_after_close_and_replays_without_dated_kis",
         "tests.test_quant_signals."
@@ -3562,6 +3568,7 @@ def _live_checks(
 
         def current_day_seal_contract() -> dict[str, Any]:
             session = _korea_quality_session_context(quality)
+            _assert(session["is_krx_session"] is not None, "봉인 검사 시각을 확인할 수 없습니다.", **session)
             if session["is_krx_session"] is False:
                 raise QaSkip(
                     "KRX 휴장일이므로 당일 15:30 분봉·일봉 봉인을 요구하지 않습니다.",
@@ -3569,6 +3576,12 @@ def _live_checks(
                         **session,
                         "seal_requirement": "not_applicable_on_non_session_day",
                     },
+                )
+            observed = datetime.fromisoformat(session["quality_as_of"]).astimezone(KST)
+            if (observed.hour, observed.minute) < (15, 40):
+                raise QaSkip(
+                    "아직 장마감 봉인 시각 전입니다. 완료된 과거 분봉 검사는 별도로 유지합니다.",
+                    {**session, "seal_requirement":"pending_today_close_not_verified"},
                 )
             seal = quality.get("intraday_path_seal") or {}
             probe = quality.get("api_probe") or {}

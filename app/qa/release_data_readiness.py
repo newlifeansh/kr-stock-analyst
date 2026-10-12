@@ -138,9 +138,19 @@ def wait_for_readiness(
                 payload = _get_json(f"{normalized_base}/meta/signal-data-quality")
                 market_payload = _get_json(
                     f"{normalized_base}/market/quant-signals"
-                    "?universe_limit=100&limit=1&recent_days=30"
+                    "?universe_limit=150&limit=0&recent_days=30"
                 )
                 ready, last_summary = dashboard_readiness(payload, market_payload)
+                # Validate the exact secondary scope used by live QA too.
+                # limit=1 warms a different cache key and leaves the first
+                # full-scope request paying for quote fanout after readiness.
+                scoped_payload = _get_json(
+                    f"{normalized_base}/market/quant-signals"
+                    "?universe_limit=100&limit=100&recent_days=30"
+                )
+                scoped_ready, scoped_summary = dashboard_readiness(payload, scoped_payload)
+                last_summary["top100_live_scope"] = scoped_summary
+                ready = ready and scoped_ready
             else:
                 prefix = "/us-gateway" if surface == "us-gateway" else ""
                 quant_payload = _get_json(

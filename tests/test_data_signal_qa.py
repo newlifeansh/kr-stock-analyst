@@ -184,6 +184,13 @@ def test_community_notification_e2e_routes_the_async_history_response() -> None:
     assert 'state.pushNotificationHistoryBusy === false' in case
 
 
+def test_community_retry_e2e_settles_the_failed_request_before_click():
+    source = Path("app/qa/e2e.py").read_text().split("def community_popular_notification_case(", 1)[1]
+    assert source.index("page.route(retry_pattern") < source.index("row.click()")
+    assert source.index("state.stockCommunityPopularLoading === false") < source.index("retry.click()")
+    assert source.index("page.unroute(retry_pattern)") < source.index("retry.click()")
+
+
 @pytest.mark.qa_gate
 def test_us_completed_signal_quote_state_rejects_realtime_basis() -> None:
     assert not _us_completed_signal_quote_state_ready(
@@ -3169,6 +3176,32 @@ def test_live_current_day_minute_seal_blocks_unverified_promotion(
     )
     assert check["status"] == "fail"
     assert report["deployment_blocked"] is True
+
+
+@pytest.mark.parametrize("as_of,expected", [
+    ("2026-10-13T08:00:00+09:00", "skip"),
+    ("2026-10-13T15:39:59+09:00", "skip"),
+    ("2026-10-13T15:40:00+09:00", "fail"),
+    ("invalid", "fail"),
+])
+def test_live_preclose_does_not_require_future_close_but_invalid_time_fails(monkeypatch, as_of, expected):
+    from app.qa import runner
+    class BeforeCloseApi(FakeReadOnlyApi):
+        def get(self, path, **params):
+            payload, meta = super().get(path, **params)
+            if path == "/meta/signal-data-quality":
+                payload = json.loads(json.dumps(payload))
+                payload["as_of"] = as_of
+                payload["api_probe"]["items"] = [row for row in payload["api_probe"]["items"] if row["key"] != "kis_current_day_intraday"]
+            return payload, meta
+    monkeypatch.setattr(runner, "ReadOnlyApi", BeforeCloseApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    checks = {item["id"]:item for item in report["checks"]}
+    assert checks["SIG-KR-INTRADAY-SEAL-001"]["status"] == expected
+    assert checks["DATA-KIS-008"]["status"] == "pass"
+    if expected == "skip":
+        assert checks["SIG-KR-INTRADAY-SEAL-001"]["evidence"]["seal_requirement"] == "pending_today_close_not_verified"
 
 
 @pytest.mark.qa_live

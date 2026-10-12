@@ -6949,6 +6949,15 @@ def run_e2e_checks(
                         narrow_history,
                     )
 
+                # Settle a real failed request before testing retry. Manually
+                # painting an error over an in-flight response races the DOM.
+                retry_pattern = re.compile(
+                    r"/stocks/005930/community-feed\?limit=12&mode=popular(?:&.*)?$"
+                )
+                page.route(retry_pattern, lambda route: route.fulfill(json={
+                    "code":"005930", "mode":"popular",
+                    "message":"오늘 인기글을 불러오지 못했습니다.", "providers":[],
+                }))
                 row.click()
                 page.wait_for_function(
                     """() => {
@@ -6996,9 +7005,9 @@ def run_e2e_checks(
                         deep_link_contract,
                     )
 
-                retry_pattern = re.compile(
-                    r"/stocks/005930/community-feed\?limit=12&mode=popular(?:&.*)?$"
-                )
+                page.wait_for_function("() => state.stockCommunityPopularLoading === false")
+                page.locator("#stock-community-providers .stock-community-retry").wait_for(state="visible")
+                page.unroute(retry_pattern)
                 page.route(
                     retry_pattern,
                     lambda route: route.fulfill(
@@ -7030,12 +7039,6 @@ def run_e2e_checks(
                             ],
                         }
                     ),
-                )
-                page.evaluate(
-                    """() => renderStockCommunity(
-                      { message: '오늘 인기글을 불러오지 못했습니다.', providers: [] },
-                      { retryable: true },
-                    )"""
                 )
                 retry = page.locator("#stock-community-providers .stock-community-retry")
                 retry.wait_for(state="visible")

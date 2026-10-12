@@ -1,6 +1,22 @@
 from app.qa.release_data_readiness import dashboard_readiness, us_readiness
 
 
+def test_dashboard_readiness_checks_canonical_and_exact_live_scope(monkeypatch):
+    from app.qa import release_data_readiness as readiness
+    urls = []
+    def get(url):
+        urls.append(url)
+        if "signal-data-quality" in url:
+            return {"status":"ready", "datasets":{"news":{"state":"ready"}, "stock_news":{"state":"ready","covered":100,"total":100}}}
+        return {"status":"ready", "execution_model":"close-confirmed-intraday-trigger-v1"}
+    monkeypatch.setattr(readiness, "_get_json", get)
+    result = readiness.wait_for_readiness(surface="dashboard", base_url="https://fixture.test", wait_seconds=1, poll_seconds=1)
+    assert result["status"] == "ready"
+    assert urls[1].endswith("?universe_limit=150&limit=0&recent_days=30")
+    assert urls[2].endswith("?universe_limit=100&limit=100&recent_days=30")
+    assert result["evidence"]["top100_live_scope"]["market_signal_status"] == "ready"
+
+
 def test_dashboard_readiness_requires_current_general_and_complete_stock_news():
     ready, evidence = dashboard_readiness(
         {
