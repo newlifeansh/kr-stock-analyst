@@ -125,6 +125,19 @@ resume_application() {
   wait_for_application "$service" running
 }
 
+stop_application() {
+  local service="$1" state
+  state="$(application_runtime_state "$service")" || return 1
+  if [[ "$state" != "stopped" && "$state" != "idle" ]]; then
+    # Railway scale updates desired configuration but may leave the active
+    # deployment serving. Stop that deployment explicitly, retaining its
+    # service, source image and any volume, before shutting down the DB.
+    railway down -p "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" \
+      --service "$service" --yes || return 1
+  fi
+  wait_for_application "$service" stopped
+}
+
 wait_until_ready() {
   local deadline=$((SECONDS + RAILWAY_APPLICATION_STATE_TIMEOUT_SECONDS))
   while ((SECONDS < deadline)); do
@@ -222,8 +235,8 @@ power_down() {
   scale_service web "$RAILWAY_WEB_SERVICE" 0 || status=1
   scale_service collector "$RAILWAY_COLLECTOR_SERVICE" 0 || status=1
   # Do not remove the DB while web/collector processes are still shutting down.
-  wait_for_application "$RAILWAY_WEB_SERVICE" stopped || status=1
-  wait_for_application "$RAILWAY_COLLECTOR_SERVICE" stopped || status=1
+  stop_application "$RAILWAY_WEB_SERVICE" || status=1
+  stop_application "$RAILWAY_COLLECTOR_SERVICE" || status=1
   if [[ "$status" -ne 0 ]]; then
     echo "Keeping staging DB running because application shutdown is unverified" >&2
     return "$status"

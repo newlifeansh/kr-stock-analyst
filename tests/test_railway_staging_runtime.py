@@ -37,6 +37,7 @@ def _runtime_env(
     database_state: str,
     application_state: str = "running",
     ready: bool = True,
+    scale_stops_process: bool = True,
 ) -> tuple[dict[str, str], Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents=True)
@@ -66,7 +67,18 @@ PY
 elif [[ "$*" == redeploy* ]]; then
   printf '%s' running > "$RAILWAY_TEST_DB_STATE"
 elif [[ "$*" == down* ]]; then
-  printf '%s' inactive > "$RAILWAY_TEST_DB_STATE"
+  python3 - "$@" <<'PY'
+import json, os, sys
+from pathlib import Path
+service = sys.argv[sys.argv.index('--service') + 1]
+if service == 'database-id':
+    Path(os.environ['RAILWAY_TEST_DB_STATE']).write_text('inactive')
+else:
+    path = Path(os.environ['RAILWAY_TEST_APP_STATE'])
+    states = json.loads(path.read_text())
+    states[service] = 'idle'
+    path.write_text(json.dumps(states))
+PY
 elif [[ "$*" == scale* || "$*" == restart* ]]; then
   python3 - "$@" <<'PY'
 import json, os, sys
@@ -75,7 +87,8 @@ path = Path(os.environ['RAILWAY_TEST_APP_STATE'])
 states = json.loads(path.read_text())
 service = sys.argv[sys.argv.index('--service') + 1]
 if 'us-west=0' in sys.argv:
-    states[service] = 'idle'
+    if os.environ.get('RAILWAY_TEST_SCALE_STOPS') == 'true':
+        states[service] = 'idle'
 elif sys.argv[1] == 'restart' or states[service] != 'crashed':
     states[service] = 'running'
 path.write_text(json.dumps(states))
@@ -96,6 +109,7 @@ fi
             "RAILWAY_TEST_DB_STATE": str(database_state_path),
             "RAILWAY_TEST_APP_STATE": str(app_state_path),
             "RAILWAY_TEST_FAIL_ON": fail_on,
+            "RAILWAY_TEST_SCALE_STOPS": str(scale_stops_process).lower(),
             "RAILWAY_PROJECT_ID": "project-id",
             "RAILWAY_ENVIRONMENT": "staging",
             "RAILWAY_WEB_SERVICE": "web-id",
@@ -119,6 +133,7 @@ def _run_runtime(
     database_state: str | None = None,
     application_state: str = "running",
     ready: bool = True,
+    scale_stops_process: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     env, log_path = _runtime_env(
         tmp_path,
@@ -126,6 +141,7 @@ def _run_runtime(
         database_state=database_state or ("inactive" if action == "up" else "running"),
         application_state=application_state,
         ready=ready,
+        scale_stops_process=scale_stops_process,
     )
     result = subprocess.run(
         [str(SCRIPT), action],
@@ -162,6 +178,8 @@ def test_staging_runtime_starts_and_stops_in_dependency_order(tmp_path: Path) ->
         _database_status(),
         _database_status(),
         _database_status(),
+        _database_status(),
+        _database_status(),
         _database_stop(),
         _database_status(),
     ]
@@ -191,6 +209,8 @@ def test_failed_start_rolls_back_every_staging_service(tmp_path: Path) -> None:
         _database_status(),
         _database_status(),
         _database_status(),
+        _database_status(),
+        _database_status(),
         _database_stop(),
         _database_status(),
     ]
@@ -203,6 +223,8 @@ def test_shutdown_preserves_an_already_stopped_database_volume(tmp_path: Path) -
     assert lines == [
         _scale("web-id", 0),
         _scale("collector-id", 0),
+        _database_status(),
+        _database_status(),
         _database_status(),
         _database_status(),
         _database_status(),
@@ -226,5 +248,24 @@ def test_staging_up_requires_database_backed_readiness(tmp_path: Path) -> None:
 
 def test_shutdown_keeps_db_when_a_scale_down_fails(tmp_path: Path) -> None:
     result, lines = _run_runtime(tmp_path, "down", fail_on="--service web-id us-west=0")
+    assert result.returncode != 0
+    assert _database_stop() not in lines
+
+
+def test_shutdown_stops_active_deployments_when_scale_only_changes_configuration(tmp_path: Path) -> None:
+    result, lines = _run_runtime(tmp_path, "down", scale_stops_process=False)
+    assert result.returncode == 0, result.stderr
+    for service in ("web-id", "collector-id"):
+        stop = f"down -p project-id --environment staging --service {service} --yes"
+        assert stop in lines
+        assert lines.index(stop) < lines.index(_database_stop())
+    assert not any("delete" in line or "--from-source" in line for line in lines)
+
+
+def test_shutdown_preserves_database_if_active_deployment_cannot_stop(tmp_path: Path) -> None:
+    result, lines = _run_runtime(
+        tmp_path, "down", scale_stops_process=False,
+        fail_on="down -p project-id --environment staging --service web-id",
+    )
     assert result.returncode != 0
     assert _database_stop() not in lines

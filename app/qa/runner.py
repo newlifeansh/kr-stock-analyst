@@ -194,6 +194,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_railway_staging_runtime.test_staging_up_restarts_crashed_same_deployments",
         "tests.test_railway_staging_runtime.test_staging_up_requires_database_backed_readiness",
         "tests.test_railway_staging_runtime.test_shutdown_keeps_db_when_a_scale_down_fails",
+        "tests.test_railway_staging_runtime.test_shutdown_stops_active_deployments_when_scale_only_changes_configuration",
+        "tests.test_railway_staging_runtime.test_shutdown_preserves_database_if_active_deployment_cannot_stop",
         "tests.test_data_signal_qa."
         "test_domestic_live_skips_us_snapshot_when_collector_disabled",
         "tests.test_release_parity."
