@@ -2,6 +2,10 @@ name: QA data-signal live
 on:
   workflow_dispatch:
     inputs:
+      pin_staging_readonly:
+        description: Read only the immutable staging web/collector image identity
+        type: boolean
+        default: false
       production_evidence_readonly:
         description: Read only aggregate domestic production signal-evidence coverage
         type: boolean
@@ -17,6 +21,30 @@ on:
 permissions:
   contents: read
 jobs:
+  pin_staging_readonly:
+    if: inputs.pin_staging_readonly
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency: domestic-staging-runtime
+    environment: staging
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
+      RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: be09fab75c19d11468963085a53af6a18d712913
+      - run: npm install --global @railway/cli@5.45.7
+      - name: Verify scheduled-QA pin without starting or changing any service
+        run: |
+          set -euo pipefail
+          image_ref="$(./scripts/railway_staging_runtime.sh pin)"
+          test "$image_ref" = 'ghcr.io/newlifeansh/kr-stock-analyst@sha256:13e07f2bfc4d4c4e62ed523b7e55614f28b93fcafbd97fdce486b757b1a85926'
+          echo "Verified existing immutable staging pair: $image_ref"
   production_evidence_readonly:
     if: inputs.production_evidence_readonly
     runs-on: ubuntu-latest
@@ -155,7 +183,7 @@ jobs:
           name: reverify-us-3247e60-${{ github.run_id }}
           path: artifacts/reverify-us
   collector_diagnostics:
-    if: '!inputs.recover_domestic && !inputs.finish_domestic_shutdown && !inputs.production_evidence_readonly'
+    if: '!inputs.recover_domestic && !inputs.finish_domestic_shutdown && !inputs.production_evidence_readonly && !inputs.pin_staging_readonly'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: staging
