@@ -7,7 +7,7 @@ on:
         type: boolean
         default: false
       finish_domestic_shutdown:
-        description: Stop only domestic staging application deployments already configured to zero replicas
+        description: Apply zero replicas and stop only the two domestic staging application deployments
         type: boolean
         default: false
 permissions:
@@ -23,6 +23,7 @@ jobs:
       DIAG_PROJECT: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
       DIAG_WEB: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
       DIAG_COLLECTOR: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+      DIAG_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
     steps:
       - run: npm install --global @railway/cli@5.45.7
       - name: Finish requested zero-replica shutdown without touching DB or volumes
@@ -31,7 +32,7 @@ jobs:
           for service in "$DIAG_WEB" "$DIAG_COLLECTOR"; do
             state="$(railway service list -p "$DIAG_PROJECT" --environment staging --json | python -c 'import json,sys; s=next(x for x in json.load(sys.stdin) if x["id"]==sys.argv[1]); r=s.get("replicas") or {}; print(json.dumps({"id":s["id"],"configured":r.get("configured"),"running":r.get("running"),"stopped":s.get("deploymentStopped")}))' "$service")"
             printf '%s\n' "$state"
-            printf '%s' "$state" | python -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s["configured"]==0 else 1)'
+            railway scale -p "$DIAG_PROJECT" --environment staging --service "$service" "${DIAG_REGION}=0" --json
             if printf '%s' "$state" | python -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s["running"] and not s["stopped"] else 1)'; then
               railway down -p "$DIAG_PROJECT" --environment staging --service "$service" --yes
             fi
