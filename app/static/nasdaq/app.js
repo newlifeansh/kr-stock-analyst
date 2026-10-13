@@ -412,6 +412,7 @@ const state = {
   suggestionTimer: null,
   suggestionController: null,
   activeTrendGraph: null,
+  activeTrendTab: new URLSearchParams(window.location.search).get("view") === "trend-past" ? "past" : "events",
   watchlistId: "",
   watchlistSyncTimer: null,
   watchlistSyncing: false,
@@ -4237,9 +4238,11 @@ function setView(view) {
     loadRecommendationHistory(pageEntryRefreshOptions("recommend-history"));
   } else if (view === "trend") {
     history.replaceState(null, "", usAppViewUrl("trend"));
+    setTrendTab("events");
     loadTrends("events", pageEntryRefreshOptions("trend", "events"));
   } else if (view === "trend-past") {
     history.replaceState(null, "", usAppViewUrl("trend-past"));
+    setTrendTab("past");
     loadTrends("past", pageEntryRefreshOptions("trend-past", "past"));
   } else if (view === "trend-impact") {
     history.replaceState(null, "", usAppViewUrl("trend-impact"));
@@ -6751,6 +6754,7 @@ function appendTags(parent, items) {
 
 function setTrendTab(tabName) {
   const active = ["events", "past", "live"].includes(tabName) ? tabName : "events";
+  state.activeTrendTab = active;
   if (elements.trendTabsWrap) {
     elements.trendTabsWrap.hidden = active === "past";
   }
@@ -7370,7 +7374,8 @@ function renderTrends(payload, activeTab = "events") {
   elements.trendEvents.innerHTML = "";
   elements.trendPastEvents.innerHTML = "";
   elements.trendThread.innerHTML = "";
-  setTrendTab(activeTab);
+  // Preserve a tab selected while the initial trends request is in flight.
+  setTrendTab(state.activeTrendTab || activeTab);
   const filters = getViewFilters(activeTab === "past" ? "trend-past" : "trend");
   const events = focusedTrendEvents(payload.events).filter((item) => matchesTrendEventFilters(item, filters));
   const pastEvents = focusedTrendEvents(payload.past_events).filter((item) => matchesTrendEventFilters(item, filters));
@@ -8042,7 +8047,7 @@ elements.trendRefresh?.addEventListener("click", () => {
     loadMarketImpactAnalysis({ force: true });
     return;
   }
-  loadTrends(state.view === "trend-past" ? "past" : "events", { force: true });
+  loadTrends(state.view === "trend-past" ? "past" : state.activeTrendTab, { force: true });
 });
 for (const tab of elements.trendTabs) {
   tab.addEventListener("click", () => setTrendTab(tab.dataset.trendTab));

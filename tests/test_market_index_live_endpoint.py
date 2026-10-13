@@ -161,7 +161,7 @@ def test_us_entry_uses_the_us_only_shell_and_global_market_snapshot():
     assert 'id="overview-view" hidden' in shell.text
     assert 'id="overview-us"' in shell.text
     assert 'id="side-nav"' in shell.text
-    assert 'href="/assets/nasdaq/styles.css?v=20261014us147"' in shell.text
+    assert 'href="/assets/nasdaq/styles.css?v=20261014us148"' in shell.text
     assert script.status_code == 200
     assert 'liveUrl("/market/global-assets?limit=30")' in script.text
     assert manifest.status_code == 200

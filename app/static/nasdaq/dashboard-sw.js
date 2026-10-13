@@ -1,10 +1,10 @@
-const DASHBOARD_SW_VERSION = "20261014us147";
+const DASHBOARD_SW_VERSION = "20261014us148";
 const STATIC_CACHE = `secret-note-us-static-${DASHBOARD_SW_VERSION}`;
 const US_GATEWAY_PREFIX = self.location.pathname.startsWith("/us-gateway/") ? "/us-gateway" : "";
 const STATIC_ASSETS = [
   "/us?view=overview",
-  `${US_GATEWAY_PREFIX}/assets/nasdaq/styles.css?v=20261014us147`,
-  `${US_GATEWAY_PREFIX}/assets/nasdaq/app.js?v=20261014us147`,
+  `${US_GATEWAY_PREFIX}/assets/nasdaq/styles.css?v=20261014us148`,
+  `${US_GATEWAY_PREFIX}/assets/nasdaq/app.js?v=20261014us148`,
   `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/icon-192.png?v=20260620bq`,
   `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/icon-512.png?v=20260620bq`,
   `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/apple-touch-icon.png?v=20260620bq`

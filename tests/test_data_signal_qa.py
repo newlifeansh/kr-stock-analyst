@@ -1544,6 +1544,15 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "단일 클러스터 중력·충돌 진입 모션" in source
 
 
+def test_us_standalone_e2e_checks_archived_actions_and_visible_live_news() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+
+    assert 'or "관심 추가하기" not in observed["text"]' in source
+    assert 'or "AI 설명 받기" not in observed["text"]' in source
+    assert 'or "추천" not in observed["text"]' not in source
+    assert '#trend-live-panel:not([hidden]) #trend-thread a[href^="http"]' in source
+
+
 def test_domestic_e2e_keeps_the_independent_us_product_out_of_boundary_check() -> None:
     source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
     domestic_case = source.split("def domestic_product_boundary_case", 1)[1].split(
@@ -2011,7 +2020,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261014us147",
+                "us_dashboard_version": "20261014us148",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2019,7 +2028,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261014us147",
+                "us_dashboard_version": "20261014us148",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2606,7 +2615,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=overview",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261014us147"}, self._meta(path)
+            return {"version": "20261014us148"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2653,7 +2662,7 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 · 미국증시</title>'
-                '<link href="/assets/nasdaq/styles.css?v=20261014us147" />'
+                '<link href="/assets/nasdaq/styles.css?v=20261014us148" />'
                 '</head><body><section id="overview-view"></section>'
                 '<section id="stock-view"></section>'
                 '<section id="watchlist-view"></section>'
@@ -2664,7 +2673,7 @@ class FakeReadOnlyApi:
                 '<button data-trend-tab="events"></button>'
                 '<button data-trend-tab="live"></button>'
                 '<div id="trend-thread"></div>'
-                '<script src="/assets/nasdaq/app.js?v=20261014us147"></script>'
+                '<script src="/assets/nasdaq/app.js?v=20261014us148"></script>'
                 '</body></html>',
                 self._meta(path),
             )

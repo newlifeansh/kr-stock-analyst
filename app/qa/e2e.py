@@ -1870,7 +1870,8 @@ def _run_us_standalone_e2e_checks(
             observed["cardCount"] < 1
             or observed["overflow"] > 2
             or observed["pageOverflow"] > 2
-            or "추천" not in observed["text"]
+            or "관심 추가하기" not in observed["text"]
+            or "AI 설명 받기" not in observed["text"]
         ):
             raise QaFailure("미국 전용 추천 카드·모바일 리플로가 준비되지 않았습니다.", observed)
         return {"theme": theme, **observed}
@@ -1885,7 +1886,11 @@ def _run_us_standalone_e2e_checks(
         wait_for_authenticated_shell(page, "#trend-view")
         page.locator('[data-trend-tab="live"]').click()
         page.wait_for_selector("#trend-live-panel", state="visible")
-        page.wait_for_selector('#trend-thread a[href^="http"]', state="visible", timeout=60_000)
+        page.wait_for_selector(
+            '#trend-live-panel:not([hidden]) #trend-thread a[href^="http"]',
+            state="visible",
+            timeout=60_000,
+        )
         observed = page.evaluate(
             """() => ({
               tabs: [...document.querySelectorAll('[data-trend-tab]')].map(node => node.textContent.trim()),

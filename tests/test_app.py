@@ -246,8 +246,8 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="trend-view" hidden' in response.text
     assert 'id="market-view" hidden' in response.text
     assert 'class="side-nav" id="side-nav"' in response.text
-    assert 'src="/assets/nasdaq/app.js?v=20261014us147"' in response.text
-    assert 'href="/assets/nasdaq/styles.css?v=20261014us147"' in response.text
+    assert 'src="/assets/nasdaq/app.js?v=20261014us148"' in response.text
+    assert 'href="/assets/nasdaq/styles.css?v=20261014us148"' in response.text
     assert 'src="/dashboard-app-v170.js' not in response.text
     assert 'href="/assets/dashboard/styles.css' not in response.text
     assert 'id="login-invite-field" hidden' in response.text
@@ -258,6 +258,18 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'fetch("/session/dashboard-access"' in source
     assert 'id="home-ai-response"' in dashboard.text
     assert 'id="overview-view"' not in dashboard.text
+
+
+def test_us_standalone_mobile_controls_preserve_a_live_trend_tab_during_render():
+    client = TestClient(app)
+    source = client.get("/assets/nasdaq/app.js").text
+    styles = client.get("/assets/nasdaq/styles.css").text
+
+    assert 'activeTrendTab: new URLSearchParams(window.location.search).get("view") === "trend-past" ? "past" : "events"' in source
+    assert "state.activeTrendTab = active;" in source
+    assert "setTrendTab(state.activeTrendTab || activeTab);" in source
+    assert 'loadTrends(state.view === "trend-past" ? "past" : state.activeTrendTab, { force: true });' in source
+    assert ".mobile-menu-button {\n    width: 44px;\n    height: 44px;" in styles
 
 
 def test_us_watchlist_uses_the_empty_state_as_the_only_add_entry_point():
@@ -1521,8 +1533,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/assets/nasdaq/app.js?v=20261014us147"' in stock_shell.text
-    assert 'href="/assets/nasdaq/styles.css?v=20261014us147"' in stock_shell.text
+    assert 'src="/assets/nasdaq/app.js?v=20261014us148"' in stock_shell.text
+    assert 'href="/assets/nasdaq/styles.css?v=20261014us148"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1812,7 +1824,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261014us147"}
+    assert version.json() == {"version": "20261014us148"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1821,9 +1833,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261014us147" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261014us148" in refresh.text
 
-    versioned_script = client.get("/assets/nasdaq/app.js?v=20261014us147")
+    versioned_script = client.get("/assets/nasdaq/app.js?v=20261014us148")
     mutable_script = client.get("/assets/nasdaq/app.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1837,12 +1849,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20261014us147"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20261014us148"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=overview"' in worker.text
-    assert '`${US_GATEWAY_PREFIX}/assets/nasdaq/styles.css?v=20261014us147`' in worker.text
-    assert '`${US_GATEWAY_PREFIX}/assets/nasdaq/app.js?v=20261014us147`' in worker.text
+    assert '`${US_GATEWAY_PREFIX}/assets/nasdaq/styles.css?v=20261014us148`' in worker.text
+    assert '`${US_GATEWAY_PREFIX}/assets/nasdaq/app.js?v=20261014us148`' in worker.text
     assert 'self.location.pathname.startsWith("/us-gateway/")' in worker.text
     assert 'url.pathname.startsWith("/assets/nasdaq/")' in worker.text
     assert 'url.pathname.startsWith("/us-gateway/assets/nasdaq/")' in worker.text
@@ -3449,8 +3461,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="app-loading" id="app-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/assets/nasdaq/app.js?v=20261014us147"' in nasdaq_shell.text
-    assert 'href="/assets/nasdaq/styles.css?v=20261014us147"' in nasdaq_shell.text
+    assert 'src="/assets/nasdaq/app.js?v=20261014us148"' in nasdaq_shell.text
+    assert 'href="/assets/nasdaq/styles.css?v=20261014us148"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()

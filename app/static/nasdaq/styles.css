@@ -7208,8 +7208,8 @@ a.flow-node.stock:hover {
   }
 
   .mobile-menu-button {
-    width: 42px;
-    height: 42px;
+    width: 44px;
+    height: 44px;
     display: grid;
     place-content: center;
     gap: 5px;

@@ -359,6 +359,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_us_market_trends_refresh_exposes_only_linked_live_articles",
         "tests.test_app."
+        "test_us_standalone_mobile_controls_preserve_a_live_trend_tab_during_render",
+        "tests.test_data_signal_qa."
+        "test_us_standalone_e2e_checks_archived_actions_and_visible_live_news",
+        "tests.test_app."
         "test_us_and_dashboard_paths_serve_independently_versioned_products",
         "tests.test_staging_dark_theme."
         "test_staging_theme_has_touch_and_spacing_contract_for_tds_ia",
@@ -394,6 +398,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_market_recommendations_endpoint_exposes_independent_score_and_hides_signal_score",
         "tests.test_app."
         "test_us_and_dashboard_paths_serve_independently_versioned_products",
+        "tests.test_data_signal_qa."
+        "test_us_standalone_e2e_checks_archived_actions_and_visible_live_news",
         "tests.test_staging_dark_theme."
         "test_staging_us_recommendation_detail_separates_public_score_and_signal_evidence",
     ),
@@ -569,6 +575,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache",
         "tests.test_app."
         "test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets",
+        "tests.test_app."
+        "test_us_standalone_mobile_controls_preserve_a_live_trend_tab_during_render",
+        "tests.test_data_signal_qa."
+        "test_us_standalone_e2e_checks_archived_actions_and_visible_live_news",
         "tests.test_market_index_live_endpoint."
         "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
         "tests.test_us_public_gateway."
