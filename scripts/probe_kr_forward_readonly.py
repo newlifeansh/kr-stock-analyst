@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from sqlalchemy import select, text
 from app.db import SessionLocal
-from app.models import DailyPrice, MarketQuantSignalSnapshot
+from app.models import DailyPrice, MarketQuantSignalSnapshot, SignalSessionPrice
 from app.services.regular_signal_transition import REGULAR_FORWARD_START, REGULAR_FORWARD_VERSION, _load
 from app.services.quant_signals import _normalize_prices, SIGNAL_HISTORY_ROWS
 
@@ -29,6 +29,10 @@ with SessionLocal() as db:
             "complete_tail_rows": len(bars[last_bad + 1:]),
             "frozen_baseline_exists": frozen is not None,
             "frozen_rows": len(frozen) if isinstance(frozen, list) else None,
+            "regular_evidence": [{"date": str(record.trade_date), "state": record.state,
+                "payload": json.loads(record.payload)} for record in db.scalars(select(SignalSessionPrice).where(
+                    SignalSessionPrice.code == code, SignalSessionPrice.trade_date >= REGULAR_FORWARD_START,
+                ).order_by(SignalSessionPrice.id.desc()).limit(1))],
         })
     print(json.dumps({
         "observed_at": datetime.now(timezone.utc),
