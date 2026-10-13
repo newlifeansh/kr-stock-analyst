@@ -599,6 +599,18 @@ def _assert_page_shell(page: Any, *, theme: str) -> dict[str, Any]:
     return state
 
 
+def _http_response_error(
+    status: int,
+    url: str,
+    allowed_http_failures: set[tuple[int, str]] | None = None,
+) -> str | None:
+    if status < 500:
+        return None
+    if (status, urlsplit(url).path) in (allowed_http_failures or set()):
+        return None
+    return f"HTTP {status} {url}"
+
+
 def _run_page_case(
     *,
     browser: Any,
@@ -612,6 +624,7 @@ def _run_page_case(
     share_id: str,
     dismiss_service_update: bool = True,
     reduced_motion: str = "reduce",
+    allowed_http_failures: set[tuple[int, str]] | None = None,
 ) -> dict[str, Any]:
     started = monotonic()
     case = catalog_by_id.get(case_id) or {}
@@ -709,8 +722,14 @@ def _run_page_case(
             page.on(
                 "response",
                 lambda response, errors=errors: (
-                    errors.append(f"HTTP {response.status} {response.url}")
-                    if response.status >= 500
+                    errors.append(message)
+                    if (
+                        message := _http_response_error(
+                            response.status,
+                            response.url,
+                            allowed_http_failures,
+                        )
+                    )
                     else None
                 ),
             )
@@ -3886,6 +3905,11 @@ def run_e2e_checks(
                 callback=stock_case,
                 storage_state=storage_state,
                 share_id=share_id,
+                allowed_http_failures=(
+                    {(503, "/stocks/069500/quant-signals")}
+                    if etf.get("signal_replay_pending")
+                    else set()
+                ),
             )
             results.append(stock_result)
 

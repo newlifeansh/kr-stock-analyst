@@ -37,6 +37,7 @@ from app.qa.e2e import (
     E2E_CASE_IDS,
     US_HOME_COUNTRY_TOGGLE_SELECTOR,
     _chart_study_payload_with_recent_pattern,
+    _http_response_error,
     _navigate_page,
     _page_url,
     _stock_contract,
@@ -452,11 +453,10 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "mouse_horizontal_drag",
         "full_track_tap",
     ]
-    assert watch_timeline["inputs"]["product_scope"] == {
-        "dashboard": "kr",
-        "us": "us",
-    }
-    assert watch_timeline["inputs"]["market_toggle"] == "hidden_in_dedicated_products"
+    assert watch_timeline["modes"] == ["gate", "live"]
+    assert watch_timeline["inputs"]["product_scope"] == {"dashboard": "kr"}
+    assert watch_timeline["inputs"]["standalone_us_ui_case"] == "SIG-UI-031"
+    assert watch_timeline["inputs"]["market_toggle"] == "hidden_in_domestic_product"
     assert all(case["priority"] in {"P0", "P1", "P2"} for case in payload["cases"])
 
 
@@ -1599,6 +1599,33 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_etf(
     assert payload["signal_replay_pending"] is True
     assert "재검증 중" in payload["signal_failure_detail"]
     assert payload["signal_action"] is None
+
+
+def test_domestic_e2e_suppresses_only_the_verified_replay_pending_http_error() -> None:
+    allowed = {(503, "/stocks/069500/quant-signals")}
+
+    assert (
+        _http_response_error(
+            503,
+            "https://staging.test/stocks/069500/quant-signals?_=123",
+            allowed,
+        )
+        is None
+    )
+    assert _http_response_error(
+        503,
+        "https://staging.test/stocks/005930/quant-signals",
+        allowed,
+    )
+    assert _http_response_error(
+        500,
+        "https://staging.test/stocks/069500/quant-signals",
+        allowed,
+    )
+    assert _http_response_error(
+        503,
+        "https://staging.test/stocks/069500/quant-signals",
+    )
 
 
 def test_domestic_e2e_keeps_the_independent_us_product_out_of_boundary_check() -> None:
