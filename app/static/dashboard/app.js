@@ -15632,6 +15632,8 @@ function marketAiSignalItems(payload = {}) {
         : null;
       const mapped = {
         code: item.code,
+        rollout_mode: item.rollout_mode || payload.rollout_mode || null,
+        quote_state: item.quote_state || null,
         name: item.name || item.code,
         market: item.market || null,
         currency: item.currency || (itemIsUs ? "USD" : "KRW"),
@@ -16335,6 +16337,8 @@ function aiSignalLifecycleIsActive(now = new Date()) {
 }
 
 function aiSignalSnapshotRefreshAge(now = new Date()) {
+  if (state.aiSignalLifecycleMode === "completed-close-fresh-minute-confirmation-v1"
+      && aiSignalLifecycleIsActive(now)) return 30_000;
   return aiSignalLifecycleIsActive(now) ? AI_SIGNAL_ACTIVE_REFRESH_MS : AI_SIGNAL_CLOSED_REFRESH_MS;
 }
 
@@ -16507,6 +16511,26 @@ function aiSignalLiveFreshnessState(item = {}, overlay = null, now = Date.now())
 }
 
 function aiSignalItemWithLiveOverlay(item = {}, now = Date.now()) {
+  if (item.rollout_mode === "hybrid_forward" && isCurrentAiSignalHolding(item)) {
+    const observed = Date.parse(item.current?.as_of || "");
+    const age = Number.isFinite(observed) ? now - observed : Infinity;
+    const price = toNumber(item.current?.price);
+    const modelReturn = toNumber(item.current?.return_rate);
+    const fresh = item.current?.live_observation === true && age >= 0 && age <= 150_000;
+    const reference = item.quote_state === "reference";
+    const available = (fresh || reference) && price !== null && modelReturn !== null;
+    return {
+      ...item,
+      live_price: available ? price : null,
+      live_return_rate: fresh && available ? modelReturn : null,
+      live_return_pending: !available,
+      live_updated_at: item.current?.as_of || "",
+      live_source: "yahoo_verified_regular_minute",
+      live_freshness_state: fresh ? "recent" : reference ? "closed" : "checking",
+      display_return_rate: available ? modelReturn : null,
+      display_return_kind: available ? "observed_minute_model_position" : "stale_open_position",
+    };
+  }
   const code = String(item.code || "");
   const overlay = code ? state.aiSignalLiveQuotes.get(code) : null;
   const freshnessState = aiSignalLiveFreshnessState(item, overlay, now);
@@ -16726,7 +16750,9 @@ function aiSignalOutcomeMetrics(item = {}, view = {}) {
     const isUsItem = item.currency === "USD"
       || ["us", "usa", "united_states"].includes(scope)
       || ["NASDAQ", "NYSE", "AMEX", "SP500", "US"].includes(market);
-    metrics.push(isUsItem
+    metrics.push(item.rollout_mode === "hybrid_forward"
+      ? { key: "confirmation", label: "확정 기준", value: "정규장 완료 1분봉" }
+      : isUsItem
       ? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }
       : { key: "execution", label: "체결 기준", value: "다음 거래일 시가" });
   } else if (view.preliminary && returnRate === null && !targetStatus) {
@@ -17057,8 +17083,11 @@ function renderAiSignalLiveStatus() {
     elements.aiSignalModelDisclaimer.hidden = !(
       showStatus
       && isUsHubContext
-      && state.aiSignalLifecycleMode === "us-next-open-model-replay-v1"
+      && ["us-next-open-model-replay-v1", "completed-close-fresh-minute-confirmation-v1"].includes(state.aiSignalLifecycleMode)
     );
+    if (state.aiSignalLifecycleMode === "completed-close-fresh-minute-confirmation-v1") {
+      elements.aiSignalModelDisclaimer.textContent = "미국 장중 시그널: 완료 종가로 후보를 정하고 최신 정규장 1분봉으로 매수·매도를 확인합니다. +3% 절반·+5% 잔여 매도, 초기 손실 기준 -4%. 지연 시세는 확정하지 않으며 실제 계좌 주문이 아닙니다.";
+    }
   }
   if (!showStatus) {
     syncAiSignalFreshnessBadgeVisibility({ mixed: false });
@@ -19474,6 +19503,7 @@ async function fetchMarketAiSignals(options = {}) {
     snapshot_checksum: usPayload?.snapshot_checksum || null,
     universe_as_of: usPayload?.universe_as_of || null,
     strategy_version: usPayload?.strategy_version || null,
+    lifecycle_replay_version: usPayload?.lifecycle_replay_version || null,
     market_status: complete ? "ready" : "refreshing",
     us_market_included: true,
     market_scopes_requested: requestedScopes,
@@ -28105,7 +28135,7 @@ function renderRecommendationDetail(
     ? "조기 추세 후보의 매수 확정 조건을 확인 중입니다."
     : signalStage.key === "buy_wait"
       ? isUsItem
-        ? "예비 조건이 포착됐으며 다음 정규장 시가의 갭 위험을 다시 확인합니다."
+        ? "종가 후보의 정규장 완료 분봉과 갭 위험을 확인한 뒤 장중 매수를 확정합니다."
         : "종가 조건이 확정돼 다음 정규장 장중 돌파를 기다립니다."
       : signalStage.key === "holding"
         ? "현재 보유 상태이므로 새 매수보다 보유·매도 조건을 확인합니다."

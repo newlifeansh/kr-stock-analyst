@@ -42,6 +42,11 @@ US_PUBLIC_SIGNAL_METHODOLOGY = (
     "SPY·QQQ 시장 국면, 검토된 섹터 ETF 대비 상대 흐름과 거래대금 참여도를 비교한 "
     f"예비·전략 상태 신호입니다. 확정은 다음 정규장 시가를 통과한 모델 재현이며 실제 주문이 아닙니다. {US_DOLLAR_VOLUME_NOTICE}"
 )
+US_PUBLIC_HYBRID_REASON = (
+    "완료 종가 후보와 정규장 최신 완료 1분봉으로 확인하는 장중 모델 신호입니다. "
+    "실제 계좌 주문·체결이 아니며 지연 시세에서는 새 확정을 보류합니다."
+)
+US_PUBLIC_HYBRID_NEXT_CHECK = "정규장 분봉의 실제 관측 시각과 매수·매도 확정 상태를 확인하세요."
 
 _POSITIVE_STATES = {"positive", "supportive", "approved", "ready", "bullish"}
 _NEGATIVE_STATES = {"negative", "caution", "blocked", "risk", "bearish"}
@@ -111,6 +116,8 @@ _FORBIDDEN_US_PUBLIC_FIELDS = {
     "target_price",
     "support_reference",
     "resistance_reference",
+    "hybrid_setups",
+    "minute_evidence",
 }
 
 
@@ -138,6 +145,9 @@ def _us_public_snapshot_identity_ready(payload: Mapping[str, Any]) -> bool:
 
 
 def _us_public_snapshot_ready(payload: Mapping[str, Any]) -> bool:
+    if payload.get("rollout_mode") == "hybrid_forward":
+        return bool(payload.get("hybrid_ledger_ready") is True
+                    and payload.get("snapshot_id") and payload.get("snapshot_checksum"))
     return bool(
         _us_public_snapshot_identity_ready(payload)
         and payload.get("new_entries_allowed") is True
@@ -588,6 +598,10 @@ def public_quant_signal_payload(
         result["trades"] = trades
     public_result = _hide_numeric_signal_scores(result)
     if is_us_candidate:
+        if result.get("rollout_mode") == "hybrid_forward":
+            public_result["reason"] = US_PUBLIC_HYBRID_REASON
+            if isinstance(public_result.get("current"), dict):
+                public_result["current"]["next_confirmation"] = US_PUBLIC_HYBRID_NEXT_CHECK
         public_result = _remove_forbidden_us_public_fields(public_result)
     return dict(_mapping(public_result))
 
@@ -612,7 +626,7 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
         result.pop("sector_classification_errors", None)
         result.pop("universe_members", None)
         result.pop("public_member_signals", None)
-        result["methodology"] = [US_PUBLIC_SIGNAL_METHODOLOGY]
+        result["methodology"] = [US_PUBLIC_HYBRID_REASON if result.get("rollout_mode") == "hybrid_forward" else US_PUBLIC_SIGNAL_METHODOLOGY]
         if not us_snapshot_ready:
             # A previous-session lifecycle is diagnostic history, not a
             # current signal. Do not let legacy side/is_current_holding fields
@@ -680,6 +694,10 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
             public_item["latest_preliminary"] = _redact_preliminary_signal(
                 public_item.get("latest_preliminary")
             )
+        if public_item.get("rollout_mode") == "hybrid_forward":
+            public_item["reason"] = US_PUBLIC_HYBRID_REASON
+            if isinstance(public_item.get("current"), dict):
+                public_item["current"]["next_confirmation"] = US_PUBLIC_HYBRID_NEXT_CHECK
         public_items.append(public_item)
     if isinstance(result.get("items"), list):
         result["items"] = public_items
@@ -721,7 +739,7 @@ def public_recommendation_signal_payload(
         result.pop("sector_classification_errors", None)
         result.pop("universe_members", None)
         result.pop("public_member_signals", None)
-        result["methodology"] = [US_PUBLIC_SIGNAL_METHODOLOGY]
+        result["methodology"] = [US_PUBLIC_HYBRID_REASON if result.get("rollout_mode") == "hybrid_forward" else US_PUBLIC_SIGNAL_METHODOLOGY]
         if not us_snapshot_ready:
             result["items"] = []
             result["candidate_count"] = 0
@@ -870,6 +888,9 @@ def public_stock_ai_analysis_payload(
         decision_reason = PUBLIC_SIGNAL_DECISION_REASON
         next_check = PUBLIC_SIGNAL_NEXT_CHECK
     summaries = [item["summary"] for item in public_reasons]
+    if result.get("rollout_mode") == "hybrid_forward" and us_public_evidence_ready:
+        decision_reason = US_PUBLIC_HYBRID_REASON
+        next_check = US_PUBLIC_HYBRID_NEXT_CHECK
     result["public_reasons"] = public_reasons
     result["summary"] = decision_reason
     result["key_points"] = summaries

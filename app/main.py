@@ -283,6 +283,11 @@ from app.services.us_position_lifecycle import (
     us_position_lifecycle_refresh_due,
     us_position_lifecycle_schema_upgrade_due,
 )
+from app.services.us_hybrid_signals import (
+    US_HYBRID_VERSION,
+    project_us_hybrid_feed,
+    refresh_us_hybrid_signals,
+)
 from app.repository import latest_disclosures, latest_news_items
 
 settings = get_settings()
@@ -300,7 +305,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261013v573"
+DASHBOARD_CLIENT_VERSION = "20261013v574"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -308,7 +313,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261013us145"
+US_DASHBOARD_CLIENT_VERSION = "20261013us146"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -608,11 +613,11 @@ US_PUSH_CONDITION_COPY = {
     ),
     "ai_signal": (
         "AI 시그널",
-        "미국 관심종목의 장 마감 기준 예비·확정 신호를 알려드립니다.",
+        "미국 관심종목의 종가 후보와 검증된 정규장 장중 매수·매도 확정 신호를 알려드립니다.",
     ),
     "market_ai_signal": (
         "시장 AI 시그널",
-        "미국 대표 종목의 장 마감 기준 예비·확정 신호를 알려드립니다.",
+        "미국 대표 종목의 검증된 정규장 장중 매수·부분매도·전량매도 확정 신호를 알려드립니다.",
     ),
     "recommendation_update": (
         "추천 업데이트",
@@ -1746,6 +1751,20 @@ async def _run_us_position_lifecycle_refresh_loop() -> None:
         await asyncio.sleep(300)
 
 
+async def _run_us_hybrid_signal_loop() -> None:
+    """Separate incremental worker; the daily Top100 replay cannot stall it."""
+    while True:
+        try:
+            def collect() -> None:
+                with SessionLocal() as db:
+                    outcome = refresh_us_hybrid_signals(db)
+                    logger.info("US hybrid cycle: %s", outcome)
+            await asyncio.to_thread(collect)
+        except Exception:
+            logger.exception("US hybrid collection failed; confirmations remain blocked")
+        await asyncio.sleep(30)
+
+
 async def _run_stock_logo_sync_loop() -> None:
     await asyncio.sleep(max(0, settings.stock_logo_initial_delay_seconds))
     while True:
@@ -1966,6 +1985,7 @@ async def lifespan(_: FastAPI):
     market_quant_signal_task: asyncio.Task | None = None
     closing_auction_capture_task: asyncio.Task | None = None
     us_position_lifecycle_task: asyncio.Task | None = None
+    us_hybrid_task: asyncio.Task | None = None
     entry_filter_shadow_task: asyncio.Task | None = None
     stock_logo_task: asyncio.Task | None = None
     complete_snapshot_schedule_task: asyncio.Task | None = None
@@ -1990,6 +2010,7 @@ async def lifespan(_: FastAPI):
                 us_position_lifecycle_task = asyncio.create_task(
                     _run_us_position_lifecycle_refresh_loop()
                 )
+                us_hybrid_task = asyncio.create_task(_run_us_hybrid_signal_loop())
             await _warm_entry_filter_shadow_snapshot()
             entry_filter_shadow_task = asyncio.create_task(
                 _run_entry_filter_shadow_backtest_loop()
@@ -2021,6 +2042,10 @@ async def lifespan(_: FastAPI):
                 us_position_lifecycle_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await us_position_lifecycle_task
+            if us_hybrid_task is not None:
+                us_hybrid_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await us_hybrid_task
             if entry_filter_shadow_task is not None:
                 entry_filter_shadow_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -3381,7 +3406,7 @@ def health() -> dict[str, object]:
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
-        "us_strategy_version": US_STRATEGY_VERSION,
+        "us_strategy_version": US_HYBRID_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
         "us_market_enabled": settings.us_market_enabled,
@@ -3402,7 +3427,7 @@ def readyz() -> dict[str, object]:
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
-        "us_strategy_version": US_STRATEGY_VERSION,
+        "us_strategy_version": US_HYBRID_VERSION,
         "dashboard_version": DASHBOARD_CLIENT_VERSION,
         "us_dashboard_version": US_DASHBOARD_CLIENT_VERSION,
         "us_market_enabled": settings.us_market_enabled,
@@ -4858,6 +4883,7 @@ def us_stock_ai_analysis(
             allow_schema_upgrade=True,
         )
 
+    feed = project_us_hybrid_feed(db, feed, now=current_time)
     normalized_symbol = _normalize_us_symbol(symbol)
     normalized_signal_key = normalized_symbol.replace("-", ".")
     universe_members = [
@@ -4903,7 +4929,8 @@ def us_stock_ai_analysis(
         ),
         None,
     )
-    feed_ready = bool(snapshot_ready and feed.get("new_entries_allowed") is True)
+    feed_ready = bool(snapshot_ready and (feed.get("new_entries_allowed") is True
+                      or feed.get("hybrid_ledger_ready") is True))
     if (
         public_member_signal is None
         and signal is None
@@ -4995,6 +5022,7 @@ def us_stock_ai_analysis(
             "entry_watch",
             "entered",
             "holding",
+            "partially_exited",
             "full_exit_pending",
             "exited",
         }
@@ -5005,6 +5033,7 @@ def us_stock_ai_analysis(
         "entry_watch": "예비 포착",
         "entered": "전략 매수 확정",
         "holding": "전략 보유",
+        "partially_exited": "1차 수익확정",
         "full_exit_pending": "전략 매도 대기",
         "exited": "전략 매도 확정",
         "no_signal": "관망",
@@ -5035,6 +5064,8 @@ def us_stock_ai_analysis(
         canonical_current["unrealized_return"] = source_current.get(
             "unrealized_return"
         )
+    if feed.get("rollout_mode") == "hybrid_forward" and isinstance(signal, dict):
+        canonical_current = dict(source_current)
     canonical_reasons = (
         signal_reasons
         if canonical_member_ready
@@ -5111,6 +5142,8 @@ def us_stock_ai_analysis(
             "public_reasons": canonical_reasons,
         }
     )
+    if feed.get("rollout_mode") == "hybrid_forward":
+        analysis["stance"] = label_by_action[action]
     return public_stock_ai_analysis_payload(
         analysis,
         context={
@@ -5171,6 +5204,7 @@ def us_market_recommendations(
         )
     feed["refresh_requested"] = refresh
     feed["refresh_enqueued"] = refresh_enqueued
+    feed = project_us_hybrid_feed(db, feed, now=current)
     payload = build_us_recommendations(
         limit=limit,
         candidate_limit=candidate_limit,
@@ -5220,6 +5254,7 @@ def us_market_quant_signals(
         )
     feed["refresh_requested"] = refresh
     feed["refresh_enqueued"] = refresh_enqueued
+    feed = project_us_hybrid_feed(db, feed, now=current)
     payload = build_us_quant_signals(
         limit=limit,
         recent_days=recent_days,

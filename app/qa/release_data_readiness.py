@@ -101,6 +101,13 @@ def us_readiness(
         and recommendation_payload.get("data_state") == "ready"
         and recommendation_count > 0
     )
+    if quant_payload.get("rollout_mode") == "hybrid_forward":
+        summary["hybrid_status"] = quant_payload.get("hybrid_status")
+        summary["daily_setup_ready"] = quant_payload.get("daily_setup_ready")
+        summary["collector_fresh"] = quant_payload.get("collector_fresh")
+        ready = bool(ready and quant_payload.get("hybrid_ledger_ready") is True
+                     and quant_payload.get("daily_setup_ready") is True
+                     and quant_payload.get("collector_fresh") is True)
     return ready, summary
 
 

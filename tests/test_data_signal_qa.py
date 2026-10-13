@@ -353,8 +353,8 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
     ids = [case["id"] for case in payload["cases"]]
 
     assert payload["strategy_version"] == "position-lifecycle-v8.1"
-    assert payload["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert len(ids) == 150
+    assert payload["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
+    assert len(ids) == 151
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -469,8 +469,8 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "# 데이터 연동·시그널 판단 QA 카탈로그" in first
     assert "`position-lifecycle-v8.1`" in first
     assert "SIG-CONTRACT-003" in first
-    assert "`position-lifecycle-us-v2-rc1`" in first
-    assert "QA 항목: 150개" in first
+    assert "`position-lifecycle-us-v3-hybrid1`" in first
+    assert "QA 항목: 151개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1773,8 +1773,8 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.1"
-    assert report["us_strategy_version"] == "position-lifecycle-us-v2-rc1"
-    assert report["catalog_case_count"] == 150
+    assert report["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
+    assert report["catalog_case_count"] == 151
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -1813,6 +1813,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-US-LIFECYCLE-001",
         "SIG-US-CHASE-001",
         "SIG-US-REENTRY-001",
+        "SIG-US-HYBRID-001",
         "SIG-US-SHADOW-001",
         "SIG-US-CONTRACT-001",
         "SIG-US-MCP-001",
@@ -1998,16 +1999,16 @@ class FakeReadOnlyApi:
             return {
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
-                "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261013us145",
+                "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
+                "us_dashboard_version": "20261013us146",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
             return {
                 "status": "ok",
                 "database_ok": True,
-                "us_strategy_version": "position-lifecycle-us-v2-rc1",
-                "us_dashboard_version": "20261013us145",
+                "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
+                "us_dashboard_version": "20261013us146",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2235,13 +2236,18 @@ class FakeReadOnlyApi:
             return {
                 "status": "ready",
                 "data_state": "ready",
-                "strategy_version": "position-lifecycle-us-v2-rc1",
+                "strategy_version": "position-lifecycle-us-v3-hybrid1",
                 "baseline_strategy_version": "us-momentum-watch-v1",
-                "rollout_mode": "model_replay",
+                "rollout_mode": "hybrid_forward",
+                "hybrid_ledger_ready": True,
+                "daily_setup_ready": True,
+                "collector_fresh": True,
+                "signal_execution_enabled": True,
+                "execution_model": "completed-close-fresh-minute-confirmation-v1",
                 "execution_enabled": False,
                 "stateful_lifecycle_replay_enabled": True,
                 "reentry_runtime_enabled": True,
-                "lifecycle_replay_version": "us-next-open-model-replay-v1",
+                "lifecycle_replay_version": "completed-close-fresh-minute-confirmation-v1",
                 "stateful_lifecycle_replay_complete": True,
                 "stateful_lifecycle_replay_eligible_count": 98,
                 "stateful_lifecycle_replay_completed_count": 98,
@@ -2252,7 +2258,7 @@ class FakeReadOnlyApi:
                 "entry_pending_count": 0,
                 "new_entries_allowed": True,
                 "snapshot_id": (
-                    f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
+                    f"position-lifecycle-us-v3-hybrid1:{universe_as_of}:fixture"
                 ),
                 "snapshot_checksum": "canonical-fixture-checksum",
                 "universe_data_state": "ready",
@@ -2286,14 +2292,19 @@ class FakeReadOnlyApi:
             return {
                 "status": "ready",
                 "data_state": "ready",
-                "strategy_version": "position-lifecycle-us-v2-rc1",
+                "strategy_version": "position-lifecycle-us-v3-hybrid1",
                 "baseline_strategy_version": "us-momentum-watch-v1",
                 "sector_classification_version": "us-sector-etf-cik-v7",
-                "rollout_mode": "model_replay",
+                "rollout_mode": "hybrid_forward",
+                "hybrid_ledger_ready": True,
+                "daily_setup_ready": True,
+                "collector_fresh": True,
+                "signal_execution_enabled": True,
+                "execution_model": "completed-close-fresh-minute-confirmation-v1",
                 "execution_enabled": False,
                 "stateful_lifecycle_replay_enabled": True,
                 "reentry_runtime_enabled": True,
-                "lifecycle_replay_version": "us-next-open-model-replay-v1",
+                "lifecycle_replay_version": "completed-close-fresh-minute-confirmation-v1",
                 "new_entries_allowed": True,
                 "recommendation_model_version": (
                     "us-independent-recommendation-v1"
@@ -2302,7 +2313,7 @@ class FakeReadOnlyApi:
                     "recommendation_score_ranked_with_terminal_exit_exclusion"
                 ),
                 "snapshot_id": (
-                    f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
+                    f"position-lifecycle-us-v3-hybrid1:{universe_as_of}:fixture"
                 ),
                 "snapshot_checksum": "canonical-fixture-checksum",
                 "universe_count": 100,
@@ -2351,7 +2362,7 @@ class FakeReadOnlyApi:
                 "status": "ready",
                 "data_state": "ready",
                 "snapshot_id": (
-                    f"position-lifecycle-us-v2-rc1:{universe_as_of}:fixture"
+                    f"position-lifecycle-us-v3-hybrid1:{universe_as_of}:fixture"
                 ),
                 "snapshot_checksum": "canonical-fixture-checksum",
                 "new_entries_allowed": True,
@@ -2584,7 +2595,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261013us145"}, self._meta(path)
+            return {"version": "20261013us146"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2631,11 +2642,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261013us145" />'
+                '<link href="/assets/dashboard/styles.css?v=20261013us146" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261013us145"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261013us146"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2675,11 +2686,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261013v573" />'
+            '<link href="/assets/dashboard/styles.css?v=20261013v574" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261013v573"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261013v574"></script>'
             '</body></html>',
             self._meta(path),
         )

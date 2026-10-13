@@ -3788,6 +3788,9 @@ def build_us_recommendations(
     canonical = deepcopy(feed) if isinstance(feed, dict) else None
     if canonical is None and db is not None:
         canonical = load_us_position_lifecycle_snapshot(db)
+        if canonical is not None:
+            from app.services.us_hybrid_signals import project_us_hybrid_feed
+            canonical = project_us_hybrid_feed(db, canonical)
     if canonical is None:
         canonical = us_position_lifecycle_preparing_payload()
     normalized_candidate_limit = max(5, min(100, int(candidate_limit)))
@@ -3849,6 +3852,11 @@ def build_us_recommendations(
         "baseline_strategy_version": canonical.get("baseline_strategy_version"),
         "sector_classification_version": canonical.get("sector_classification_version"),
         "rollout_mode": canonical.get("rollout_mode"),
+        "hybrid_ledger_ready": canonical.get("hybrid_ledger_ready"),
+        "daily_setup_ready": canonical.get("daily_setup_ready"),
+        "collector_fresh": canonical.get("collector_fresh"),
+        "signal_execution_enabled": canonical.get("signal_execution_enabled"),
+        "execution_model": canonical.get("execution_model"),
         "execution_enabled": canonical.get("execution_enabled", False),
         "stateful_lifecycle_replay_enabled": canonical.get(
             "stateful_lifecycle_replay_enabled", False
@@ -3912,6 +3920,9 @@ def build_us_quant_signals(
     canonical = deepcopy(feed) if isinstance(feed, dict) else None
     if canonical is None and db is not None:
         canonical = load_us_position_lifecycle_snapshot(db)
+        if canonical is not None:
+            from app.services.us_hybrid_signals import project_us_hybrid_feed
+            canonical = project_us_hybrid_feed(db, canonical)
     if canonical is None:
         canonical = us_position_lifecycle_preparing_payload()
     normalized_limit = max(1, min(50, int(limit)))

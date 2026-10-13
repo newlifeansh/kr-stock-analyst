@@ -53,6 +53,28 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-US-HYBRID-001": (
+        "tests.test_us_hybrid_signals.test_hybrid_two_fresh_minutes_enter_once_and_restart_is_idempotent",
+        "tests.test_us_hybrid_signals.test_hybrid_partial_then_remaining_exit_weighted_return_and_no_same_day_reentry",
+        "tests.test_us_hybrid_signals.test_hybrid_profit_after_entry_does_not_read_same_minute_high",
+        "tests.test_us_hybrid_signals.test_hybrid_early_close_and_dst_are_exchange_calendared",
+        "tests.test_us_hybrid_signals.test_hybrid_late_start_gap_and_stale_daily_setup_block_entry",
+        "tests.test_us_hybrid_signals.test_hybrid_dropped_or_stale_daily_feed_does_not_disable_position_stops",
+        "tests.test_us_hybrid_signals.test_hybrid_freezes_old_publications_and_separates_forward_performance",
+        "tests.test_us_hybrid_signals.test_hybrid_ledger_tampering_is_not_reinitialized",
+        "tests.test_us_hybrid_signals.test_hybrid_notifications_are_fresh_confirmed_scoped_and_expire",
+        "tests.test_us_hybrid_signals.test_hybrid_public_redaction_keeps_intraday_contract_without_daily_replay_copy",
+        "tests.test_us_hybrid_signals.test_hybrid_raw_price_basis_uses_unadjusted_notional",
+        "tests.test_us_hybrid_signals.test_hybrid_collector_persists_without_provider_calls_outside_session",
+        "tests.test_us_hybrid_signals.test_hybrid_collector_compare_and_swap_never_overwrites_competing_publication",
+        "tests.test_us_hybrid_signals.test_hybrid_current_api_uses_durable_intraday_ledger",
+        "tests.test_us_hybrid_signals.test_hybrid_watchlist_and_market_notifications_share_one_dedupe_key",
+        "tests.test_us_hybrid_signals.test_hybrid_stale_collector_blocks_readiness_but_does_not_hide_open_ledger",
+        "tests.test_us_hybrid_signals.test_hybrid_latest_invalid_minute_cannot_reuse_older_fresh_confirmation",
+        "tests.test_us_hybrid_signals.test_hybrid_ui_uses_verified_minute_return_and_expires_without_tick_substitution",
+        "tests.test_us_hybrid_signals.test_hybrid_partial_and_terminal_projection_keep_original_weight_returns",
+        "tests.test_us_hybrid_signals.test_hybrid_send_rechecks_age_at_delivery_not_scan_start",
+    ),
     "SIG-KR-FORWARD-001": (
         "tests.test_regular_signal_transition.test_forward_baseline_is_immutable_and_detects_tampering",
         "tests.test_regular_signal_transition.test_forward_publication_preserves_return_but_never_realerts_or_claims_a_holding",
@@ -1764,8 +1786,10 @@ def _gate_checks(
     )
 
     def us_strategy_contract() -> dict[str, Any]:
+        from app.services.us_hybrid_signals import US_HYBRID_VERSION
         _assert(
-            US_STRATEGY_VERSION == catalog.get("us_strategy_version"),
+            US_HYBRID_VERSION == catalog.get("us_strategy_version")
+            and US_STRATEGY_VERSION == catalog.get("us_baseline_snapshot_version"),
             "미국 후보 전략 버전이 QA 카탈로그와 다릅니다.",
         )
         _assert(
@@ -2472,10 +2496,10 @@ def _valid_us_public_lifecycle_item(item: Any) -> bool:
         return False
     action = current.get("action")
     preliminary = action in {"entry_watch", "entry_pending", "full_exit_pending"}
-    position_open = action in {"entered", "holding", "full_exit_pending"}
+    position_open = action in {"entered", "holding", "partially_exited", "full_exit_pending"}
     if action not in {
         "entry_watch", "entry_pending", "entered", "holding",
-        "full_exit_pending", "exited", "no_signal",
+        "full_exit_pending", "exited", "no_signal", "partially_exited",
     }:
         return False
     try:
@@ -2491,8 +2515,25 @@ def _valid_us_public_lifecycle_item(item: Any) -> bool:
             and item.get("is_preliminary") is preliminary
         ))
         and current.get("position_open") is position_open
-        and exposure == (Decimal(100) if position_open else Decimal(0))
+        and exposure == (Decimal(50) if action == "partially_exited" else Decimal(100) if position_open else Decimal(0))
     )
+
+
+def _valid_us_runtime_contract(feed: dict, expected_version: str) -> bool:
+    if expected_version == "position-lifecycle-us-v3-hybrid1":
+        return bool(feed.get("strategy_version") == expected_version
+                    and feed.get("rollout_mode") == "hybrid_forward"
+                    and feed.get("execution_enabled") is False
+                    and feed.get("signal_execution_enabled") is True
+                    and feed.get("execution_model") == "completed-close-fresh-minute-confirmation-v1"
+                    and feed.get("daily_setup_ready") is True
+                    and feed.get("collector_fresh") is True)
+    return bool(feed.get("rollout_mode") == "model_replay"
+                and feed.get("execution_enabled") is False
+                and feed.get("stateful_lifecycle_replay_enabled") is True
+                and feed.get("reentry_runtime_enabled") is True
+                and feed.get("lifecycle_replay_version") == "us-next-open-model-replay-v1"
+                and feed.get("stateful_lifecycle_replay_complete") is True)
 
 
 def _live_checks(
@@ -2655,12 +2696,7 @@ def _live_checks(
                 expected_version=expected_version,
             )
             _assert(
-                feed.get("rollout_mode") == "model_replay"
-                and feed.get("execution_enabled") is False
-                and feed.get("stateful_lifecycle_replay_enabled") is True
-                and feed.get("reentry_runtime_enabled") is True
-                and feed.get("lifecycle_replay_version") == "us-next-open-model-replay-v1"
-                and feed.get("stateful_lifecycle_replay_complete") is True,
+                _valid_us_runtime_contract(feed, expected_version),
                 "미국 전략 생명주기 모델 replay 계약이 깨졌습니다.",
             )
             items = feed.get("items") or []
@@ -2945,7 +2981,7 @@ def _live_checks(
                 is True
                 and recommendations.get("reentry_runtime_enabled") is True
                 and recommendations.get("lifecycle_replay_version")
-                == "us-next-open-model-replay-v1",
+                == feed.get("lifecycle_replay_version"),
                 "미국 추천과 시그널의 baseline·섹터분류·runtime 계약이 다릅니다.",
             )
             invalid_recommendations: list[str] = []
@@ -5892,12 +5928,7 @@ def _live_us_checks(
                 recommendation_state=recommendations.get("data_state"),
             )
             _assert(
-                feed.get("rollout_mode") == "model_replay"
-                and feed.get("execution_enabled") is False
-                and feed.get("stateful_lifecycle_replay_enabled") is True
-                and feed.get("reentry_runtime_enabled") is True
-                and feed.get("lifecycle_replay_version") == "us-next-open-model-replay-v1"
-                and feed.get("stateful_lifecycle_replay_complete") is True,
+                _valid_us_runtime_contract(feed, str(expected_version)),
                 "미국 전략 생명주기 모델 replay 계약이 깨졌습니다.",
             )
             universe_count = int(feed.get("universe_count") or 0)
@@ -5965,7 +5996,7 @@ def _live_us_checks(
                 is True
                 and recommendations.get("reentry_runtime_enabled") is True
                 and recommendations.get("lifecycle_replay_version")
-                == "us-next-open-model-replay-v1",
+                == feed.get("lifecycle_replay_version"),
                 "미국 추천과 시그널이 다른 canonical 커버리·runtime 계약을 사용합니다.",
             )
             try:

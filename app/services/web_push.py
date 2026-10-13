@@ -20,6 +20,9 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import PushSessionLocal
+from app.services.us_hybrid_signals import (
+    US_HYBRID_START, fresh_us_hybrid_events, project_us_hybrid_feed,
+)
 from app.models import (
     DisclosureItem,
     PushDelivery,
@@ -161,6 +164,9 @@ MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN = re.compile(
 US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN = re.compile(
     r"^us-market-ai-preliminary:([^:]+):(buy|sell):(\d{4}-\d{2}-\d{2})$"
 )
+US_HYBRID_SIGNAL_EVENT_PATTERN = re.compile(
+    r"^us-hybrid-v1:([^:]+):(buy|sell|partial_sell):[0-9]+:(\d{4}-\d{2}-\d{2})$"
+)
 US_WATCHLIST_SIGNAL_EVENT_PATTERN = re.compile(
     r"^us-ai-signal:([^:]+):([^:]+):(\d{4}-\d{2}-\d{2})$"
 )
@@ -258,6 +264,12 @@ def notification_history_signal_context(
 
     if kind not in SIGNAL_NOTIFICATION_KINDS:
         return None
+    hybrid_match = US_HYBRID_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
+    if hybrid_match:
+        code, side, event_date = hybrid_match.groups()
+        return {"code": code, "side": "buy" if side == "buy" else "sell", "phase": "confirmed",
+                "action": "entered" if side == "buy" else "partially_exited" if side == "partial_sell" else "exited",
+                "event_date": event_date, "market_scope": "us"}
     us_market_match = US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(
         event_key or ""
     )
@@ -331,7 +343,8 @@ def notification_history_is_valid(
     if received_at.tzinfo is None:
         received_at = received_at.replace(tzinfo=timezone.utc)
     if (
-        US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
+        US_HYBRID_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
+        or US_MARKET_PRELIMINARY_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
         or US_WATCHLIST_SIGNAL_EVENT_PATTERN.fullmatch(event_key or "")
         or US_PRICE_EVENT_DATE_PATTERN.match(event_key or "")
         or US_MARKET_SESSION_EVENT_PATTERN.fullmatch(event_key or "")
@@ -965,6 +978,17 @@ def _disclosure_candidate(item: DisclosureItem, stock_name: str) -> Notification
     )
 
 
+def _us_hybrid_candidate(event: dict, *, kind: str = "market_ai_signal") -> NotificationCandidate:
+    price = float(event["price"])
+    return NotificationCandidate(
+        event_key=event["event_id"], kind=kind,
+        title=_signal_notification_title(event["name"], event["label"], event["state_after"]),
+        body=f"미국 정규장 1분봉 확인 · ${price:,.2f} 기준. {event['reason']}. 실제 계좌 주문이 아닌 모델 신호입니다.",
+        url=_us_stock_url(event["code"]), tag=f"us-hybrid-{event['code']}-{event['side']}",
+        occurred_at=datetime.fromisoformat(event["signal_at"]), stock_codes=(event["code"],), market_scope="us",
+    )
+
+
 class WebPushRuntime:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or get_settings()
@@ -1266,6 +1290,10 @@ class WebPushRuntime:
                 if not change_rate.is_finite() or abs(change_rate) < threshold:
                     continue
                 event_date = str(row.get("signal_date") or snapshot.get("universe_as_of") or "")[:10]
+                if snapshot.get("rollout_mode") == "hybrid_forward":
+                    if row.get("quote_state") != "fresh":
+                        continue
+                    event_date = str((row.get("current") or {}).get("as_of") or "")[:10]
                 try:
                     date.fromisoformat(event_date)
                 except ValueError:
@@ -1299,6 +1327,19 @@ class WebPushRuntime:
     ) -> dict[str, list[NotificationCandidate]]:
         output = {share_id: [] for share_id in watchlists}
         if not isinstance(snapshot, dict) or snapshot.get("status") != "ready":
+            return output
+        if snapshot.get("rollout_mode") == "hybrid_forward":
+            if not us_signal_session_state(now)["is_regular"]:
+                return output
+            for share_id, items in watchlists.items():
+                codes = {item.code.upper() for item in items}
+                for row in snapshot.get("items") or []:
+                    if row.get("code") not in codes:
+                        continue
+                    for event in row.get("events") or []:
+                        occurred = datetime.fromisoformat(event["signal_at"])
+                        if event.get("intraday_execution_verified") is True and 0 <= (now - occurred).total_seconds() <= 180:
+                            output[share_id].append(_us_hybrid_candidate(event, kind="ai_signal"))
             return output
         signal_date = str(snapshot.get("universe_as_of") or "")[:10]
         try:
@@ -1746,6 +1787,8 @@ class WebPushRuntime:
         if current.tzinfo is None or current.utcoffset() is None:
             current = current.replace(tzinfo=timezone.utc)
         current = current.astimezone(timezone.utc)
+        if current >= US_HYBRID_START:
+            return [_us_hybrid_candidate(event) for event in fresh_us_hybrid_events(db, now=current)]
         try:
             session_state = us_signal_session_state(current)
         except Exception:
@@ -2105,6 +2148,13 @@ class WebPushRuntime:
         self, db: Session, subscription: PushSubscription, candidate: NotificationCandidate,
         *, operator_approved: bool = False,
     ) -> bool:
+        if US_HYBRID_SIGNAL_EVENT_PATTERN.fullmatch(candidate.event_key):
+            current = datetime.now(timezone.utc)
+            occurred = candidate.occurred_at
+            if (occurred is None or occurred.tzinfo is None
+                    or not 0 <= (current - occurred).total_seconds() <= 180
+                    or not us_signal_session_state(current)["is_regular"]):
+                return False
         approved_broadcast = (
             operator_approved
             and subscription.enabled
@@ -2719,6 +2769,8 @@ class WebPushRuntime:
             if us_subscriptions and self.settings.us_market_enabled:
                 try:
                     us_snapshot = load_us_position_lifecycle_snapshot(db, now=now_utc_aware)
+                    if us_snapshot is not None:
+                        us_snapshot = project_us_hybrid_feed(db, us_snapshot, now=now_utc_aware)
                 except Exception:
                     logger.exception("US push snapshot read failed")
                     us_snapshot = None

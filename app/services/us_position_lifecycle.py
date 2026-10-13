@@ -1578,6 +1578,7 @@ def build_us_position_lifecycle_feed(
     comparison_codes: set[str] = set()
     replay_complete_codes: set[str] = set()
     performance_events: list[dict[str, Any]] = []
+    hybrid_setups: list[dict[str, Any]] = []
     data_coverage_count = len(covered_codes)
     for member in members:
         code = str(member["code"])
@@ -1595,6 +1596,9 @@ def build_us_position_lifecycle_feed(
             new_entries_allowed=member_new_entries_allowed,
         )
         action = str(decision.get("action") or "no_signal")
+        from app.services.us_hybrid_signals import build_close_setup
+
+        hybrid_setups.append(build_close_setup(member, decision, stock_bars[-1] if stock_bars else None))
         candidate_actions[code] = action
         public_member_signal = _public_member_signal(
             member,
@@ -1679,6 +1683,7 @@ def build_us_position_lifecycle_feed(
         }:
             items.append(_candidate_item(member, decision, sector_symbol, current))
         public_member_signals.append(public_member_signal)
+    base["hybrid_setups"] = hybrid_setups
     stateful_replay_complete = bool(
         replay_complete_codes == signal_eligible_codes
     )
@@ -3381,6 +3386,8 @@ def us_position_lifecycle_schema_upgrade_due(
     return bool(
         not isinstance(public_member_signals, list)
         or len(public_member_signals) != US_SIGNAL_UNIVERSE_LIMIT
+        or not isinstance(payload.get("hybrid_setups"), list)
+        or len(payload["hybrid_setups"]) != US_SIGNAL_UNIVERSE_LIMIT
     )
 
 

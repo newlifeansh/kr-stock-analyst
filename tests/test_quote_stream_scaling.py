@@ -738,6 +738,8 @@ def test_canonical_refresh_swaps_cache_before_publishing_transformed_revision(
         main_module, "_canonical_ai_signal_revision_payload", canonicalize
     )
     monkeypatch.setattr(main_module, "_record_ai_signal_revision", record)
+    monkeypatch.setattr("app.services.regular_signal_transition.collect_forward_session",
+                        lambda *args, **kwargs: {"state": "ready", "attempted": 0})
 
     result = main_module._refresh_market_quant_signal_snapshot()
 

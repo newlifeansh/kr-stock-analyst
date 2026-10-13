@@ -710,6 +710,8 @@ def test_legacy_snapshot_requires_one_time_public_member_evidence_upgrade() -> N
     }
 
     assert lifecycle.us_position_lifecycle_schema_upgrade_due(legacy) is True
+    assert lifecycle.us_position_lifecycle_schema_upgrade_due(upgraded) is True
+    upgraded["hybrid_setups"] = [{"code": f"A{index:03d}"} for index in range(100)]
     assert lifecycle.us_position_lifecycle_schema_upgrade_due(upgraded) is False
     assert (
         lifecycle.us_position_lifecycle_schema_upgrade_due(

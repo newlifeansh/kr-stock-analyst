@@ -37,6 +37,7 @@ US_SIGNAL_ACTIONS = {
     "entry_watch",
     "entered",
     "holding",
+    "partially_exited",
     "full_exit_pending",
     "exited",
 }
@@ -67,6 +68,9 @@ def _load_us_feed(now: Optional[datetime] = None) -> dict[str, Any]:
     current = now or datetime.now(timezone.utc)
     with _db_session() as db:
         feed = load_us_position_lifecycle_snapshot(db, now=current)
+        if feed is not None:
+            from app.services.us_hybrid_signals import project_us_hybrid_feed
+            feed = project_us_hybrid_feed(db, feed, now=current)
     return feed or us_position_lifecycle_preparing_payload(now=current)
 
 

@@ -785,7 +785,7 @@ def test_stock_detail_v3_shell_and_controls():
     assert 'id="quant-current-score"' not in shell.text
     assert "원에 모두 팔았어요" not in source
     assert "AI가 과거 데이터로 계산한 교육·연구용 참고 신호이며" in source
-    assert "실제 계좌 주문" not in source
+    assert "실제 계좌 주문이 아닙니다" in source
     assert "오늘의 대응" not in shell.text
     assert "판단 근거와 위험 보기" not in shell.text
 
