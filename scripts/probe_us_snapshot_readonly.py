@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 from sqlalchemy import text, select, func
 from app.models import PushSubscription, PushDelivery
+from app.services.web_push import subscription_market_scope, subscription_conditions
 from app.config import get_settings
 from app.db import SessionLocal
 from app.services.us_market_calendar import us_signal_session_state
@@ -48,6 +49,14 @@ with SessionLocal() as db:
     delivery_counts = dict(db.execute(select(PushDelivery.status, func.count()).where(
         PushDelivery.event_key.like("us-hybrid-v1:%")
     ).group_by(PushDelivery.status)).all())
+    subscription_summary = {}
+    for subscription in db.scalars(select(PushSubscription).where(PushSubscription.enabled.is_(True))):
+        scope = subscription_market_scope(subscription)
+        counts = subscription_summary.setdefault(scope, {"enabled": 0, "market_ai_signal": 0, "ai_signal": 0})
+        counts["enabled"] += 1
+        conditions = subscription_conditions(subscription)
+        for kind in ("market_ai_signal", "ai_signal"):
+            counts[kind] += int(kind in conditions)
     print(json.dumps({
         "observed_at": current.isoformat(),
         "transaction_read_only": db.scalar(text("SHOW transaction_read_only")),
@@ -67,6 +76,7 @@ with SessionLocal() as db:
         "push_poll_seconds": settings.web_push_poll_seconds,
         "enabled_subscription_count": db.scalar(select(func.count()).select_from(PushSubscription).where(PushSubscription.enabled.is_(True))),
         "hybrid_delivery_counts": delivery_counts,
+        "signal_subscription_summary": subscription_summary,
         "writes": 0,
         "notifications_sent": 0,
     }, default=str))
