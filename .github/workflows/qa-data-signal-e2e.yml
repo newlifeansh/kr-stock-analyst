@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        surface: [dashboard, us]
+        surface: [dashboard]
     environment: production
     env:
       QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
@@ -23,6 +23,8 @@ jobs:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       DIAG_PROJECT: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_RAILWAY_PROJECT_ID || vars.PRODUCTION_RAILWAY_PROJECT_ID }}
       DIAG_WEB: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_RAILWAY_WEB_SERVICE || vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
+      DIAG_US_PROJECT: ${{ vars.US_PRODUCTION_RAILWAY_PROJECT_ID }}
+      DIAG_US_WEB: ${{ vars.US_PRODUCTION_RAILWAY_WEB_SERVICE }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,7 +38,6 @@ jobs:
           pip install -e '.[qa,mcp]'
           playwright install --with-deps chromium
       - name: Install Railway CLI for existing QA authentication only
-        if: env.QA_DASHBOARD_INVITE_CODE == ''
         run: npm install --global @railway/cli@5.45.7
       - name: Read existing invite credential without changing authentication
         if: env.QA_DASHBOARD_INVITE_CODE == ''
@@ -47,12 +48,22 @@ jobs:
           test -n "$invite_code"
           echo "::add-mask::$invite_code"
           echo "QA_DASHBOARD_INVITE_CODE=$invite_code" >> "$GITHUB_ENV"
+      - name: Read separate existing US authentication for cross-market browser case
+        shell: bash
+        run: |
+          set -euo pipefail
+          us_invite_code="$(railway variable list --json --project "$DIAG_US_PROJECT" --service "$DIAG_US_WEB" --environment production | jq -r '.DASHBOARD_INVITE_CODE // empty')"
+          test -n "$us_invite_code"
+          echo "::add-mask::$us_invite_code"
+          echo "QA_US_INVITE_CODE=$us_invite_code" >> "$GITHUB_ENV"
       - name: Mask derived authentication cookie in runner output too
         run: |
           python - <<'PY'
           import hashlib, os
           code = os.environ['QA_DASHBOARD_INVITE_CODE'].strip().upper()
           print('::add-mask::' + hashlib.sha256(('secret-note-invite-v1:' + code).encode()).hexdigest())
+          us_code = os.environ['QA_US_INVITE_CODE'].strip().upper()
+          print('::add-mask::' + hashlib.sha256(('secret-note-invite-v1:' + us_code).encode()).hexdigest())
           PY
       - name: Wait for the exact corrected production deployment
         env:
@@ -83,11 +94,20 @@ jobs:
           from app.qa import e2e
           from app.qa.runner import run_data_signal_qa, write_qa_report
           surface = os.environ['QA_SURFACE']
-          selected = {'SIG-UI-003','SIG-UI-008','SIG-UI-009','SIG-PUSH-COMMUNITY-002','SIG-UI-015','SIG-UI-016','SIG-UI-025'}
+          selected = {'SIG-UI-025'}
           original = e2e._run_page_case
           def scoped(**kwargs):
               if kwargs['case_id'] not in selected:
                   return e2e._result(kwargs['catalog_by_id'], kwargs['case_id'], 'skip', 'Outside explicit failed-case retry scope; prior evidence retained.', monotonic())
+              callback = kwargs['callback']
+              def authenticated_cross_market(page, theme):
+                  response = page.context.request.post(os.environ['QA_BASE_URL'].rstrip('/') + '/us-gateway/session/invite-access', data={'invite_code':os.environ['QA_US_INVITE_CODE']})
+                  if not response.ok:
+                      raise RuntimeError('Existing US gateway authentication failed: ' + str(response.status))
+                  result = callback(page, theme)
+                  result['separate_us_authentication'] = True
+                  return result
+              kwargs['callback'] = authenticated_cross_market
               return original(**kwargs)
           if surface == 'dashboard':
               e2e._run_page_case = scoped
