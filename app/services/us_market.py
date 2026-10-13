@@ -1677,7 +1677,8 @@ def _fetch_yahoo_chart_once(
 ) -> dict[str, object]:
     response = requests.get(
         url_template.format(symbol=symbol),
-        params={"range": range_, "interval": interval, "includePrePost": "true" if include_prepost else "false"},
+        params={"range": range_, "interval": interval, "includePrePost": "true" if include_prepost else "false",
+                **({"events": "splits"} if interval == "1m" else {})},
         headers=US_HEADERS,
         timeout=12,
     )

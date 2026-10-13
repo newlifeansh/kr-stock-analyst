@@ -11,7 +11,7 @@
       "domain": "미국 하이브리드 시그널",
       "priority": "P0",
       "modes": ["gate"],
-      "automation": "pytest 신규 forward ledger·완료 분봉·세션·영속성·알림·공개 API 회귀, 운영 장중 근거 별도 보존",
+      "automation": "pytest 신규 forward ledger·완료 분봉·세션·영속성·알림·공개 API 회귀 및 분봉 전송의 분할 이벤트 명시 요청 검증, 운영 장중 근거 별도 보존",
       "preconditions": ["기존 v2 모델 재현 기록과 성과는 동결 보존한다.", "검증 완료한 Top100 종가 후보와 거래소 정규장 일정이 있다."],
       "inputs": {"strategy_version":"position-lifecycle-us-v3-hybrid1", "confirmation":"two consecutive completed 1m closes", "maximum_minute_end_age_seconds":90, "take_profit_percent":[3,5], "initial_stop_percent":4, "first_sell_original_fraction":0.5, "broker_orders":false},
       "steps": ["다음 정규장의 관측된 완료 분봉 두 개와 갭 제한으로 매수를 확인한다.", "후속 관측가로 +3% 절반·+5% 잔여·-4% 손실 기준을 판정한다.", "이상·지연·장외·미완성·순서 역전·분할 가격은 차단한다.", "프로세스 재시작·CAS 경합·중복 관측과 동일일 재진입을 검사한다.", "시장·관심종목 알림은 영속 이벤트 키로 중복 제거하고 180초 뒤에는 전송하지 않는다.", "구버전 성과를 새 성과와 섞지 않고 화면·상세·알림을 동일 장부에 연결한다.", "준비·대기·진입·청산 상태별 집계를 현재 장부에서 재계산하고 구버전 일봉 집계를 상속하지 않는다."],
@@ -106,9 +106,9 @@
       "automation": "pytest 계약 테스트 + live JSON 비밀값 탐지",
       "preconditions": ["KIS·DART 테스트 비밀값을 설정한다."],
       "inputs": {"secrets": "sentinel values"},
-      "steps": ["메타·오류·QA 리포트 전체를 직렬화해 비밀값 포함 여부를 검사한다."],
+      "steps": ["메타·오류·QA 리포트 전체를 직렬화해 비밀값 포함 여부를 검사한다.", "브라우저 오류의 Cookie·Set-Cookie 헤더와 인라인 초대·쓰기·데스크톱 인증 쿠키를 마스킹한다."],
       "expected": ["비밀값은 어떤 응답·로그·증거에도 나타나지 않는다."],
-      "failure_criteria": ["키·토큰·승인키가 평문으로 노출된다."]
+      "failure_criteria": ["키·토큰·승인키·인증 쿠키가 평문으로 노출된다."]
     },
     {
       "id": "DATA-COM-002",

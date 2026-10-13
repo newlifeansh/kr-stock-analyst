@@ -1749,6 +1749,9 @@ def test_report_redaction_removes_nested_credentials() -> None:
             "nested": {
                 "app_secret": "very-secret",
                 "message": "GET https://example.test/?token_key=abc123 failed",
+                "cookie": "session-cookie-secret",
+                "error": "Timeout\n - cookie: sn_invite_access=invite-cookie-secret; extra=private-cookie\nNext line",
+                "inline_note": "request sn_write_session=write-cookie-secret failed",
             },
         }
     )
@@ -1757,6 +1760,11 @@ def test_report_redaction_removes_nested_credentials() -> None:
     assert "do-not-log" not in encoded
     assert "very-secret" not in encoded
     assert "abc123" not in encoded
+    for secret in ("session-cookie-secret", "invite-cookie-secret", "private-cookie", "write-cookie-secret"):
+        assert secret not in encoded
+    from app.qa.e2e import _result
+    result = _result({}, "TEST", "fail", "cookie: sn_invite_access=invite-cookie-secret", 0)
+    assert "invite-cookie-secret" not in result["message"]
     assert encoded.count("[REDACTED]") >= 3
 
 

@@ -30,11 +30,14 @@ DEFAULT_STAGING_BASE_URLS = {
     "us-gateway": "https://domestic-market-web-staging-staging.up.railway.app",
 }
 SECRET_KEY_RE = re.compile(
-    r"(authorization|token|secret|password|api[_-]?key|app[_-]?key|app[_-]?secret|approval[_-]?key)",
+    r"(authorization|cookie|token|secret|password|api[_-]?key|app[_-]?key|app[_-]?secret|approval[_-]?key)",
     re.IGNORECASE,
 )
 SECRET_VALUE_RE = re.compile(
     r"(?i)(bearer\s+)[^\s,;]+|((?:api|app|secret|token)[_-]?key=)[^&\s]+"
+)
+COOKIE_VALUE_RE = re.compile(
+    r'(?i)(\b(?:cookie|set-cookie)\s*:\s*)[^\r\n]+|(\bsn_(?:invite_access|write_session|desktop_session)=)[^;\s"\\]+'
 )
 QUOTE_STREAM_META_RE = re.compile(
     r"""<meta\b
@@ -54,6 +57,7 @@ MOBILE_BROWSER_USER_AGENT = (
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-US-HYBRID-001": (
+        "tests.test_us_hybrid_signals.test_hybrid_minute_transport_explicitly_requests_split_evidence",
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[preparing]",
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[pending]",
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[entered]",
@@ -1086,6 +1090,9 @@ def redact(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, str):
+        value = COOKIE_VALUE_RE.sub(
+            lambda match: f"{match.group(1) or match.group(2)}[REDACTED]", value
+        )
         return SECRET_VALUE_RE.sub(
             lambda match: f"{match.group(1) or match.group(2)}[REDACTED]", value
         )

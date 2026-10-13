@@ -273,7 +273,7 @@ def _result(
     return {
         "case_id": case_id,
         "status": status,
-        "message": message,
+        "message": str(redact(message)),
         "evidence": redact(evidence or {}),
         "duration_ms": round((monotonic() - started) * 1000),
     }

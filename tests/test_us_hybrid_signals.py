@@ -256,6 +256,22 @@ def test_hybrid_raw_price_basis_uses_unadjusted_notional():
     assert setup["atr"] == 2
 
 
+def test_hybrid_minute_transport_explicitly_requests_split_evidence(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import us_market
+    raw = chart()
+    raw["events"] = {"splits": {"today": {"date": int(OPEN.timestamp())}}}
+    requests = []
+    def get(url, **kwargs):
+        requests.append(kwargs)
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"chart": {"result": [raw]}})
+    monkeypatch.setattr(us_market.requests, "get", get)
+    result = us_market._fetch_yahoo_chart_once("AAPL", us_market.YAHOO_CHART_URL, "1d", "1m", False)
+    assert requests[0]["params"]["events"] == "splits"
+    assert requests[0]["params"]["includePrePost"] == "false"
+    assert hybrid.verified_minutes(result, "AAPL", OPEN + timedelta(minutes=2, seconds=5)) == ([], "corporate_action_review")
+
+
 def test_hybrid_collector_persists_without_provider_calls_outside_session(db, monkeypatch):
     monkeypatch.setattr("app.services.us_position_lifecycle.load_us_position_lifecycle_snapshot", lambda *args, **kwargs: feed())
     def forbidden(code):
