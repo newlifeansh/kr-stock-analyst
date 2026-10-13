@@ -42,9 +42,9 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261013us146"
-    assert len(contract["assets"]) == 12
-    assert len(contract["asset_sha256"]) == 12
+    assert contract["product_version"] == "20261014us147"
+    assert len(contract["assets"]) == 6
+    assert len(contract["asset_sha256"]) == 6
     assert set(contract["asset_sha256"]) == {
         asset.split("?", 1)[0] for asset in contract["assets"]
     }
@@ -54,9 +54,9 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
         for asset in contract["assets"]
         if not asset.endswith("/us.webmanifest")
     )
-    assert any("/dashboard-app-v170.js" in asset for asset in contract["assets"])
-    assert any("/assets/dashboard/styles.css" in asset for asset in contract["assets"])
-    assert not any("/assets/nasdaq/app.js" in asset for asset in contract["assets"])
+    assert any("/assets/nasdaq/app.js" in asset for asset in contract["assets"])
+    assert any("/assets/nasdaq/styles.css" in asset for asset in contract["assets"])
+    assert not any("/dashboard-app-v170.js" in asset for asset in contract["assets"])
 
 
 def test_release_parity_rejects_a_stale_staging_asset() -> None:

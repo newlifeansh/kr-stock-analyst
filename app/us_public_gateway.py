@@ -174,6 +174,8 @@ async def forward_us_http(request: Request, backend_url: str, target_path: str) 
                 media_type="text/plain",
                 headers={"Cache-Control": "no-store", "X-US-Market-Route": "invalid-upstream-shell"},
             )
+    elif upstream.is_success and target_path == "/us.webmanifest":
+        body = _rewrite_us_script(body)
     elif upstream.is_success and (
         target_path == "/us-sw.js"
         or target_path in {"/dashboard-app-v170.js", "/assets/staging/toss-ia.js"}
@@ -207,7 +209,7 @@ async def forward_us_websocket(websocket: WebSocket, backend_url: str, path: str
         await websocket.close(code=1008)
         return
     target = path[3:]
-    if target not in {"market/us-sector-moves"} and not target.startswith("us/stocks/"):
+    if target not in {"market/us-sector-moves", "presence"} and not target.startswith("us/stocks/"):
         await websocket.close(code=1008)
         return
     query = websocket.url.query

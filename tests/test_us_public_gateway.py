@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
 import json
 import subprocess
 
@@ -10,13 +11,22 @@ from fastapi.testclient import TestClient
 
 from app.main import app, settings
 from app.product_shell import render_dashboard_product_shell
-from app.us_public_gateway import checked_backend_url, gateway_target, should_freeze_us_write
+from app.us_public_gateway import (
+    checked_backend_url,
+    forward_us_websocket,
+    gateway_target,
+    should_freeze_us_write,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _shell(market: str) -> str:
+    if market == "us":
+        return (ROOT / "app/static/nasdaq/index.html").read_text(
+            encoding="utf-8"
+        ).replace("__US_ASSET_VERSION__", "us-test")
     return render_dashboard_product_shell(
         (ROOT / "app/static/dashboard/index.html").read_text(encoding="utf-8"),
         market_universe=market,
@@ -37,8 +47,14 @@ def test_canonical_us_gateway_routes_shell_assets_api_and_isolates_cookies(monke
                 json={"authorized": True},
                 headers={"set-cookie": "sn_invite_access=us-only; Path=/; HttpOnly; Secure"},
             )
-        if request.url.path == "/dashboard-app-v170.js":
-            return httpx.Response(200, text='const icon = "/assets/staging/icon.svg";', headers={"content-type": "application/javascript"})
+        if request.url.path == "/assets/nasdaq/app.js":
+            return httpx.Response(200, text='const prefix = window.__US_PUBLIC_GATEWAY__ || "";', headers={"content-type": "application/javascript"})
+        if request.url.path == "/us.webmanifest":
+            return httpx.Response(
+                200,
+                json={"icons": [{"src": "/assets/nasdaq/icons/icon-192.png"}]},
+                headers={"content-type": "application/manifest+json"},
+            )
         return httpx.Response(200, json={"source": "us-dedicated"})
 
     native_client = httpx.AsyncClient
@@ -49,14 +65,14 @@ def test_canonical_us_gateway_routes_shell_assets_api_and_isolates_cookies(monke
     )
     client = TestClient(app)
 
-    shell = client.get("/us?view=home")
+    shell = client.get("/us?view=overview")
     assert shell.status_code == 200
     assert shell.headers["x-us-market-route"] == "dedicated-service"
     assert '<meta name="secret-note-market-universe" content="us" />' in shell.text
     assert 'src="/us-gateway/assets/us-public-bridge.js"' in shell.text
-    assert 'src="/us-gateway/dashboard-app-v170.js' in shell.text
-    assert 'href="/us-gateway/assets/dashboard/styles.css' in shell.text
-    assert 'href="/us-gateway/us.webmanifest"' in shell.text
+    assert 'src="/us-gateway/assets/nasdaq/app.js' in shell.text
+    assert 'href="/us-gateway/assets/nasdaq/styles.css' in shell.text
+    assert 'href="/us-gateway/us.webmanifest?v=us-test"' in shell.text
     assert client.get("/dashboard").headers.get("x-us-market-route") is None
 
     us_api = client.get("/us/stocks/AAPL")
@@ -75,11 +91,16 @@ def test_canonical_us_gateway_routes_shell_assets_api_and_isolates_cookies(monke
     assert seen[-1].headers["cookie"] == "sn_invite_access=us-only"
     assert seen[-1].headers["x-forwarded-host"] == "testserver"
 
-    script = client.get("/us-gateway/dashboard-app-v170.js?v=us-test")
+    script = client.get("/us-gateway/assets/nasdaq/app.js?v=us-test")
     assert script.status_code == 200
-    assert '"/us-gateway/assets/staging/icon.svg"' in script.text
-    assert seen[-1].url.path == "/dashboard-app-v170.js"
+    assert 'window.__US_PUBLIC_GATEWAY__' in script.text
+    assert seen[-1].url.path == "/assets/nasdaq/app.js"
     assert seen[-1].url.query == b"v=us-test"
+
+    manifest = client.get("/us-gateway/us.webmanifest?v=us-test")
+    assert manifest.status_code == 200
+    assert manifest.json()["icons"][0]["src"] == "/us-gateway/assets/nasdaq/icons/icon-192.png"
+    assert seen[-1].url.path == "/us.webmanifest"
 
     logo = client.get("/us-gateway/stock-logos/AAPL.png")
     assert logo.json() == {"source": "us-dedicated"}
@@ -144,16 +165,42 @@ def test_us_cutover_freezes_only_us_writes(monkeypatch):
 
 def test_public_us_bridge_rewrites_fetch_and_websocket_without_changing_us_staging():
     bridge = (ROOT / "app/static/us-public-bridge.js").read_text(encoding="utf-8")
-    dashboard = (ROOT / "app/static/dashboard/app.js").read_text(encoding="utf-8")
-    staging = (ROOT / "app/static/staging/toss-ia.js").read_text(encoding="utf-8")
+    standalone = (ROOT / "app/static/nasdaq/app.js").read_text(encoding="utf-8")
     assert 'window.__US_PUBLIC_GATEWAY__ = prefix;' in bridge
     assert 'url.origin !== window.location.origin' in bridge
     assert 'new Request(url, input)' in bridge
-    assert 'if (window.__US_PUBLIC_GATEWAY__)' in dashboard
-    assert 'window.__US_PUBLIC_GATEWAY__}${path}' in dashboard
-    for script in (dashboard, staging):
-        assert 'const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";' in script
-        assert '${logoOrigin}/stock-logos/' in script
+    assert 'const prefix = window.__US_PUBLIC_GATEWAY__ || "";' in standalone
+    assert '`${protocol}//${window.location.host}${prefix}${path}`' in standalone
+
+
+def test_us_gateway_allows_standalone_presence_websocket_but_rejects_unknown_paths(monkeypatch):
+    class ApplicationState:
+        name = "CONNECTING"
+
+    class Url:
+        query = ""
+
+    class FakeWebSocket:
+        application_state = ApplicationState()
+        url = Url()
+
+        def __init__(self):
+            self.close_codes: list[int] = []
+
+        async def close(self, code: int):
+            self.close_codes.append(code)
+
+    def unavailable_connect(*_args, **_kwargs):
+        raise OSError("fixture upstream unavailable")
+
+    monkeypatch.setattr("app.us_public_gateway.websockets.connect", unavailable_connect)
+    presence = FakeWebSocket()
+    asyncio.run(forward_us_websocket(presence, "https://us.example.test", "ws/presence"))
+    assert presence.close_codes == [1013]
+
+    unknown = FakeWebSocket()
+    asyncio.run(forward_us_websocket(unknown, "https://us.example.test", "ws/domestic"))
+    assert unknown.close_codes == [1008]
 
 
 def test_public_us_bridge_routes_only_same_origin_fetches():

@@ -32,14 +32,32 @@
       <form class="login-card" id="login-form" autocomplete="off">
         <div class="login-copy">
           <h1 id="login-title">미국증시 비밀노트</h1>
-          <p>아이디만 입력하면 바로 시작됩니다.</p>
+          <p id="login-description">아이디와 초대 코드를 입력해 시작하세요.</p>
         </div>
         <div class="login-search-shell">
           <input id="login-id-input" type="text" placeholder="아이디를 입력하세요" maxlength="40" autofocus />
+          <div class="login-invite-field" id="login-invite-field" hidden>
+            <input id="login-invite-code" type="text" placeholder="초대 코드를 입력하세요" maxlength="64" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" />
+            <p class="login-invite-hint">초대 코드는 첫 접속 시 한 번만 확인합니다.</p>
+          </div>
           <button type="submit">시작하기</button>
         </div>
         <p id="login-status" class="login-status">2~40자 한글, 영문, 숫자, ., _, - 사용 가능</p>
       </form>
+    </section>
+    <section class="access-capacity-modal" id="access-capacity-modal" hidden>
+      <div class="access-capacity-backdrop"></div>
+      <article class="access-capacity-card" role="alertdialog" aria-modal="true" aria-labelledby="access-capacity-title" aria-describedby="access-capacity-description access-capacity-note">
+        <span class="access-capacity-icon" aria-hidden="true">!</span>
+        <span class="access-capacity-eyebrow">초기 운영 안내</span>
+        <h2 id="access-capacity-title">현재 이용 가능 인원을 초과했어요</h2>
+        <p id="access-capacity-description">안정적인 서비스 운영을 위해 초기 이용 인원을 제한하고 있습니다.</p>
+        <span class="access-capacity-note" id="access-capacity-note">추가 이용이 필요하면 LinkedIn 메시지로 문의해주세요.</span>
+        <div class="access-capacity-actions">
+          <a id="access-capacity-contact" href="https://www.linkedin.com/in/connor-sh" target="_blank" rel="noopener noreferrer">LinkedIn으로 문의하기</a>
+          <button id="access-capacity-close" type="button">닫기</button>
+        </div>
+      </article>
     </section>
     <div class="app-frame">
       <section class="app-loading" id="app-loading" role="status" aria-live="polite" aria-busy="true" hidden>

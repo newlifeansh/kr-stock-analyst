@@ -44,9 +44,7 @@ E2E_CASE_IDS = (
     "SIG-PUSH-COMMUNITY-002",
 )
 US_E2E_CASE_IDS = (
-    "SIG-PERF-US-001",
     "SIG-UI-031",
-    "SIG-UI-032",
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
 )
@@ -1638,6 +1636,332 @@ def _run_us_e2e_checks(
             browser.close()
 
 
+def _run_us_standalone_e2e_checks(
+    *,
+    catalog: dict[str, Any],
+    base_url: str,
+    timeout: float,
+    artifact_dir: Path | str | None = None,
+    gateway_expected: bool = False,
+) -> list[dict[str, Any]]:
+    """Exercise the restored standalone US product, not the domestic dashboard shell."""
+
+    catalog_by_id = {case["id"]: case for case in catalog["cases"]}
+    output_dir = Path(artifact_dir or "artifacts/qa-data-signal/e2e-us")
+    required_case_ids = US_E2E_CASE_IDS + (("DATA-COM-006",) if gateway_expected else ())
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        message = "Playwright가 설치되지 않았습니다. `pip install -e '.[qa]'` 후 `playwright install chromium`을 실행하세요."
+        return [
+            _result(catalog_by_id, case_id, "fail", message, monotonic())
+            for case_id in required_case_ids
+        ]
+
+    try:
+        from app.config import get_settings
+
+        configured_invite = str(get_settings().dashboard_invite_code or "").strip()
+    except Exception:
+        configured_invite = ""
+    invite_code = str(
+        os.environ.get("QA_DASHBOARD_INVITE_CODE")
+        or os.environ.get("DASHBOARD_INVITE_CODE")
+        or configured_invite
+    ).strip()
+    share_id = str(os.environ.get("QA_DASHBOARD_SHARE_ID") or "qa-automation").strip()
+    base_parts = urlsplit(base_url)
+
+    def assert_gateway_boundary(requests: list[dict[str, str]]) -> dict[str, Any]:
+        if not gateway_expected:
+            return {"gateway_expected": False, "request_count": len(requests)}
+        bypasses: list[dict[str, str]] = []
+        protected_prefixes = (
+            "/assets/",
+            "/market/",
+            "/session/",
+            "/ws/",
+            "/us/market/",
+            "/us/stocks/",
+            "/us/watchlists/",
+            "/watchlists/",
+        )
+        for request in requests:
+            parts = urlsplit(request["url"])
+            if parts.netloc != base_parts.netloc:
+                continue
+            path = parts.path
+            if path.startswith("/us-gateway/"):
+                continue
+            if path.startswith(protected_prefixes):
+                bypasses.append(request)
+        if bypasses:
+            raise QaFailure(
+                "공식 /us 브라우저 요청이 미국 게이트웨이를 우회했습니다.",
+                {"bypasses": bypasses[:20]},
+            )
+        return {"gateway_expected": True, "request_count": len(requests), "bypasses": []}
+
+    def wait_for_authenticated_shell(page: Any, selector: str) -> None:
+        page.wait_for_selector("#login-gate", state="hidden")
+        page.wait_for_selector(selector, state="visible")
+
+    def standalone_product_case(page: Any, theme: str) -> dict[str, Any]:
+        requests: list[dict[str, str]] = []
+        page.on(
+            "request",
+            lambda request: requests.append(
+                {"url": request.url, "resource_type": request.resource_type}
+            ),
+        )
+        _navigate_page(
+            page,
+            _page_url(
+                base_url,
+                "/us",
+                view="overview",
+                qa_run=datetime.now(KST).strftime("%H%M%S"),
+            ),
+            wait_until="commit",
+            ready_selector="#overview-view",
+        )
+        wait_for_authenticated_shell(page, "#overview-view")
+        page.wait_for_selector("#overview-us")
+        shell = page.evaluate(
+            """() => ({
+              htmlUniverse: document.documentElement.dataset.marketUniverse,
+              marketScope: document.body.dataset.marketScope,
+              appMarket: document.body.dataset.appMarket,
+              title: document.title,
+              gateway: window.__US_PUBLIC_GATEWAY__ || '',
+              css: document.querySelector('link[href*="/assets/nasdaq/styles.css?"]')?.getAttribute('href') || '',
+              script: document.querySelector('script[src*="/assets/nasdaq/app.js?"]')?.getAttribute('src') || '',
+              sharedCss: Boolean(document.querySelector('link[href*="/assets/dashboard/styles.css"]')),
+              sharedScript: Boolean(document.querySelector('script[src*="/dashboard-app-v170.js"]')),
+              pages: ['overview-view', 'stock-view', 'watchlist-view', 'chart-view', 'recommend-view',
+                      'recommend-history-view', 'trend-view', 'market-view'].filter(id => document.getElementById(id)),
+              nav: [...document.querySelectorAll('#side-nav [data-view]')].map(node => ({
+                view: node.dataset.view,
+                label: node.textContent.trim(),
+              })),
+              overviewVisible: !document.querySelector('#overview-view')?.hidden,
+              loginHidden: document.querySelector('#login-gate')?.hidden === true,
+              forbiddenDomesticCopy: ['국내증시', '한국증시', 'KOSPI', 'KOSDAQ'].filter(text => document.body.innerText.includes(text)),
+              menuRect: (() => {
+                const rect = document.querySelector('#mobile-menu-toggle')?.getBoundingClientRect();
+                return rect ? {width: rect.width, height: rect.height} : null;
+              })(),
+            })"""
+        )
+        expected_labels = {
+            "시장 한눈에",
+            "미국 종목 검색",
+            "관심 종목",
+            "AI 차트 분석",
+            "지금 추천 종목",
+            "트랜드 분석",
+            "급상승 종목",
+        }
+        observed_labels = {item["label"] for item in shell["nav"]}
+        if any(
+            (
+                shell["htmlUniverse"] != "us",
+                shell["marketScope"] != "us",
+                shell["appMarket"] != "us",
+                shell["title"] != "비밀노트 · 미국증시",
+                not shell["overviewVisible"],
+                not shell["loginHidden"],
+                not shell["css"],
+                not shell["script"],
+                shell["sharedCss"],
+                shell["sharedScript"],
+                len(shell["pages"]) != 8,
+                not expected_labels.issubset(observed_labels),
+                bool(shell["forbiddenDomesticCopy"]),
+                not shell["menuRect"],
+                shell["menuRect"]["width"] < 44,
+                shell["menuRect"]["height"] < 44,
+            )
+        ):
+            raise QaFailure("보존된 미국 전용 셸·내비게이션 계약이 일치하지 않습니다.", shell)
+        if gateway_expected and (
+            shell["gateway"] != "/us-gateway"
+            or not shell["css"].startswith("/us-gateway/")
+            or not shell["script"].startswith("/us-gateway/")
+        ):
+            raise QaFailure("공식 /us가 미국 독립 자산 게이트웨이를 사용하지 않습니다.", shell)
+
+        viewports: list[dict[str, Any]] = []
+        for width in (320, 458):
+            page.set_viewport_size({"width": width, "height": 872})
+            page.locator("#mobile-menu-toggle").click()
+            page.wait_for_selector("body.mobile-menu-open")
+            menu_state = page.evaluate(
+                """() => ({
+                  viewport: innerWidth,
+                  rootWidth: document.documentElement.scrollWidth,
+                  bodyWidth: document.body.scrollWidth,
+                  expanded: document.querySelector('#mobile-menu-toggle')?.getAttribute('aria-expanded'),
+                  navVisible: document.querySelector('#side-nav')?.getClientRects().length > 0,
+                })"""
+            )
+            if (
+                menu_state["rootWidth"] > menu_state["viewport"] + 2
+                or menu_state["bodyWidth"] > menu_state["viewport"] + 2
+                or menu_state["expanded"] != "true"
+                or not menu_state["navVisible"]
+            ):
+                raise QaFailure("미국 전용 모바일 메뉴에 가로 넘침 또는 접근성 오류가 있습니다.", menu_state)
+            page.locator('#side-nav [data-view="watchlist"]').click()
+            page.wait_for_selector("#watchlist-view", state="visible")
+            viewports.append({"width": width, **menu_state})
+
+        _navigate_page(
+            page,
+            _page_url(base_url, "/us/stock/NVDA", qa_run=datetime.now(KST).strftime("%H%M%S")),
+            wait_until="commit",
+            ready_selector="#stock-view",
+        )
+        wait_for_authenticated_shell(page, "#stock-view")
+        page.wait_for_selector("#stock-mini-chart")
+        stock = page.evaluate(
+            """() => ({
+              path: location.pathname,
+              visible: !document.querySelector('#stock-view')?.hidden,
+              hasMiniChart: Boolean(document.querySelector('#stock-mini-chart')),
+              rootWidth: document.documentElement.scrollWidth,
+              viewport: innerWidth,
+            })"""
+        )
+        if (
+            stock["path"] != "/us/stock/NVDA"
+            or not stock["visible"]
+            or not stock["hasMiniChart"]
+            or stock["rootWidth"] > stock["viewport"] + 2
+        ):
+            raise QaFailure("미국 전용 종목상세·미니차트 계약이 일치하지 않습니다.", stock)
+        page.screenshot(path=str(output_dir / f"us-standalone-{theme}.png"), full_page=True)
+        return {
+            "theme": theme,
+            "shell": shell,
+            "stock": stock,
+            "viewports": viewports,
+            "request_boundary": assert_gateway_boundary(requests),
+        }
+
+    def recommendation_case(page: Any, theme: str) -> dict[str, Any]:
+        _navigate_page(
+            page,
+            _page_url(base_url, "/us", view="recommend", qa_run=datetime.now(KST).strftime("%H%M%S")),
+            wait_until="commit",
+            ready_selector="#recommend-view",
+        )
+        wait_for_authenticated_shell(page, "#recommend-view")
+        page.wait_for_selector("#recommend-list .recommend-card", state="visible", timeout=120_000)
+        observed = page.locator("#recommend-list").evaluate(
+            """root => ({
+              cardCount: root.querySelectorAll('.recommend-card').length,
+              text: root.innerText,
+              overflow: root.scrollWidth - root.clientWidth,
+              pageOverflow: document.documentElement.scrollWidth - innerWidth,
+            })"""
+        )
+        if (
+            observed["cardCount"] < 1
+            or observed["overflow"] > 2
+            or observed["pageOverflow"] > 2
+            or "추천" not in observed["text"]
+        ):
+            raise QaFailure("미국 전용 추천 카드·모바일 리플로가 준비되지 않았습니다.", observed)
+        return {"theme": theme, **observed}
+
+    def trend_case(page: Any, theme: str) -> dict[str, Any]:
+        _navigate_page(
+            page,
+            _page_url(base_url, "/us", view="trend", qa_run=datetime.now(KST).strftime("%H%M%S")),
+            wait_until="commit",
+            ready_selector="#trend-view",
+        )
+        wait_for_authenticated_shell(page, "#trend-view")
+        page.locator('[data-trend-tab="live"]').click()
+        page.wait_for_selector("#trend-live-panel", state="visible")
+        page.wait_for_selector('#trend-thread a[href^="http"]', state="visible", timeout=60_000)
+        observed = page.evaluate(
+            """() => ({
+              tabs: [...document.querySelectorAll('[data-trend-tab]')].map(node => node.textContent.trim()),
+              links: [...document.querySelectorAll('#trend-thread a[href^="http"]')].map(node => ({
+                href: node.href,
+                rel: node.rel,
+                text: node.textContent.trim(),
+              })),
+              text: document.querySelector('#trend-thread')?.innerText || '',
+              overflow: document.documentElement.scrollWidth - innerWidth,
+            })"""
+        )
+        invalid_links = [
+            item for item in observed["links"]
+            if urlsplit(item["href"]).scheme not in {"http", "https"}
+        ]
+        if (
+            observed["tabs"] != ["주요 이벤트", "실시간 트렌드"]
+            or not observed["links"]
+            or invalid_links
+            or observed["overflow"] > 2
+        ):
+            raise QaFailure("미국 전용 트랜드의 실제 원문 링크·탭·리플로가 일치하지 않습니다.", observed)
+        return {"theme": theme, **observed, "invalid_links": invalid_links}
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(headless=True)
+        except Exception as exc:
+            message = (
+                "Chromium을 시작하지 못했습니다. `playwright install chromium`을 실행하세요. "
+                f"({type(exc).__name__})"
+            )
+            return [
+                _result(catalog_by_id, case_id, "fail", message, monotonic())
+                for case_id in required_case_ids
+            ]
+        try:
+            try:
+                storage_state = _browser_auth_state(
+                    browser,
+                    base_url=base_url,
+                    timeout=timeout,
+                    invite_code=invite_code,
+                    us_gateway=gateway_expected,
+                )
+            except QaFailure as exc:
+                return [
+                    _result(catalog_by_id, case_id, "fail", str(exc), monotonic(), exc.evidence)
+                    for case_id in required_case_ids
+                ]
+            callbacks: list[tuple[str, Callable[[Any, str], dict[str, Any]]]] = [
+                ("SIG-UI-031", standalone_product_case),
+                ("REC-US-INDEPENDENT-001", recommendation_case),
+                ("DATA-US-NEWS-001", trend_case),
+            ]
+            if gateway_expected:
+                callbacks.append(("DATA-COM-006", standalone_product_case))
+            return [
+                _run_page_case(
+                    browser=browser,
+                    catalog_by_id=catalog_by_id,
+                    case_id=case_id,
+                    base_url=base_url,
+                    timeout=timeout,
+                    artifact_dir=output_dir,
+                    callback=callback,
+                    storage_state=storage_state,
+                    share_id=share_id,
+                )
+                for case_id, callback in callbacks
+            ]
+        finally:
+            browser.close()
+
+
 def run_e2e_checks(
     *,
     catalog: dict[str, Any],
@@ -1647,7 +1971,7 @@ def run_e2e_checks(
     surface: str = "dashboard",
 ) -> list[dict[str, Any]]:
     if surface in {"us", "us-gateway"}:
-        return _run_us_e2e_checks(
+        return _run_us_standalone_e2e_checks(
             catalog=catalog,
             base_url=base_url,
             timeout=timeout,
