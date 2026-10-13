@@ -85,6 +85,23 @@ jobs:
         run: |
           set -euo pipefail
           railway logs --project "$DIAG_PROJECT" --service "$DIAG_COLLECTOR" --environment production --lines 180 --json --latest | python scripts/safe_collector_diagnostics.py
+      - name: Read US collector snapshot and scheduling state
+        if: matrix.surface == 'us'
+        run: |
+          set -euo pipefail
+          task_dir="$(mktemp -d)"
+          ssh-keygen -q -t ed25519 -N '' -C "us-state-readonly-${GITHUB_RUN_ID}" -f "$task_dir/key"
+          fingerprint="$(ssh-keygen -lf "$task_dir/key.pub" -E sha256 | awk '{print $2}')"
+          eval "$(ssh-agent -s)"
+          ssh-add "$task_dir/key"
+          mkdir -p "$HOME/.ssh"
+          printf 'Host *\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile %s\n' "$task_dir/known_hosts" > "$HOME/.ssh/config"
+          cleanup() { railway ssh keys remove "$fingerprint"; ssh-agent -k; }
+          trap cleanup EXIT
+          railway ssh keys add --key "$fingerprint" --name "us-state-readonly-${GITHUB_RUN_ID}"
+          code="$(cat scripts/probe_us_snapshot_readonly.py)"
+          command="python -c $(printf '%q' "$code")"
+          railway ssh -p "$DIAG_PROJECT" -s "$DIAG_COLLECTOR" -e production --identity-file "$task_dir/key" -- "$command"
   pin_staging_readonly:
     if: inputs.pin_staging_readonly
     runs-on: ubuntu-latest
