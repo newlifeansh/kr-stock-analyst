@@ -1,5 +1,7 @@
 # Combined KR/US candidate — 2026-10-12 rc1
 
+This document preserves the initial rc1/rc2 scope. For the superseding rc14 source, immutable image, operator approval, production deployment evidence and remaining data limits, see [the 2026-10-13 release record](regular-session-price-basis-20261013.md). The historical approval hold below was resolved by the operator's 2026-10-13 authorization; it is not a new pending approval.
+
 - Release branch: `release/combined-markets-20261012-rc1`.
 - Pending-work checkpoint: `63d6616` (all 37 previously uncommitted files).
 - Integrated upstream: `a1391a67a92c1bf795b63821d776bc0e80930aea` (financial-series fixes and subsequent verified data/QA corrections).
