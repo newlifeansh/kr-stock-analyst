@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   e2e:
@@ -25,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: de6a6bdf4379b5e1b9235cc372caa1bcf318a6de
+          ref: 6e267e97509ca2e75bdc1e67ab414042215a9c79
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -53,12 +54,23 @@ jobs:
           code = os.environ['QA_DASHBOARD_INVITE_CODE'].strip().upper()
           print('::add-mask::' + hashlib.sha256(('secret-note-invite-v1:' + code).encode()).hexdigest())
           PY
+      - name: Wait for the exact corrected production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 60); do
+            phase="$(gh api repos/newlifeansh/kr-stock-analyst/actions/runs/38406215696/jobs --jq '.jobs[] | select(.name=="deploy_production") | .conclusion')"
+            if test "$phase" = success; then exit 0; fi
+            if test "$phase" = failure || test "$phase" = cancelled; then exit 1; fi
+            sleep 15
+          done
+          exit 1
       - name: Verify exact deployed source and assets
         run: >-
           analyst qa release-parity
           --surface "${{ matrix.surface }}"
           --staging-url "$QA_BASE_URL"
-          --source-sha de6a6bdf4379b5e1b9235cc372caa1bcf318a6de
+          --source-sha 6e267e97509ca2e75bdc1e67ab414042215a9c79
           --wait-seconds 60
           --output artifacts/qa-data-signal/parity.json
       - name: Run US E2E and retry failed KR cases with explicit scope
