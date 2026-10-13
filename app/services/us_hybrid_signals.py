@@ -122,12 +122,15 @@ def verified_minutes(raw: dict, code: str, now: datetime) -> tuple[list[dict], s
             return [], "timestamp_invalid"
         if not session.open_at <= observed < session.close_at:
             continue
+        # Yahoo can append a seconds-stamped, zero-volume current-price point.
+        # A forming observation is never a completed minute and must not poison
+        # the valid finished prefix. Finished misaligned timestamps still fail.
+        if observed + timedelta(minutes=1) > now:
+            continue
         if stamp in seen or stamp < previous_timestamp or stamp % 60:
             return [], "minute_order_invalid"
         seen.add(stamp)
         previous_timestamp = stamp
-        if observed + timedelta(minutes=1) > now:
-            continue
         last_completed_timestamp = stamp
         values = {}
         for key in ("open", "high", "low", "close", "volume"):

@@ -272,6 +272,20 @@ def test_hybrid_minute_transport_explicitly_requests_split_evidence(monkeypatch)
     assert hybrid.verified_minutes(result, "AAPL", OPEN + timedelta(minutes=2, seconds=5)) == ([], "corporate_action_review")
 
 
+def test_hybrid_ignores_seconds_stamped_forming_tail_not_finished_misalignment():
+    raw = chart((100, 100.1, 100.2))
+    raw["timestamp"][-1] = int((OPEN + timedelta(minutes=1, seconds=38)).timestamp())
+    raw["indicators"]["quote"][0]["volume"][-1] = 0
+    now = OPEN + timedelta(minutes=2, seconds=5)
+    points, quality = hybrid.verified_minutes(raw, "AAPL", now)
+    assert quality == "fresh" and len(points) == 2
+    state = hybrid.advance_us_hybrid_state(initial(), feed(), {"AAPL": raw}, now)
+    assert state["positions"]["AAPL"]["entry_price"] == 100.1
+    malformed = chart()
+    malformed["timestamp"][0] += 1
+    assert hybrid.verified_minutes(malformed, "AAPL", now) == ([], "minute_order_invalid")
+
+
 def test_hybrid_collector_persists_without_provider_calls_outside_session(db, monkeypatch):
     monkeypatch.setattr("app.services.us_position_lifecycle.load_us_position_lifecycle_snapshot", lambda *args, **kwargs: feed())
     def forbidden(code):
