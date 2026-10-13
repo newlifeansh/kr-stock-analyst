@@ -369,7 +369,7 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
     if state is None:
         result.update({"status": "preparing", "data_state": "preparing", "new_entries_allowed": False,
                        "hybrid_status": "waiting_completed_setups", "confirmed_count": 0,
-                       "preliminary_count": 0, "signal_execution_enabled": False})
+                       "preliminary_count": 0, "entry_pending_count": 0, "signal_execution_enabled": False})
         return result
     base_ready = _base_ready(feed, current)
     calendar = us_signal_session_state(current)
@@ -457,8 +457,9 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
         archived["current"] = {**archived.get("current", {}), "position_open": False, "model_exposure_percent": 0}
         result["preliminary_history"].append(archived)
     result["items"].sort(key=lambda item: (item["current"]["action"] == "entry_pending", -(_utc(item.get("signal_at")) or US_HYBRID_START).timestamp(), item["code"]))
-    result["confirmed_count"] = sum(not item["is_preliminary"] for item in result["items"])
+    result["confirmed_count"] = sum(item["current"]["position_open"] for item in result["items"])
     result["preliminary_count"] = sum(item["is_preliminary"] for item in result["items"])
+    result["entry_pending_count"] = sum(item["current"]["action"] == "entry_pending" for item in result["items"])
     result["intraday_coverage"] = {
         "monitored_count": len(codes), "fresh_count": sum(item["quote_state"] == "fresh" for item in result["items"]),
         "source": "yahoo_chart_1m", "delayed_or_missing_blocks_confirmation": True,

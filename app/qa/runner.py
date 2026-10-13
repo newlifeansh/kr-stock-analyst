@@ -54,6 +54,10 @@ MOBILE_BROWSER_USER_AGENT = (
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-US-HYBRID-001": (
+        "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[preparing]",
+        "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[pending]",
+        "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[entered]",
+        "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[exited]",
         "tests.test_us_hybrid_signals.test_hybrid_two_fresh_minutes_enter_once_and_restart_is_idempotent",
         "tests.test_us_hybrid_signals.test_hybrid_partial_then_remaining_exit_weighted_return_and_no_same_day_reentry",
         "tests.test_us_hybrid_signals.test_hybrid_profit_after_entry_does_not_read_same_minute_high",

@@ -223,6 +223,28 @@ def test_hybrid_public_redaction_keeps_intraday_contract_without_daily_replay_co
     assert "다음 정규장 시가를 기준으로" not in serialized
     recommendation = public_recommendation_signal_payload(projected)
     assert "완료 1분봉" in recommendation["methodology"][0]
+    for payload in (public, recommendation):
+        assert all(token in payload["methodology"][0] for token in ("수정 OHLC", "SPY·QQQ", "거래대금", "완료 1분봉"))
+        assert "다음 정규장 시가를 통과한 모델 재현" not in payload["methodology"][0]
+
+
+@pytest.mark.parametrize("stage", ["preparing", "pending", "entered", "exited"])
+def test_hybrid_counts_never_inherit_legacy_daily_positions(db, stage):
+    from app.services.us_market import build_us_quant_signals
+    daily = feed()
+    daily.update({"confirmed_count": 99, "preliminary_count": 98, "entry_pending_count": 97})
+    state = initial() if stage == "pending" else entered()
+    current = OPEN + timedelta(minutes=2, seconds=10)
+    if stage == "exited":
+        current = OPEN + timedelta(minutes=3, seconds=10)
+        state = hybrid.advance_us_hybrid_state(state, daily, {"AAPL": chart((100, 100.1, 106))}, current)
+    if stage != "preparing":
+        save(db, state)
+    projected = hybrid.project_us_hybrid_feed(db, daily, now=current)
+    for payload in (projected, build_us_quant_signals(limit=1, feed=projected)):
+        assert payload["entry_pending_count"] == int(stage == "pending")
+        assert payload["preliminary_count"] == int(stage == "pending")
+        assert payload["confirmed_count"] == int(stage == "entered")
 
 
 def test_hybrid_raw_price_basis_uses_unadjusted_notional():

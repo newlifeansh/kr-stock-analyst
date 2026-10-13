@@ -46,6 +46,12 @@ US_PUBLIC_HYBRID_REASON = (
     "완료 종가 후보와 정규장 최신 완료 1분봉으로 확인하는 장중 모델 신호입니다. "
     "실제 계좌 주문·체결이 아니며 지연 시세에서는 새 확정을 보류합니다."
 )
+US_PUBLIC_HYBRID_METHODOLOGY = (
+    "완료된 미국 정규장 Top100의 분할·배당 수정 OHLC, SPY·QQQ 시장 국면, "
+    "섹터 상대 흐름과 거래대금 참여도로 종가 후보를 선정합니다. "
+    "장중 확인은 수정되지 않은 정규장 완료 1분봉 관측가를 사용합니다. "
+    f"{US_PUBLIC_HYBRID_REASON} {US_DOLLAR_VOLUME_NOTICE}"
+)
 US_PUBLIC_HYBRID_NEXT_CHECK = "정규장 분봉의 실제 관측 시각과 매수·매도 확정 상태를 확인하세요."
 
 _POSITIVE_STATES = {"positive", "supportive", "approved", "ready", "bullish"}
@@ -626,7 +632,7 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
         result.pop("sector_classification_errors", None)
         result.pop("universe_members", None)
         result.pop("public_member_signals", None)
-        result["methodology"] = [US_PUBLIC_HYBRID_REASON if result.get("rollout_mode") == "hybrid_forward" else US_PUBLIC_SIGNAL_METHODOLOGY]
+        result["methodology"] = [US_PUBLIC_HYBRID_METHODOLOGY if result.get("rollout_mode") == "hybrid_forward" else US_PUBLIC_SIGNAL_METHODOLOGY]
         if not us_snapshot_ready:
             # A previous-session lifecycle is diagnostic history, not a
             # current signal. Do not let legacy side/is_current_holding fields
@@ -739,7 +745,7 @@ def public_recommendation_signal_payload(
         result.pop("sector_classification_errors", None)
         result.pop("universe_members", None)
         result.pop("public_member_signals", None)
-        result["methodology"] = [US_PUBLIC_HYBRID_REASON if result.get("rollout_mode") == "hybrid_forward" else US_PUBLIC_SIGNAL_METHODOLOGY]
+        result["methodology"] = [US_PUBLIC_HYBRID_METHODOLOGY if result.get("rollout_mode") == "hybrid_forward" else US_PUBLIC_SIGNAL_METHODOLOGY]
         if not us_snapshot_ready:
             result["items"] = []
             result["candidate_count"] = 0
