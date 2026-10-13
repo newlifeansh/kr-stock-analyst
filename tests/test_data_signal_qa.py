@@ -39,6 +39,7 @@ from app.qa.e2e import (
     _chart_study_payload_with_recent_pattern,
     _navigate_page,
     _page_url,
+    _stock_contract,
     _us_completed_signal_quote_state_ready,
     _us_signal_quote_state_ready,
     _us_observed_path,
@@ -1551,6 +1552,53 @@ def test_us_standalone_e2e_checks_archived_actions_and_visible_live_news() -> No
     assert 'or "AI 설명 받기" not in observed["text"]' in source
     assert 'or "추천" not in observed["text"]' not in source
     assert '#trend-live-panel:not([hidden]) #trend-thread a[href^="http"]' in source
+    assert 'page.wait_for_selector("#stock-mini-chart", state="attached")' in source
+    assert 'page.wait_for_selector("#stock-mini-chart")' not in source
+
+
+def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_etf(
+    monkeypatch,
+) -> None:
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url):
+            if url.endswith("/quant-signals"):
+                return httpx.Response(
+                    503,
+                    json={
+                        "detail": "이전 장중 매매 기록을 재검증 중입니다."
+                    },
+                )
+            if url.endswith("/quote"):
+                return httpx.Response(
+                    200,
+                    json={"quote": {"price": 100, "change_rate": 0.1}},
+                )
+            return httpx.Response(
+                200,
+                json={"code": "069500", "name": "KODEX 200", "market": "KOSPI"},
+            )
+
+    monkeypatch.setattr("app.qa.e2e.httpx.Client", lambda **_kwargs: FakeClient())
+
+    with pytest.raises(QaFailure):
+        _stock_contract("https://staging.test", 5, "069500")
+
+    payload = _stock_contract(
+        "https://staging.test",
+        5,
+        "069500",
+        allow_verified_replay_pending=True,
+    )
+    assert payload["signal_http"] == 503
+    assert payload["signal_replay_pending"] is True
+    assert "재검증 중" in payload["signal_failure_detail"]
+    assert payload["signal_action"] is None
 
 
 def test_domestic_e2e_keeps_the_independent_us_product_out_of_boundary_check() -> None:

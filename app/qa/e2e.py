@@ -277,16 +277,34 @@ def _result(
     }
 
 
-def _stock_contract(base_url: str, timeout: float, code: str) -> dict[str, Any]:
+def _stock_contract(
+    base_url: str,
+    timeout: float,
+    code: str,
+    *,
+    allow_verified_replay_pending: bool = False,
+) -> dict[str, Any]:
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         stock_response = client.get(f"{base_url.rstrip('/')}/stocks/{code}")
         quote_response = client.get(f"{base_url.rstrip('/')}/stocks/{code}/quote")
         signal_response = client.get(
             f"{base_url.rstrip('/')}/stocks/{code}/quant-signals"
         )
-    if any(
-        response.status_code >= 400
-        for response in (stock_response, quote_response, signal_response)
+    signal_detail = ""
+    if signal_response.status_code == 503:
+        try:
+            signal_detail = str(signal_response.json().get("detail") or "")
+        except (TypeError, ValueError):
+            signal_detail = ""
+    signal_replay_pending = bool(
+        allow_verified_replay_pending
+        and signal_response.status_code == 503
+        and "재검증 중" in signal_detail
+    )
+    if (
+        stock_response.status_code >= 400
+        or quote_response.status_code >= 400
+        or (signal_response.status_code >= 400 and not signal_replay_pending)
     ):
         raise QaFailure(
             f"{code} API 계약을 준비하지 못했습니다.",
@@ -299,7 +317,7 @@ def _stock_contract(base_url: str, timeout: float, code: str) -> dict[str, Any]:
     stock = stock_response.json()
     quote_payload = quote_response.json()
     quote = quote_payload.get("quote") or quote_payload
-    signal = signal_response.json()
+    signal = {} if signal_replay_pending else signal_response.json()
     current = signal.get("current") or {}
     price = quote.get("price") or quote.get("current_price") or quote.get("current")
     if isinstance(price, dict):
@@ -315,6 +333,9 @@ def _stock_contract(base_url: str, timeout: float, code: str) -> dict[str, Any]:
         or quote_payload.get("market_status"),
         "market_state_label": quote.get("market_session_label"),
         "quote_as_of": quote_payload.get("as_of") or quote.get("trade_date"),
+        "signal_http": signal_response.status_code,
+        "signal_replay_pending": signal_replay_pending,
+        "signal_failure_detail": signal_detail if signal_replay_pending else None,
         "signal_as_of": signal.get("as_of"),
         "signal_action": current.get("action"),
         "signal_label": current.get("label"),
@@ -1823,7 +1844,7 @@ def _run_us_standalone_e2e_checks(
             ready_selector="#stock-view",
         )
         wait_for_authenticated_shell(page, "#stock-view")
-        page.wait_for_selector("#stock-mini-chart")
+        page.wait_for_selector("#stock-mini-chart", state="attached")
         stock = page.evaluate(
             """() => ({
               path: location.pathname,
@@ -1999,7 +2020,12 @@ def run_e2e_checks(
     contract_started = monotonic()
     try:
         samsung = _stock_contract(base_url, timeout, "005930")
-        etf = _stock_contract(base_url, timeout, "069500")
+        etf = _stock_contract(
+            base_url,
+            timeout,
+            "069500",
+            allow_verified_replay_pending=True,
+        )
         market_signals = _market_signal_contract(base_url, timeout)
     except Exception as exc:  # noqa: BLE001 - convert preparation failures into a complete QA report.
         message = f"E2E API 사전조건 확인 실패: {type(exc).__name__}: {exc}"
@@ -3545,28 +3571,50 @@ def run_e2e_checks(
                         )
                     signal_tab = page.locator('[data-stock-tab="strategy"]')
                     _select_tab(signal_tab)
-                    _wait_for_ui_contract(
-                        page,
-                        """() => {
-                          const payload = state.stockQuantSignals;
-                          const actual = document.querySelector('#quant-current-label')
-                            ?.textContent?.trim() || '';
-                          return Boolean(payload && actual)
-                            && quantSignalCurrentState(payload).headline === actual;
-                        }""",
-                        stage=f"{stock['code']} 현재 AI 시그널 단계",
-                        timeout_ms=int(timeout * 1000),
-                    )
-                    signal_stage_contract = page.evaluate(
-                        """() => ({
-                          action: state.stockQuantSignals?.current?.action || '',
-                          expected: state.stockQuantSignals
-                            ? quantSignalCurrentState(state.stockQuantSignals).headline
-                            : '',
-                          displayed: document.querySelector('#quant-current-label')
-                            ?.textContent?.trim() || '',
-                        })"""
-                    )
+                    if stock.get("signal_replay_pending"):
+                        _wait_for_ui_contract(
+                            page,
+                            """() => {
+                              const status = document.querySelector('#quant-signal-status');
+                              return !state.stockQuantSignals
+                                && status
+                                && !status.hidden
+                                && status.textContent.includes('불러오지 못했습니다');
+                            }""",
+                            stage=f"{stock['code']} 검증 전 시그널 fail-close",
+                            timeout_ms=int(timeout * 1000),
+                        )
+                        signal_stage_contract = page.evaluate(
+                            """() => ({
+                              action: 'replay_pending',
+                              expected: '검증 전 시그널 비노출',
+                              displayed: document.querySelector('#quant-signal-status')
+                                ?.textContent?.trim() || '',
+                            })"""
+                        )
+                    else:
+                        _wait_for_ui_contract(
+                            page,
+                            """() => {
+                              const payload = state.stockQuantSignals;
+                              const actual = document.querySelector('#quant-current-label')
+                                ?.textContent?.trim() || '';
+                              return Boolean(payload && actual)
+                                && quantSignalCurrentState(payload).headline === actual;
+                            }""",
+                            stage=f"{stock['code']} 현재 AI 시그널 단계",
+                            timeout_ms=int(timeout * 1000),
+                        )
+                        signal_stage_contract = page.evaluate(
+                            """() => ({
+                              action: state.stockQuantSignals?.current?.action || '',
+                              expected: state.stockQuantSignals
+                                ? quantSignalCurrentState(state.stockQuantSignals).headline
+                                : '',
+                              displayed: document.querySelector('#quant-current-label')
+                                ?.textContent?.trim() || '',
+                            })"""
+                        )
                     expected_stage = signal_stage_contract["displayed"]
                     signal_changed_during_navigation = (
                         signal_stage_contract["action"] != stock.get("signal_action")
