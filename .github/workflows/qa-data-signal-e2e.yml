@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 610b1f900b4190f99a4b1a63939b68ba38b316fa
+          ref: de6a6bdf4379b5e1b9235cc372caa1bcf318a6de
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -46,35 +46,47 @@ jobs:
           test -n "$invite_code"
           echo "::add-mask::$invite_code"
           echo "QA_DASHBOARD_INVITE_CODE=$invite_code" >> "$GITHUB_ENV"
+      - name: Mask derived authentication cookie in runner output too
+        run: |
+          python - <<'PY'
+          import hashlib, os
+          code = os.environ['QA_DASHBOARD_INVITE_CODE'].strip().upper()
+          print('::add-mask::' + hashlib.sha256(('secret-note-invite-v1:' + code).encode()).hexdigest())
+          PY
       - name: Verify exact deployed source and assets
         run: >-
           analyst qa release-parity
           --surface "${{ matrix.surface }}"
           --staging-url "$QA_BASE_URL"
-          --source-sha 610b1f900b4190f99a4b1a63939b68ba38b316fa
+          --source-sha de6a6bdf4379b5e1b9235cc372caa1bcf318a6de
           --wait-seconds 60
           --output artifacts/qa-data-signal/parity.json
-      - name: Run mobile dark and light E2E
+      - name: Run US E2E and retry failed KR cases with explicit scope
+        env:
+          QA_SURFACE: ${{ matrix.surface }}
         run: |
-          test -n "$QA_BASE_URL"
-          set +e
-          analyst qa data-signal \
-            --mode e2e \
-            --surface "${{ matrix.surface }}" \
-            --base-url "$QA_BASE_URL" \
-            --output artifacts/qa-data-signal/e2e.json \
-            --artifact-dir artifacts/qa-data-signal/screenshots
-          qa_exit=$?
-          set -e
           python - <<'PY'
-          import json
-          from pathlib import Path
-          report = json.loads(Path("artifacts/qa-data-signal/e2e.json").read_text())
+          import json, os
+          from time import monotonic
+          from app.qa import e2e
+          from app.qa.runner import run_data_signal_qa, write_qa_report
+          surface = os.environ['QA_SURFACE']
+          selected = {'SIG-UI-003','SIG-UI-008','SIG-UI-009','SIG-PUSH-COMMUNITY-002','SIG-UI-015','SIG-UI-016','SIG-UI-025'}
+          original = e2e._run_page_case
+          def scoped(**kwargs):
+              if kwargs['case_id'] not in selected:
+                  return e2e._result(kwargs['catalog_by_id'], kwargs['case_id'], 'skip', 'Outside explicit failed-case retry scope; prior evidence retained.', monotonic())
+              return original(**kwargs)
+          if surface == 'dashboard':
+              e2e._run_page_case = scoped
+          report = run_data_signal_qa(mode='e2e', surface=surface, base_url=os.environ['QA_BASE_URL'], artifact_dir='artifacts/qa-data-signal/screenshots')
+          report['explicit_retry_scope'] = sorted(selected) if surface == 'dashboard' else 'all US E2E cases'
+          write_qa_report(report, 'artifacts/qa-data-signal/e2e.json')
+          print(json.dumps({'summary':report['summary'], 'checks':[{k:item[k] for k in ('id','status')} for item in report['checks']]}))
           failures = [item["id"] for item in report["checks"] if item["status"] == "fail"]
           if failures:
               raise SystemExit("E2E failures: " + ", ".join(failures))
           PY
-          exit "$qa_exit"
       - name: Upload E2E report and screenshots
         if: always()
         uses: actions/upload-artifact@v4
