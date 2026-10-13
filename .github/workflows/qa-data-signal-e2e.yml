@@ -1,14 +1,10 @@
-name: QA data-signal staging E2E
+name: QA exact hybrid production E2E
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: domestic-staging-runtime
-  cancel-in-progress: false
 
 jobs:
   e2e:
@@ -18,19 +14,18 @@ jobs:
       fail-fast: false
       matrix:
         surface: [dashboard, us]
-    environment: staging
+    environment: production
     env:
-      QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
+      QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
       QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
       QA_DASHBOARD_SHARE_ID: qa-automation
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
-      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
-      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
-      RAILWAY_DATABASE_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
-      RAILWAY_REGION: ${{ vars.DASHBOARD_STAGING_RAILWAY_REGION }}
+      DIAG_PROJECT: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_RAILWAY_PROJECT_ID || vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+      DIAG_WEB: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_RAILWAY_WEB_SERVICE || vars.PRODUCTION_RAILWAY_WEB_SERVICE }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 610b1f900b4190f99a4b1a63939b68ba38b316fa
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -38,13 +33,27 @@ jobs:
       - name: Install project and browser runtime
         run: |
           pip install -e '.[qa,mcp]'
-          playwright install chromium
-      - name: Install Railway CLI for domestic staging
-        if: matrix.surface == 'dashboard'
+          playwright install --with-deps chromium
+      - name: Install Railway CLI for existing QA authentication only
+        if: env.QA_DASHBOARD_INVITE_CODE == ''
         run: npm install --global @railway/cli@5.45.7
-      - name: Start domestic staging for browser QA
-        if: matrix.surface == 'dashboard'
-        run: ./scripts/railway_staging_runtime.sh up
+      - name: Read existing invite credential without changing authentication
+        if: env.QA_DASHBOARD_INVITE_CODE == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          invite_code="$(railway variable list --json --project "$DIAG_PROJECT" --service "$DIAG_WEB" --environment production | jq -r '.DASHBOARD_INVITE_CODE // empty')"
+          test -n "$invite_code"
+          echo "::add-mask::$invite_code"
+          echo "QA_DASHBOARD_INVITE_CODE=$invite_code" >> "$GITHUB_ENV"
+      - name: Verify exact deployed source and assets
+        run: >-
+          analyst qa release-parity
+          --surface "${{ matrix.surface }}"
+          --staging-url "$QA_BASE_URL"
+          --source-sha 610b1f900b4190f99a4b1a63939b68ba38b316fa
+          --wait-seconds 60
+          --output artifacts/qa-data-signal/parity.json
       - name: Run mobile dark and light E2E
         run: |
           test -n "$QA_BASE_URL"
@@ -70,10 +79,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-data-signal-e2e-${{ matrix.surface }}-${{ github.run_id }}
+          name: hybrid-production-e2e-${{ matrix.surface }}-${{ github.run_id }}
           path: artifacts/qa-data-signal
           if-no-files-found: error
-          retention-days: 30
-      - name: Stop domestic staging after browser QA
-        if: ${{ always() && matrix.surface == 'dashboard' }}
-        run: ./scripts/railway_staging_runtime.sh down
+          retention-days: 90
