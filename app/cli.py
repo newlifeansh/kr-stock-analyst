@@ -1104,6 +1104,45 @@ def send_community_popular_command(
         raise typer.Exit(code=1)
 
 
+@app.command("send-stock-news")
+def send_stock_news_command(
+    code: str = typer.Option("005930", "--code", help="Domestic stock code"),
+    rank: int = typer.Option(1, "--rank", min=1, help="Current stock-news rank to send"),
+    expected_news_id: str = typer.Option(
+        "", "--expected-news-id", help="Fail closed if the selected source article changed"
+    ),
+    send: bool = typer.Option(False, "--send/--dry-run", help="Send instead of previewing"),
+    confirm: str = typer.Option("", "--confirm", help="Required production confirmation token"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Optional redacted receipt JSON"),
+) -> None:
+    """Preview or send one current domestic stock-news notification."""
+
+    if send and confirm != "SEND-STOCK-NEWS":
+        raise typer.BadParameter(
+            "--send requires --confirm SEND-STOCK-NEWS",
+            param_hint="--confirm",
+        )
+    with PushSessionLocal() as db:
+        try:
+            receipt = web_push_runtime.send_operator_stock_news(
+                db,
+                code=code,
+                rank=rank,
+                expected_news_id=expected_news_id or None,
+                dry_run=not send,
+            )
+        except (RuntimeError, ValueError) as exc:
+            typer.echo(f"Stock-news notification failed: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+    payload = json.dumps(receipt, ensure_ascii=False, indent=2)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(payload + "\n", encoding="utf-8")
+    typer.echo(payload)
+    if send and int(receipt["failed"]) > 0:
+        raise typer.Exit(code=1)
+
+
 @app.command("regular-session-prices")
 def regular_session_prices_command(
     codes: str = typer.Option(..., "--codes", help="Explicit comma-separated KRX symbols"),

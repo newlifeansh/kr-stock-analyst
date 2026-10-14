@@ -278,6 +278,7 @@ const elements = {
   stockReportModeTabs: Array.from(document.querySelectorAll("[data-report-mode]")),
   stockReportHistoryChart: $("stock-report-history-chart"),
   stockReportSummary: $("stock-report-summary"),
+  stockNewsSection: $("stock-news-section"),
   stockNewsTemperature: $("stock-news-temperature"),
   stockNewsTemperatureChart: $("stock-news-temperature-chart"),
   stockCommunitySection: $("stock-community-section"),
@@ -2966,7 +2967,7 @@ function scrollToStockSection(hash, options = {}) {
     "#stock-company-section": "company",
     "#stock-company-profile": "company",
     "#stock-finance-section": "company",
-    "#stock-news-section": "summary",
+    "#stock-news-section": "news",
     "#stock-macro-section": "summary",
   };
   setActiveStockTab(map[hash] || "summary", { preserveScroll: options.instant });
@@ -13524,6 +13525,7 @@ const PUSH_HISTORY_KIND_LABELS = {
   market_ai_signal: "시장 AI 시그널",
   recommendation_update: "추천 업데이트",
   community_popular: "커뮤니티 인기글",
+  stock_news: "종목 뉴스",
   price_move: "시세",
   report: "리포트",
   disclosure: "공시",
@@ -13531,7 +13533,9 @@ const PUSH_HISTORY_KIND_LABELS = {
   test: "테스트",
 };
 
-const PUSH_HISTORY_WATCHLIST_KINDS = new Set(["price_move", "report", "disclosure", "community_popular"]);
+const PUSH_HISTORY_WATCHLIST_KINDS = new Set([
+  "price_move", "report", "disclosure", "community_popular", "stock_news",
+]);
 const PUSH_HISTORY_SIGNAL_KINDS = new Set(["ai_signal", "market_ai_signal"]);
 
 function pushHistoryMarketDate(timestamp, marketScope = "kr") {
@@ -31456,9 +31460,12 @@ async function syncViewFromLocation() {
     const stockParams = new URLSearchParams(window.location.search);
     const openCommunity = stockParams.get("tab") === "community";
     const openPopularCommunity = openCommunity && stockParams.get("community_mode") === "popular";
+    const openNews = stockParams.get("tab") === "news";
     if (openCommunity) {
       state.stockActiveTab = "community";
       state.stockCommunityMode = openPopularCommunity ? "popular" : "latest";
+    } else if (openNews) {
+      state.stockActiveTab = "news";
     }
     const stockQuery = decodeURIComponent(parts[1]);
     if (state.view !== "stock") {
@@ -31479,15 +31486,27 @@ async function syncViewFromLocation() {
       state.stockCommunityMode = "popular";
       void loadStockCommunityMode("popular");
     }
+    if (openNews) {
+      setActiveStockTab("news", { preserveScroll: true, instant: true });
+      window.requestAnimationFrame(() => {
+        elements.stockNewsSection?.scrollIntoView({
+          behavior: "auto",
+          block: "start",
+        });
+      });
+    }
     return;
   }
   if (parts[0] === "us" && parts[1] === "stock" && parts[2]) {
     const stockParams = new URLSearchParams(window.location.search);
     const openCommunity = stockParams.get("tab") === "community";
     const openPopularCommunity = openCommunity && stockParams.get("community_mode") === "popular";
+    const openNews = stockParams.get("tab") === "news";
     if (openCommunity) {
       state.stockActiveTab = "community";
       state.stockCommunityMode = openPopularCommunity ? "popular" : "latest";
+    } else if (openNews) {
+      state.stockActiveTab = "news";
     }
     const stockQuery = decodeURIComponent(parts[2]);
     if (state.view !== "stock") {
@@ -31510,6 +31529,15 @@ async function syncViewFromLocation() {
     if (openPopularCommunity) {
       state.stockCommunityMode = "popular";
       void loadStockCommunityMode("popular");
+    }
+    if (openNews) {
+      setActiveStockTab("news", { preserveScroll: true, instant: true });
+      window.requestAnimationFrame(() => {
+        elements.stockNewsSection?.scrollIntoView({
+          behavior: "auto",
+          block: "start",
+        });
+      });
     }
     return;
   }

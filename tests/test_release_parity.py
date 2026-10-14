@@ -24,8 +24,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20261013v574"
-    assert contract["dashboard_version"] == "20261013v574"
+    assert contract["product_version"] == "20261014v575"
+    assert contract["dashboard_version"] == "20261014v575"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -239,6 +239,33 @@ def test_manual_community_push_workflow_is_confirmed_scoped_and_receipted() -> N
     assert "send-community-popular" in workflow
     assert "--expected-post-id" in workflow
     assert "community-popular-receipt.json" in workflow
+
+
+def test_manual_stock_news_push_workflow_is_confirmed_scoped_and_receipted() -> None:
+    workflow = Path(".github/workflows/send-stock-news.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    assert "environment:\n      name: production" in workflow
+    assert 'test "$CONFIRM" = "SEND-STOCK-NEWS"' in workflow
+    assert '[[ "$EXPECTED_NEWS_ID" =~ ^[0-9a-f]{20}$ ]]' in workflow
+    assert "PRODUCTION_RAILWAY_PROJECT_ID" in workflow
+    assert "PRODUCTION_RAILWAY_COLLECTOR_SERVICE" in workflow
+    assert "railway ssh" in workflow
+    assert "railway ssh keys add" in workflow
+    assert 'eval "$(ssh-agent -s)"' in workflow
+    assert 'ssh-add "$key_path"' in workflow
+    assert '--key "$fingerprint"' in workflow
+    assert "StrictHostKeyChecking accept-new" in workflow
+    assert "railway-stock-news-known-hosts" in workflow
+    assert "--identity-file" in workflow
+    assert "railway ssh keys remove" in workflow
+    assert "if: always()" in workflow
+    assert "--environment production" in workflow
+    assert "send-stock-news" in workflow
+    assert "--expected-news-id" in workflow
+    assert "stock-news-receipt.json" in workflow
 
 
 def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> None:

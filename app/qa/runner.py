@@ -155,6 +155,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_release_parity."
         "test_manual_community_push_workflow_is_confirmed_scoped_and_receipted",
     ),
+    "SIG-PUSH-NEWS-001": (
+        "tests.test_web_push."
+        "test_operator_stock_news_sends_once_with_news_anchor_to_enabled_domestic_subscribers",
+        "tests.test_web_push."
+        "test_operator_stock_news_fails_closed_when_article_changes_or_rank_is_missing",
+        "tests.test_stock_news_deep_link."
+        "test_cold_stock_navigation_opens_news_tab_and_anchors_stock_news_after_hydration",
+        "tests.test_release_parity."
+        "test_manual_stock_news_push_workflow_is_confirmed_scoped_and_receipted",
+    ),
     "SIG-EXIT-005": (
         "tests.test_quant_signals."
         "test_v8_existing_position_first_profit_exit_reaches_fifty_percent_without_legacy_cap",
