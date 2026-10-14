@@ -619,6 +619,7 @@ const HOME_MARKET_SIGNAL_RECENT_DAYS = 30;
 const AI_SIGNAL_HISTORY_DAYS = 30;
 const AI_SIGNAL_PERFORMANCE_DAYS = 30;
 const AI_SIGNAL_RECONCILE_TICK_MS = 30_000;
+const AI_SIGNAL_REQUEST_TIMEOUT_MS = 10_000;
 const AI_SIGNAL_ACTIVE_REFRESH_MS = 2 * 60_000;
 const AI_SIGNAL_CLOSED_REFRESH_MS = 10 * 60_000;
 const AI_SIGNAL_ACTIVE_STALE_MS = 6 * 60_000;
@@ -19450,6 +19451,7 @@ async function fetchMarketAiSignals(options = {}) {
       payload = await fetchJsonCached(url, {
         force: options.force === true || index > 0,
         ttlMs: index > 0 ? 0 : (options.ttlMs ?? PAGE_ENTRY_MINUTE_MS),
+        timeoutMs: AI_SIGNAL_REQUEST_TIMEOUT_MS,
       });
       if (!isAiSignalMarketUpdating(payload?.status)) break;
     }
@@ -19532,22 +19534,30 @@ async function fetchMarketAiSignals(options = {}) {
   };
 }
 
-async function fetchCombinedAiSignals(options = {}) {
+async function fetchHomeWatchlistAiSignals(options = {}) {
   const force = options.force === true;
   const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
-  const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
   const loadWatchlistSignals = state.view === "home"
     && (!isUsHubContext || state.marketScope !== "us")
     && state.watchlistId;
   const watchlistUrl = loadWatchlistSignals
     ? `/watchlists/${encodeURIComponent(state.watchlistId)}/quant-signals${force ? "?refresh=1" : ""}`
     : "";
-  const watchlistRequest = loadWatchlistSignals
+  return loadWatchlistSignals
     ? fetchJsonCached(
       watchlistUrl,
-      { force, ttlMs: force ? 0 : ttlMs },
+      { force, ttlMs: force ? 0 : ttlMs, timeoutMs: AI_SIGNAL_REQUEST_TIMEOUT_MS },
     )
     : Promise.resolve({ items: [] });
+}
+
+async function fetchCombinedAiSignals(options = {}) {
+  const force = options.force === true;
+  const ttlMs = options.ttlMs ?? PAGE_ENTRY_MINUTE_MS;
+  const recentDays = Number(options.recentDays) || AI_SIGNAL_HISTORY_DAYS;
+  const watchlistRequest = options.includeWatchlist === false
+    ? Promise.resolve({ items: [] })
+    : fetchHomeWatchlistAiSignals(options);
   const marketRequest = fetchMarketAiSignals({
     force,
     ttlMs: force ? 0 : ttlMs,
@@ -19576,9 +19586,12 @@ async function loadHomeAiSignals(options = {}) {
   const recentDays = AI_SIGNAL_HISTORY_DAYS;
   const requestId = ++state.homeAiSignalsRequestId;
   const requestSequence = ++state.aiSignalLoadSequence;
+  const watchlistId = state.watchlistId;
+  // Personalized evidence must never hold the public market ticker open.
+  const watchlistRequest = fetchHomeWatchlistAiSignals({ force, ttlMs }).catch(() => null);
   window.clearTimeout(state.homeAiSignalsRetryTimer);
   state.homeAiSignalsRetryTimer = null;
-  if (options.restartTicker === true) {
+  if (options.restartTicker === true && !state.aiSignalItems.length) {
     stopHomeMarketSignalTicker();
     showHomeMarketSignalLoading();
   }
@@ -19590,8 +19603,23 @@ async function loadHomeAiSignals(options = {}) {
       renderPendingHomeAiSignals();
     }
   }
+  const scheduleRetry = () => {
+    if (Number(options.preparingRetry || 0) >= 3 || state.view !== "home") return false;
+    state.homeAiSignalsRetryTimer = window.setTimeout(() => {
+      if (state.view === "home") {
+        void loadHomeAiSignals({
+          force: true,
+          ttlMs: 0,
+          silent: true,
+          expectedRevision: options.expectedRevision,
+          preparingRetry: Number(options.preparingRetry || 0) + 1,
+        });
+      }
+    }, 3000);
+    return true;
+  };
   try {
-    const payload = await fetchCombinedAiSignals({ force, ttlMs, recentDays });
+    const payload = await fetchCombinedAiSignals({ force, ttlMs, recentDays, includeWatchlist: false });
     if (requestId !== state.homeAiSignalsRequestId || requestSequence !== state.aiSignalLoadSequence) {
       return false;
     }
@@ -19602,7 +19630,7 @@ async function loadHomeAiSignals(options = {}) {
     if (state.view === "home") {
       if (isAiSignalMarketUpdating() && !(payload.items || []).length) {
         state.aiSignalReconcilePending = true;
-        renderPendingHomeAiSignals({ marketPreparing: true });
+        if (!state.aiSignalItems.length) renderPendingHomeAiSignals({ marketPreparing: true });
         refreshAiSignalLiveRows();
       } else {
         if (!renderHomeAiSignals(payload, { expectedRevision: options.expectedRevision })) {
@@ -19611,28 +19639,22 @@ async function loadHomeAiSignals(options = {}) {
         }
       }
     }
-    if (isAiSignalMarketUpdating() && Number(options.preparingRetry || 0) < 3) {
-      state.homeAiSignalsRetryTimer = window.setTimeout(() => {
-        if (state.view === "home") {
-          void loadHomeAiSignals({
-            force: true,
-            ttlMs: 0,
-            silent: options.silent === true,
-            expectedRevision: options.expectedRevision,
-            restartTicker: options.silent !== true,
-            preparingRetry: Number(options.preparingRetry || 0) + 1,
-          });
-        }
-      }, 3000);
+    void watchlistRequest.then((watchlistPayload) => {
+      if (watchlistPayload && state.view === "home" && watchlistId === state.watchlistId
+          && requestId === state.homeAiSignalsRequestId && requestSequence === state.aiSignalLoadSequence) {
+        renderHomeAiResponse(watchlistPayload.items || [], state.homeAiSignalsAsOf);
+      }
+    });
+    if (isAiSignalMarketUpdating() && !scheduleRetry() && !state.aiSignalItems.length && state.view === "home") {
+      showHomeMarketSignalStatus("시장 시그널을 준비하고 있어요. 잠시 후 다시 확인해 주세요.");
     }
     return true;
   } catch {
     if (requestId !== state.homeAiSignalsRequestId || requestSequence !== state.aiSignalLoadSequence) {
       return false;
     }
-    if (options.expectedRevision !== undefined && options.expectedRevision !== null) {
-      scheduleAiSignalRevisionReconcile(options.expectedRevision);
-    }
+    state.aiSignalReconcilePending = true;
+    const retrying = scheduleRetry();
     refreshAiSignalLiveRows();
     if (state.view === "home") {
       const fallbackItems = normalizedAiSignalItems(state.aiSignalItems, { includeHistorical: true });
@@ -19643,20 +19665,20 @@ async function loadHomeAiSignals(options = {}) {
         items: fallbackItems,
         market_items: fallbackItems,
         watchlist_items: [],
-      })) {
+      }, { receivedAt: state.aiSignalSnapshotReceivedAt })) {
+        state.aiSignalReconcilePending = true;
+        refreshAiSignalLiveRows();
         elements.homeAiSignalsMeta.textContent = "시그널 연결 지연 · 마지막 확인 목록";
         return false;
       }
     }
-    if (state.view === "home" && !elements.homeAiSignalsList.querySelector(".home-ai-signal-row")) {
-      elements.homeAiSignalsList.innerHTML = '<p class="muted">AI 시그널을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>';
-    }
-    if (options.restartTicker === true && state.view === "home") {
-      elements.homeMarketSignalWindow?.classList.remove("is-loading");
-      if (elements.homeMarketSignalWindow) {
-        elements.homeMarketSignalWindow.setAttribute("aria-label", "AI 시그널을 불러오지 못함");
-        elements.homeMarketSignalWindow.innerHTML = '<p class="muted">신호를 다시 확인해주세요.</p>';
-      }
+    if (state.view === "home") {
+      const message = retrying
+        ? "시그널 연결이 지연되고 있어요. 다시 확인 중입니다."
+        : "시그널을 불러오지 못했어요. 잠시 후 다시 확인해 주세요.";
+      elements.homeAiSignalsList.replaceChildren(el("p", "muted", message));
+      elements.homeAiSignalsMeta.textContent = "시그널 연결 지연";
+      showHomeMarketSignalStatus(message);
     }
     return false;
   }
@@ -19809,6 +19831,16 @@ function showHomeMarketSignalLoading() {
   elements.homeMarketSignalWindow.classList.add("is-loading");
   elements.homeMarketSignalWindow.setAttribute("aria-label", "최근 30일 시장 AI 시그널을 불러오는 중");
   elements.homeMarketSignalWindow.innerHTML = '<span class="home-market-signal-skeleton" aria-hidden="true"></span>';
+}
+
+function showHomeMarketSignalStatus(message) {
+  stopHomeMarketSignalTicker();
+  if (!elements.homeMarketSignalWindow) return;
+  elements.homeMarketSignalWindow.classList.remove("is-loading");
+  elements.homeMarketSignalWindow.removeAttribute("aria-label");
+  const status = el("p", "muted", message);
+  status.setAttribute("role", "status");
+  elements.homeMarketSignalWindow.replaceChildren(status);
 }
 
 function compactHoldingSignalSummary(item = {}) {
