@@ -33,7 +33,11 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.community_feed import build_stock_community_feed
-from app.services.stock_dashboard import _fetch_naver_item_news, _naver_snapshot
+from app.services.stock_dashboard import (
+    _fetch_naver_item_news,
+    _naver_snapshot,
+    recent_stock_news_rows,
+)
 from app.services.community_feed import (
     build_stock_community_feed,
     build_us_stock_community_feed,
@@ -632,6 +636,22 @@ def _stock_url(name: str) -> str:
 def _stock_news_detail_url(code: str) -> str:
     encoded_code = quote(str(code or "").strip().upper(), safe="")
     return f"/dashboard/{encoded_code}?tab=news#stock-news-section"
+
+
+def _stock_news_id(code: str, row: dict[str, object]) -> str:
+    title = " ".join(str(row.get("title") or "").split())
+    source_identity = str(
+        row.get("external_id")
+        or row.get("url")
+        or row.get("detail_url")
+        or title
+    ).strip()
+    if not source_identity or not title:
+        return ""
+    normalized_code = str(code or "").strip().upper()
+    return hashlib.sha256(
+        f"naver_finance:{normalized_code}:{source_identity}".encode("utf-8")
+    ).hexdigest()[:20]
 
 
 def _fresh_v8_intraday_market_snapshot(snapshot: dict[str, object], now: datetime) -> bool:
@@ -2448,36 +2468,61 @@ class WebPushRuntime:
         if stock is None or not stock.is_active:
             raise ValueError(f"active stock not found: {normalized_code}")
 
+        source_error: Optional[Exception] = None
         try:
             source_rows = _fetch_naver_item_news(normalized_code, strict=True)
         except Exception as exc:
-            raise RuntimeError("current stock news source is unavailable") from exc
-        news_rows = [
+            source_error = exc
+            source_rows = []
+        live_news_rows = [
             row
             for row in source_rows
             if isinstance(row, dict) and str(row.get("title") or "").strip()
         ]
-        if len(news_rows) < rank:
-            raise RuntimeError(f"current stock news rank {rank} is unavailable")
+        normalized_expected_news_id = str(expected_news_id or "").strip()
+        selected: Optional[dict[str, object]] = None
+        resolved_rank = rank
+        selection_source = "live"
+        if normalized_expected_news_id:
+            for index, row in enumerate(live_news_rows):
+                if _stock_news_id(normalized_code, row) == normalized_expected_news_id:
+                    selected = row
+                    resolved_rank = index + 1
+                    break
+            if selected is None:
+                snapshot_rows = recent_stock_news_rows(
+                    db,
+                    normalized_code,
+                    limit=60,
+                    refresh_if_stale=False,
+                )
+                for index, row in enumerate(snapshot_rows):
+                    if _stock_news_id(normalized_code, row) == normalized_expected_news_id:
+                        selected = row
+                        resolved_rank = index + 1
+                        selection_source = "stock_detail_snapshot"
+                        break
+            if selected is None:
+                observed_id = (
+                    _stock_news_id(normalized_code, live_news_rows[rank - 1])
+                    if len(live_news_rows) >= rank
+                    else "unavailable"
+                )
+                raise RuntimeError(
+                    f"stock news changed: expected {normalized_expected_news_id}, got {observed_id}"
+                )
+        else:
+            if source_error is not None:
+                raise RuntimeError("current stock news source is unavailable") from source_error
+            if len(live_news_rows) < rank:
+                raise RuntimeError(f"current stock news rank {rank} is unavailable")
+            selected = live_news_rows[rank - 1]
 
-        selected = news_rows[rank - 1]
         news_title = " ".join(str(selected.get("title") or "").split())
         press_name = " ".join(str(selected.get("source") or "네이버 금융").split())
-        source_identity = str(
-            selected.get("external_id")
-            or selected.get("url")
-            or news_title
-        ).strip()
-        if not source_identity or not news_title:
+        news_id = _stock_news_id(normalized_code, selected)
+        if not news_id or not news_title:
             raise RuntimeError("stock news identity or title is missing")
-        news_id = hashlib.sha256(
-            f"naver_finance:{normalized_code}:{source_identity}".encode("utf-8")
-        ).hexdigest()[:20]
-        normalized_expected_news_id = str(expected_news_id or "").strip()
-        if normalized_expected_news_id and news_id != normalized_expected_news_id:
-            raise RuntimeError(
-                f"stock news changed: expected {normalized_expected_news_id}, got {news_id}"
-            )
 
         current = now or datetime.now(KST)
         current_kst = current.astimezone(KST) if current.tzinfo else current.replace(tzinfo=KST)
@@ -2532,7 +2577,9 @@ class WebPushRuntime:
             "audience": "all_enabled_domestic_subscribers",
             "code": normalized_code,
             "name": stock.name,
-            "rank": rank,
+            "rank": resolved_rank,
+            "requested_rank": rank,
+            "selection_source": selection_source,
             "news_id": news_id,
             "news_title": news_title,
             "press_name": press_name,

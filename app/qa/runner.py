@@ -160,6 +160,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_operator_stock_news_sends_once_with_news_anchor_to_enabled_domestic_subscribers",
         "tests.test_web_push."
         "test_operator_stock_news_fails_closed_when_article_changes_or_rank_is_missing",
+        "tests.test_web_push."
+        "test_operator_stock_news_selects_exact_article_from_fresh_stock_detail_snapshot",
         "tests.test_stock_news_deep_link."
         "test_cold_stock_navigation_opens_news_tab_and_anchors_stock_news_after_hydration",
         "tests.test_release_parity."
