@@ -56,6 +56,13 @@ MOBILE_BROWSER_USER_AGENT = (
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-UI-035": (
+        "tests.test_home_signal_loading.test_home_market_signals_do_not_wait_for_personal_signals",
+        "tests.test_home_signal_loading.test_home_late_personal_response_cannot_overwrite_new_identity_or_request",
+        "tests.test_home_signal_loading.test_home_first_failure_and_exhausted_preparation_leave_loading_state",
+        "tests.test_home_signal_loading.test_home_failed_refresh_keeps_last_snapshot_age_and_recovers",
+        "tests.test_home_signal_loading.test_market_signal_request_timeout_aborts_hung_transport",
+    ),
     "SIG-US-HYBRID-001": (
         "tests.test_us_hybrid_signals.test_hybrid_ignores_seconds_stamped_forming_tail_not_finished_misalignment",
         "tests.test_us_hybrid_signals.test_hybrid_minute_transport_explicitly_requests_split_evidence",

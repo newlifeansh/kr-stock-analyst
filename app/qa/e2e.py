@@ -41,6 +41,7 @@ E2E_CASE_IDS = (
     "SIG-UI-020",
     "SIG-UI-021",
     "SIG-UI-030",
+    "SIG-UI-035",
     "SIG-PUSH-COMMUNITY-002",
 )
 US_E2E_CASE_IDS = (
@@ -2007,6 +2008,86 @@ def _run_us_standalone_e2e_checks(
             browser.close()
 
 
+def _home_signal_loading_case(page: Any, theme: str, *, base_url: str, timeout: float) -> dict[str, Any]:
+    """Exercise failed/stalled reads in the browser without changing server data."""
+    _navigate_page(page, _page_url(base_url, "/dashboard", view="home", theme=theme))
+    _assert_page_shell(page, theme=theme)
+    page.wait_for_function("() => typeof loadHomeAiSignals === 'function'")
+    page.evaluate("""() => {
+      stopAiSignalReconcileTimer();
+      stopHomeAiResponseRefresh();
+      state.quoteStreamSignalControlActive = false;
+      closeAiSignalQuoteStreams();
+      pauseQuoteStreamConnection('checking');
+      connectAiSignalQuoteStreams = () => {};
+      // Other home widgets can reconnect the shared socket; this case owns
+      // its fixture revision. Live revision ordering is covered by SIG-UI-002.
+      handleAiSignalRevisionFrame = () => false;
+      window.clearTimeout(state.homeAiSignalsRetryTimer);
+      state.homeAiSignalsRequestId += 1;
+      state.aiSignalLoadSequence += 1;
+      state.watchlistId = 'qa-home-signal-loading';
+      state.responseCache.clear();
+      resetHomeAiSignalsForIdentity();
+    }""")
+    day = datetime.now(KST).date().isoformat()
+    payload = {
+        "status": "ready", "as_of": day, "signal_revision": 1,
+        "items": [{
+            "code": "005930", "name": "QA 시그널", "market_scope": "kr",
+            "signal_scope": "market", "signal_date": day, "side": "buy",
+            "current": {"action": "entry_watch", "as_of": day, "position_open": False},
+        }],
+    }
+    market_mode = {"value": "ready"}
+    held_watchlist: list[Any] = []
+
+    def market_route(route: Any) -> None:
+        if market_mode["value"] == "failed":
+            route.abort("failed")
+        else:
+            response = payload if market_mode["value"] == "ready" else {"status": "preparing", "items": []}
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(response))
+
+    page.route("**/market/quant-signals?*", market_route)
+    page.route("**/watchlists/qa-home-signal-loading/quant-signals*", lambda route: held_watchlist.append(route))
+    page.evaluate("""() => {
+      window.__qaHomeSignalDone = false;
+      void loadHomeAiSignals({force: true, preparingRetry: 3}).then(() => {window.__qaHomeSignalDone = true;});
+    }""")
+    page.wait_for_function("() => window.__qaHomeSignalDone === true", timeout=min(int(timeout * 1000), 5000))
+    loaded = page.locator("#home-market-signal-window").inner_text()
+    if "QA 시그널" not in loaded or not held_watchlist:
+        raise QaFailure("관심종목 요청 지연 중 시장 시그널이 독립적으로 표시되지 않습니다.", {"ticker": loaded})
+    market_mode["value"] = "failed"
+    page.evaluate("loadHomeAiSignals({force: true, restartTicker: true, preparingRetry: 3})")
+    retained = page.locator("#home-market-signal-window").inner_text()
+    if "QA 시그널" not in retained:
+        raise QaFailure("재조회 실패로 마지막 시그널이 사라졌습니다.", {"ticker": retained})
+    page.evaluate("""async () => {
+      localStorage.removeItem(marketStorageKey(HOME_AI_SIGNALS_MARKET_CACHE_KEY));
+      resetHomeAiSignalsForIdentity();
+      await loadHomeAiSignals({force: true, preparingRetry: 3});
+    }""")
+    failed = page.locator("#home-market-signal-window").inner_text()
+    if "불러오지 못" not in failed or page.locator("#home-market-signal-window.is-loading").count():
+        raise QaFailure("최초 조회 실패 후 홈 로딩 상태가 해제되지 않습니다.", {"ticker": failed})
+    market_mode["value"] = "preparing"
+    page.evaluate("loadHomeAiSignals({force: true, preparingRetry: 3})")
+    preparing = page.locator("#home-market-signal-window").inner_text()
+    if "준비하고" not in preparing or page.locator("#home-market-signal-window.is-loading").count():
+        raise QaFailure("준비 재시도 소진 후 홈 로딩 상태가 해제되지 않습니다.", {"ticker": preparing})
+    market_mode["value"] = "ready"
+    page.evaluate("loadHomeAiSignals({force: true})")
+    recovered = page.locator("#home-market-signal-window").inner_text()
+    if "QA 시그널" not in recovered:
+        raise QaFailure("시그널 연결 복구 후 종목이 표시되지 않습니다.", {"ticker": recovered})
+    for route in held_watchlist:
+        route.fulfill(status=200, content_type="application/json", body='{"items": []}')
+    return {"stalled_watchlist": loaded, "failed_refresh": retained, "first_failure": failed,
+            "exhausted_preparation": preparing, "recovered": recovered}
+
+
 def run_e2e_checks(
     *,
     catalog: dict[str, Any],
@@ -2105,6 +2186,13 @@ def run_e2e_checks(
                     )
                     for case_id in E2E_CASE_IDS
                 ]
+
+            results.append(_run_page_case(
+                browser=browser, catalog_by_id=catalog_by_id, case_id="SIG-UI-035",
+                base_url=base_url, timeout=timeout, artifact_dir=output_dir,
+                callback=lambda page, theme: _home_signal_loading_case(page, theme, base_url=base_url, timeout=timeout),
+                storage_state=storage_state, share_id=share_id,
+            ))
 
             def search_stock_case(page: Any, theme: str) -> dict[str, Any]:
                 _navigate_page(
