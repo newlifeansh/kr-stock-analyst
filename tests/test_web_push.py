@@ -14,6 +14,7 @@ from app.models import (
     PushNotificationHistory,
     PushSubscription,
     StockMaster,
+    StockNewsSnapshot,
     WatchlistItem,
 )
 from app.services import web_push
@@ -512,6 +513,59 @@ def test_operator_stock_news_fails_closed_when_article_changes_or_rank_is_missin
             assert "rank 2 is unavailable" in str(exc)
         else:
             raise AssertionError("missing stock news rank must block the send")
+    finally:
+        db.close()
+
+
+def test_operator_stock_news_selects_exact_article_from_fresh_stock_detail_snapshot(
+    monkeypatch,
+):
+    db = _session()
+    try:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+        snapshot_article = {
+            "external_id": "014:0005589288",
+            "title": '"\ub192\uc774 \uc313\uc544 \uc18d\ub3c4·\uc804\ub825 \uc7a1\ub294\ub2e4"… \uc0bc\uc131·SK, \uba54\ubaa8\ub9ac \uc801\uce35 \ub300\uacb0',
+            "source": "파이낸셜뉴스",
+            "url": "https://n.news.naver.com/mnews/article/014/0005589288",
+            "published_at": "2026-10-14T18:13:00",
+        }
+        db.add(
+            StockNewsSnapshot(
+                stock_code="005930",
+                payload=json.dumps([snapshot_article], ensure_ascii=False),
+                fetched_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            web_push,
+            "_fetch_naver_item_news",
+            lambda *_args, **_kwargs: [
+                {
+                    "external_id": "014:replacement",
+                    "title": "새로 유입된 다른 기사",
+                    "source": "파이낸셜뉴스",
+                    "url": "https://n.news.naver.com/mnews/article/014/replacement",
+                }
+            ],
+        )
+        expected_news_id = web_push._stock_news_id("005930", snapshot_article)
+
+        preview = web_push.WebPushRuntime(_settings()).send_operator_stock_news(
+            db,
+            code="005930",
+            rank=7,
+            expected_news_id=expected_news_id,
+            dry_run=True,
+        )
+
+        assert preview["news_id"] == expected_news_id
+        assert preview["news_title"] == snapshot_article["title"]
+        assert preview["selection_source"] == "stock_detail_snapshot"
+        assert preview["requested_rank"] == 7
+        assert preview["rank"] == 1
+        assert preview["sent"] == 0
     finally:
         db.close()
 
