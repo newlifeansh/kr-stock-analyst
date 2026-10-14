@@ -1255,7 +1255,7 @@ class WebPushRuntime:
                         kind="market_session",
                         title=title,
                         body=body,
-                        url="/us?view=home&market_scope=us",
+                        url="/us?view=overview",
                         tag=f"us-market-session-{phase}-{session_date}",
                         occurred_at=current,
                         market_scope="us",

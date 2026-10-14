@@ -398,19 +398,45 @@ def test_staging_scale_clears_legacy_regions_for_the_selected_apps(tmp_path: Pat
         assert not any(line.startswith("scale") and "database-id" in line for line in lines)
 
 
-def test_staging_scale_rejects_an_alias_or_incomplete_acknowledgement(tmp_path: Path):
-    for name in ("alias", "retained"):
+def test_staging_scale_resolves_a_stale_name_to_the_only_observed_canonical_region(
+    tmp_path: Path,
+):
+    env, log = _runtime_env(tmp_path, database_state="running")
+    env["RAILWAY_REGION"] = "us-west2"
+    env["RAILWAY_TEST_REGIONS"] = "europe-west4-drams3a"
+
+    result = subprocess.run(
+        [str(SCRIPT), "up"], env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "single observed canonical ID" in result.stderr
+    lines = log.read_text().splitlines()
+    for service in ("web-id", "collector-id"):
+        assert (
+            "scale -p project-id --environment staging "
+            f"--service {service} europe-west4-drams3a=1 --json"
+        ) in lines
+    assert not any("us-west2=" in line for line in lines if line.startswith("scale"))
+
+
+def test_staging_scale_rejects_an_ambiguous_name_or_incomplete_acknowledgement(
+    tmp_path: Path,
+):
+    for name in ("ambiguous", "retained"):
         env, log = _runtime_env(tmp_path / name, database_state="running")
-        if name == "alias":
+        if name == "ambiguous":
             env["RAILWAY_REGION"] = "us-west"
+            env["RAILWAY_TEST_REGIONS"] = "sfo,us-west2"
         else:
             env["RAILWAY_TEST_RETAIN_REGION"] = "true"
         result = subprocess.run([str(SCRIPT), "up"], env=env, capture_output=True, text=True)
         assert result.returncode != 0
         lines = log.read_text().splitlines()
         assert _database_stop() in lines  # rejected start still performs verified cleanup
-        if name == "alias":
+        if name == "ambiguous":
             assert not any(line.startswith("scale") for line in lines)
+            assert "unambiguous observed canonical ID" in result.stderr
         else:
             assert "unexpected replica" in result.stderr
 

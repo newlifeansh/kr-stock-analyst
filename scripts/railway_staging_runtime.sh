@@ -50,7 +50,7 @@ scale_service() {
   local service="$2"
   local replicas="$3"
 
-  local payload assignments result
+  local payload assignments result canonical_target=""
   local -a targets=()
   payload="$(railway_service_list)" || return 1
   assignments="$(printf '%s' "$payload" | python3 -c '
@@ -68,13 +68,31 @@ if any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", name) f
 target = sys.argv[2]
 # Railway scale merges with the latest deployment manifest. A friendly alias
 # can add a second region while leaving a legacy sfo replica intact. Require
-# the observed canonical ID and explicitly clear every other selected-app region.
+# an unambiguous observed canonical ID and explicitly clear every other
+# selected-app region. Railway may replace a once-canonical friendly name with
+# an opaque canonical ID; one observed region is safe to resolve automatically.
 if names and target not in names:
-    raise SystemExit("Use the observed canonical Railway region ID, not an alias")
+    if len(names) != 1:
+        raise SystemExit("Configured Railway region does not match an unambiguous observed canonical ID")
+    target = names[0]
+print(f"__target__={target}")
 for name in sorted(set(names) | {target}):
     print(f"{name}={sys.argv[3] if name == target else 0}")
 ' "$service" "$RAILWAY_REGION" "$replicas")" || return 1
-  while IFS= read -r assignment; do targets+=("$assignment"); done <<< "$assignments"
+  while IFS= read -r assignment; do
+    if [[ "$assignment" == __target__=* ]]; then
+      canonical_target="${assignment#__target__=}"
+    elif [[ -n "$assignment" ]]; then
+      targets+=("$assignment")
+    fi
+  done <<< "$assignments"
+  if [[ -z "$canonical_target" || ! "$canonical_target" =~ ^[0-9A-Za-z._-]+$ ]]; then
+    echo "Railway canonical region resolution failed" >&2
+    return 1
+  fi
+  if [[ "$canonical_target" != "$RAILWAY_REGION" ]]; then
+    echo "Resolved configured Railway region to the single observed canonical ID" >&2
+  fi
   echo "Scaling domestic staging $role to $replicas replica(s) across all observed regions" >&2
   result="$(railway scale \
     -p "$RAILWAY_PROJECT_ID" \
@@ -93,7 +111,7 @@ if any(type(count) is not int or count < 0 for count in counts.values()):
 target, desired = sys.argv[1], int(sys.argv[2])
 if counts.get(target, 0) != desired or any(count for name, count in counts.items() if name != target):
     raise SystemExit("Railway scale acknowledgement retains an unexpected replica")
-' "$RAILWAY_REGION" "$replicas"
+' "$canonical_target" "$replicas"
 }
 
 database_runtime_state() {

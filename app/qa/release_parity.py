@@ -37,9 +37,10 @@ RELEASE_ASSET_PATHS = (
     "/dashboard-app-v170.js",
 )
 US_RELEASE_ASSET_PATHS = (
-    *RELEASE_ASSET_PATHS,
-    "/assets/dashboard/icons/apple-touch-icon.png",
-    "/assets/dashboard/icons/favicon-64.png",
+    "/assets/nasdaq/styles.css",
+    "/assets/nasdaq/app.js",
+    "/assets/nasdaq/icons/apple-touch-icon.png",
+    "/assets/nasdaq/icons/favicon-64.png",
     "/assets/zoom-lock.js",
     "/us.webmanifest",
 )
@@ -92,11 +93,16 @@ def local_release_contract(
     match = BUILD_VERSION_RES[surface].search(main_source)
     if match is None:
         raise ValueError(f"{surface} 빌드 버전을 app/main.py에서 찾지 못했습니다.")
-    shell = render_dashboard_product_shell(
-        (project_root / "app/static/dashboard/index.html").read_text(encoding="utf-8"),
-        market_universe="kr" if surface == "dashboard" else "us",
-        client_version=match.group(1),
-    )
+    if surface == "dashboard":
+        shell = render_dashboard_product_shell(
+            (project_root / "app/static/dashboard/index.html").read_text(encoding="utf-8"),
+            market_universe="kr",
+            client_version=match.group(1),
+        )
+    else:
+        shell = (project_root / "app/static/nasdaq/index.html").read_text(
+            encoding="utf-8"
+        ).replace("__US_ASSET_VERSION__", match.group(1))
     assets = _release_assets(shell, surface)
     expected_asset_count = len(
         RELEASE_ASSET_PATHS if surface == "dashboard" else US_RELEASE_ASSET_PATHS
@@ -126,7 +132,7 @@ def fetch_remote_release_contract(
     normalized = base_url.rstrip("/")
     version_path = "dashboard-version" if surface == "dashboard" else "us-version"
     shell_path = "dashboard" if surface == "dashboard" else "us"
-    shell_view = "home"
+    shell_view = "home" if surface == "dashboard" else "overview"
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         version_response = client.get(urljoin(normalized + "/", version_path))
         shell_response = client.get(

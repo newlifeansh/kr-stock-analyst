@@ -115,7 +115,7 @@ def test_us_market_session_notification_uses_exchange_close(monkeypatch):
     assert candidates[0].event_key == "us-market-session:close:2026-11-27"
     assert candidates[0].title == "미국장 마감 5분 전"
     assert candidates[0].market_scope == "us"
-    assert candidates[0].url.startswith("/us?")
+    assert candidates[0].url == "/us?view=overview"
 
 
 def test_important_disclosure_filters_generic_filing():

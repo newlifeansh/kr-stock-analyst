@@ -37,8 +37,10 @@ from app.qa.e2e import (
     E2E_CASE_IDS,
     US_HOME_COUNTRY_TOGGLE_SELECTOR,
     _chart_study_payload_with_recent_pattern,
+    _http_response_error,
     _navigate_page,
     _page_url,
+    _stock_contract,
     _us_completed_signal_quote_state_ready,
     _us_signal_quote_state_ready,
     _us_observed_path,
@@ -451,11 +453,10 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "mouse_horizontal_drag",
         "full_track_tap",
     ]
-    assert watch_timeline["inputs"]["product_scope"] == {
-        "dashboard": "kr",
-        "us": "us",
-    }
-    assert watch_timeline["inputs"]["market_toggle"] == "hidden_in_dedicated_products"
+    assert watch_timeline["modes"] == ["gate", "live"]
+    assert watch_timeline["inputs"]["product_scope"] == {"dashboard": "kr"}
+    assert watch_timeline["inputs"]["standalone_us_ui_case"] == "SIG-UI-031"
+    assert watch_timeline["inputs"]["market_toggle"] == "hidden_in_domestic_product"
     assert all(case["priority"] in {"P0", "P1", "P2"} for case in payload["cases"])
 
 
@@ -1476,7 +1477,10 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-030" in E2E_CASE_IDS
     from app.qa.e2e import US_E2E_CASE_IDS
     assert "REC-US-INDEPENDENT-001" in US_E2E_CASE_IDS
-    assert "SIG-UI-032" in US_E2E_CASE_IDS
+    assert "SIG-UI-032" not in US_E2E_CASE_IDS
+    assert "SIG-PERF-US-001" not in US_E2E_CASE_IDS
+    assert "DATA-US-NEWS-001" in US_E2E_CASE_IDS
+    assert "def _run_us_standalone_e2e_checks" in source
     assert '"#recommend-list .recommend-card",\n                    state="visible"' in source
     assert "from urllib.parse import parse_qs, unquote, urlencode, urlsplit" in source
     assert 'moving_end.get("originalCount") != 2' in source
@@ -1539,6 +1543,89 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "시간 스크러빙에 따른 버블 수익률·크기·색·접근성 전환" in source
     assert "#watch-market-map-timeline-track" in source
     assert "단일 클러스터 중력·충돌 진입 모션" in source
+
+
+def test_us_standalone_e2e_checks_archived_actions_and_visible_live_news() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+
+    assert 'or "관심 추가하기" not in observed["text"]' in source
+    assert 'or "AI 설명 받기" not in observed["text"]' in source
+    assert 'or "추천" not in observed["text"]' not in source
+    assert '#trend-live-panel:not([hidden]) #trend-thread a[href^="http"]' in source
+    assert 'page.wait_for_selector("#stock-mini-chart", state="attached")' in source
+    assert 'page.wait_for_selector("#stock-mini-chart")' not in source
+
+
+def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_etf(
+    monkeypatch,
+) -> None:
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url):
+            if url.endswith("/quant-signals"):
+                return httpx.Response(
+                    503,
+                    json={
+                        "detail": "이전 장중 매매 기록을 재검증 중입니다."
+                    },
+                )
+            if url.endswith("/quote"):
+                return httpx.Response(
+                    200,
+                    json={"quote": {"price": 100, "change_rate": 0.1}},
+                )
+            return httpx.Response(
+                200,
+                json={"code": "069500", "name": "KODEX 200", "market": "KOSPI"},
+            )
+
+    monkeypatch.setattr("app.qa.e2e.httpx.Client", lambda **_kwargs: FakeClient())
+
+    with pytest.raises(QaFailure):
+        _stock_contract("https://staging.test", 5, "069500")
+
+    payload = _stock_contract(
+        "https://staging.test",
+        5,
+        "069500",
+        allow_verified_replay_pending=True,
+    )
+    assert payload["signal_http"] == 503
+    assert payload["signal_replay_pending"] is True
+    assert "재검증 중" in payload["signal_failure_detail"]
+    assert payload["signal_action"] is None
+
+
+def test_domestic_e2e_suppresses_only_the_verified_replay_pending_http_error() -> None:
+    allowed = {(503, "/stocks/069500/quant-signals")}
+
+    assert (
+        _http_response_error(
+            503,
+            "https://staging.test/stocks/069500/quant-signals?_=123",
+            allowed,
+        )
+        is None
+    )
+    assert _http_response_error(
+        503,
+        "https://staging.test/stocks/005930/quant-signals",
+        allowed,
+    )
+    assert _http_response_error(
+        500,
+        "https://staging.test/stocks/069500/quant-signals",
+        allowed,
+    )
+    assert _http_response_error(
+        503,
+        "https://staging.test/stocks/069500/quant-signals",
+    )
 
 
 def test_domestic_e2e_keeps_the_independent_us_product_out_of_boundary_check() -> None:
@@ -2008,7 +2095,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261013us146",
+                "us_dashboard_version": "20261014us148",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2016,7 +2103,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261013us146",
+                "us_dashboard_version": "20261014us148",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2600,10 +2687,10 @@ class FakeReadOnlyApi:
             return {
                 "name": "비밀노트 미국증시",
                 "scope": "/us",
-                "start_url": "/us?view=home",
+                "start_url": "/us?view=overview",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261013us146"}, self._meta(path)
+            return {"version": "20261014us148"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2649,13 +2736,36 @@ class FakeReadOnlyApi:
             return (
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
-                '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261013us146" />'
-                '</head><body><section id="home-view"></section>'
-                '<section id="home-ai-response"></section>'
-                '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261013us146"></script>'
+                '<title>비밀노트 · 미국증시</title>'
+                '<link href="/assets/nasdaq/styles.css?v=20261014us148" />'
+                '</head><body><section id="overview-view"></section>'
+                '<section id="stock-view"></section>'
+                '<section id="watchlist-view"></section>'
+                '<section id="chart-view"></section>'
+                '<section id="recommend-view"></section>'
+                '<section id="trend-view"></section>'
+                '<section id="market-view"></section>'
+                '<button data-trend-tab="events"></button>'
+                '<button data-trend-tab="live"></button>'
+                '<div id="trend-thread"></div>'
+                '<script src="/assets/nasdaq/app.js?v=20261014us148"></script>'
                 '</body></html>',
+                self._meta(path),
+            )
+        if path == "/assets/nasdaq/app.js":
+            return (
+                'const US_APP_BASE_PATH = "/us";\n'
+                'const prefix = window.__US_PUBLIC_GATEWAY__ || "";\n'
+                'fetch("/session/invite-status", {});\n'
+                'fetch("/session/dashboard-access", {});\n'
+                'liveUrl("/market/global-assets?limit=30");\n'
+                'fetch(`/us/stocks/search?query=AAPL`);\n'
+                'timeZone: "Asia/Seoul"; 한국시간;',
+                self._meta(path),
+            )
+        if path == "/assets/nasdaq/styles.css":
+            return (
+                '#stock-view {} .recommend-card {} .trend-thread {}',
                 self._meta(path),
             )
         if path == "/dashboard-app-v170.js":
@@ -2805,8 +2915,8 @@ def test_us_gateway_live_requires_dedicated_shell_assets_and_api(monkeypatch) ->
             if path == "/us":
                 return (
                     '<meta name="secret-note-market-universe" content="us" />'
-                    '<link href="/us-gateway/assets/dashboard/styles.css?v=us-test" />'
-                    '<script src="/us-gateway/dashboard-app-v170.js?v=us-test"></script>',
+                    '<link href="/us-gateway/assets/nasdaq/styles.css?v=us-test" />'
+                    '<script src="/us-gateway/assets/nasdaq/app.js?v=us-test"></script>',
                     self._gateway_meta(path),
                 )
             if path == "/us-gateway/assets/us-public-bridge.js":

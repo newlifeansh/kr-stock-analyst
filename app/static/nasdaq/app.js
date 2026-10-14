@@ -6,7 +6,15 @@ const elements = {
   loginGate: $("login-gate"),
   loginForm: $("login-form"),
   loginInput: $("login-id-input"),
+  loginDescription: $("login-description"),
+  loginInviteField: $("login-invite-field"),
+  loginInviteInput: $("login-invite-code"),
   loginStatus: $("login-status"),
+  accessCapacityModal: $("access-capacity-modal"),
+  accessCapacityClose: $("access-capacity-close"),
+  accessCapacityContact: $("access-capacity-contact"),
+  accessCapacityTitle: $("access-capacity-title"),
+  accessCapacityDescription: $("access-capacity-description"),
   overviewView: $("overview-view"),
   overviewMeta: $("overview-meta"),
   overviewRefresh: $("overview-refresh"),
@@ -404,6 +412,7 @@ const state = {
   suggestionTimer: null,
   suggestionController: null,
   activeTrendGraph: null,
+  activeTrendTab: new URLSearchParams(window.location.search).get("view") === "trend-past" ? "past" : "events",
   watchlistId: "",
   watchlistSyncTimer: null,
   watchlistSyncing: false,
@@ -465,6 +474,9 @@ const state = {
   pullRefreshStartY: 0,
   pullRefreshHideTimer: null,
   appLoadingHideTimer: null,
+  inviteRequired: true,
+  inviteAuthorized: false,
+  loginSubmitting: false,
 };
 
 const VIEW_NAV_SECTION = {
@@ -1945,8 +1957,19 @@ function formatPercent(value) {
 }
 
 function formatDateOnly(value) {
-  const formatted = formatDate(value);
-  return formatted === "-" ? "-" : formatted.split(" ")[0];
+  if (!value) {
+    return "-";
+  }
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    return String(value).replace("T", " ").slice(0, 10);
+  }
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(parsed);
 }
 
 function formatMultiple(value) {
@@ -1984,12 +2007,26 @@ function formatDate(value) {
   if (!value) {
     return "-";
   }
-  return String(value).replace("T", " ").slice(0, 16);
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    return String(value).replace("T", " ").slice(0, 16);
+  }
+  const formatted = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(parsed);
+  return `${formatted} 한국시간`;
 }
 
 function socketUrl(path) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}${path}`;
+  const prefix = window.__US_PUBLIC_GATEWAY__ || "";
+  return `${protocol}//${window.location.host}${prefix}${path}`;
 }
 
 function currentPresencePageKey() {
@@ -3613,6 +3650,107 @@ function setLoginGatePhase(phase) {
   }
 }
 
+function updateInviteField() {
+  if (!elements.loginInviteField || !elements.loginInviteInput) return;
+  const needsInvite = state.inviteRequired && !state.inviteAuthorized;
+  elements.loginInviteField.hidden = !needsInvite;
+  elements.loginInviteInput.required = needsInvite;
+  if (elements.loginDescription) {
+    elements.loginDescription.textContent = state.inviteRequired
+      ? "아이디와 초대 코드를 입력해 시작하세요."
+      : "아이디만 입력하면 바로 시작됩니다.";
+  }
+  if (!needsInvite) elements.loginInviteInput.value = "";
+}
+
+async function refreshInviteAccess() {
+  try {
+    const response = await fetch("/session/invite-status", {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    const payload = response.ok ? await response.json() : {};
+    state.inviteRequired = payload.required !== false;
+    state.inviteAuthorized = payload.authorized === true || !state.inviteRequired;
+  } catch {
+    state.inviteRequired = true;
+    state.inviteAuthorized = false;
+  }
+  updateInviteField();
+  return state.inviteAuthorized;
+}
+
+async function authorizeInviteCode(inviteCode) {
+  const normalizedCode = String(inviteCode || "").trim().toUpperCase();
+  if (!normalizedCode) return { ok: false, message: "초대 코드를 입력해주세요." };
+  try {
+    const response = await fetch("/session/invite-access", {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invite_code: normalizedCode }),
+    });
+    if (response.status === 429) {
+      return { ok: false, message: "입력 횟수가 많습니다. 15분 후 다시 시도해주세요." };
+    }
+    if (!response.ok) return { ok: false, message: "초대 코드를 확인해주세요." };
+    state.inviteAuthorized = true;
+    updateInviteField();
+    return { ok: true, message: "" };
+  } catch {
+    return { ok: false, message: "초대 코드를 확인하지 못했습니다. 잠시 후 다시 시도해주세요." };
+  }
+}
+
+async function authorizeDashboardIdentity(shareId) {
+  if (!state.inviteRequired) return { ok: true, capacityFull: false };
+  try {
+    const response = await fetch("/session/dashboard-access", {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ share_id: normalizeWatchlistId(shareId) }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (response.status === 409 && payload?.detail?.code === "capacity_full") {
+      return {
+        ok: false,
+        capacityFull: true,
+        message: payload.detail.message || "초기 이용 인원이 모두 찼습니다.",
+      };
+    }
+    if (response.status === 403) {
+      state.inviteAuthorized = false;
+      updateInviteField();
+      return { ok: false, capacityFull: false, message: "초대 코드를 다시 확인해주세요." };
+    }
+    if (response.status === 429) {
+      return { ok: false, capacityFull: false, message: "로그인 요청이 많습니다. 잠시 후 다시 시도해주세요." };
+    }
+    return response.ok
+      ? { ok: true, capacityFull: false }
+      : { ok: false, capacityFull: false, message: "로그인 요청을 처리하지 못했습니다." };
+  } catch {
+    return { ok: false, capacityFull: false, message: "인터넷 연결을 확인한 뒤 다시 시도해주세요." };
+  }
+}
+
+function showAccessCapacityModal() {
+  if (!elements.accessCapacityModal) return;
+  elements.accessCapacityModal.hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => elements.accessCapacityContact?.focus(), 40);
+}
+
+function closeAccessCapacityModal() {
+  if (!elements.accessCapacityModal || elements.accessCapacityModal.hidden) return;
+  elements.accessCapacityModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  elements.loginInput?.focus();
+}
+
 function showLoginGate(message = "2~40자 한글, 영문, 숫자, ., _, - 사용 가능") {
   if (!elements.loginGate) {
     return;
@@ -3794,15 +3932,22 @@ function logoutWatchlistIdentity() {
 
 async function initializeWatchlistIdentity() {
   const savedId = normalizeWatchlistId(localStorage.getItem(WATCHLIST_ID_KEY));
+  const inviteAuthorized = await refreshInviteAccess();
   if (elements.watchlistIdInput) {
     elements.watchlistIdInput.value = savedId;
   }
   updateWatchlistIdentityDisplay();
-  if (savedId) {
+  if (savedId && inviteAuthorized) {
     if (elements.loginInput) {
       elements.loginInput.value = savedId;
     }
     setLoginStatus("저장된 ID로 불러오는 중");
+    const accessResult = await authorizeDashboardIdentity(savedId);
+    if (!accessResult.ok) {
+      showLoginGate(accessResult.message);
+      if (accessResult.capacityFull) showAccessCapacityModal();
+      return;
+    }
     const ok = await applyWatchlistId(savedId, { merge: true, reloadCurrentView: false });
     if (ok) {
       hideLoginGate();
@@ -3811,7 +3956,7 @@ async function initializeWatchlistIdentity() {
     }
   } else {
     setWatchlistIdStatus("로컬 저장 중");
-    showLoginGate();
+    showLoginGate(savedId ? "서비스 이용을 위해 초대 코드를 입력해주세요." : undefined);
   }
 }
 
@@ -3969,7 +4114,8 @@ function registerDashboardServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
-  navigator.serviceWorker.register("/us-sw.js", { scope: "/us" }).catch(() => undefined);
+  const workerPath = `${window.__US_PUBLIC_GATEWAY__ || ""}/us-sw.js`;
+  navigator.serviceWorker.register(workerPath, { scope: "/us" }).catch(() => undefined);
 }
 
 function pageEntryTtlMs(view) {
@@ -4092,9 +4238,11 @@ function setView(view) {
     loadRecommendationHistory(pageEntryRefreshOptions("recommend-history"));
   } else if (view === "trend") {
     history.replaceState(null, "", usAppViewUrl("trend"));
+    setTrendTab("events");
     loadTrends("events", pageEntryRefreshOptions("trend", "events"));
   } else if (view === "trend-past") {
     history.replaceState(null, "", usAppViewUrl("trend-past"));
+    setTrendTab("past");
     loadTrends("past", pageEntryRefreshOptions("trend-past", "past"));
   } else if (view === "trend-impact") {
     history.replaceState(null, "", usAppViewUrl("trend-impact"));
@@ -6606,6 +6754,7 @@ function appendTags(parent, items) {
 
 function setTrendTab(tabName) {
   const active = ["events", "past", "live"].includes(tabName) ? tabName : "events";
+  state.activeTrendTab = active;
   if (elements.trendTabsWrap) {
     elements.trendTabsWrap.hidden = active === "past";
   }
@@ -7225,7 +7374,8 @@ function renderTrends(payload, activeTab = "events") {
   elements.trendEvents.innerHTML = "";
   elements.trendPastEvents.innerHTML = "";
   elements.trendThread.innerHTML = "";
-  setTrendTab(activeTab);
+  // Preserve a tab selected while the initial trends request is in flight.
+  setTrendTab(state.activeTrendTab || activeTab);
   const filters = getViewFilters(activeTab === "past" ? "trend-past" : "trend");
   const events = focusedTrendEvents(payload.events).filter((item) => matchesTrendEventFilters(item, filters));
   const pastEvents = focusedTrendEvents(payload.past_events).filter((item) => matchesTrendEventFilters(item, filters));
@@ -7722,8 +7872,13 @@ elements.mobileMenuScrim?.addEventListener("click", () => setMobileMenu(false));
 elements.homeInstallButton?.addEventListener("click", handleHomeInstall);
 elements.installSheetBackdrop?.addEventListener("click", closeInstallSheet);
 elements.installSheetClose?.addEventListener("click", closeInstallSheet);
+elements.accessCapacityClose?.addEventListener("click", closeAccessCapacityModal);
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && elements.accessCapacityModal && !elements.accessCapacityModal.hidden) {
+    closeAccessCapacityModal();
+    return;
+  }
   if (event.key === "Escape") {
     if (state.currentOverviewDetail) {
       closeOverviewDetail();
@@ -7790,23 +7945,52 @@ for (const tab of elements.marketTabs) {
 elements.watchToggle.addEventListener("click", toggleWatchCurrent);
 elements.loginForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.loginSubmitting) return;
   const button = elements.loginForm.querySelector("button");
   const originalText = button?.textContent || "시작하기";
+  state.loginSubmitting = true;
+  elements.loginForm.setAttribute("aria-busy", "true");
   if (button) {
     button.disabled = true;
     button.textContent = "불러오는 중";
   }
-  setLoginStatus("내 관심 ID로 들어가는 중");
-  const ok = await applyWatchlistId(elements.loginInput.value, { merge: true });
-  if (ok) {
-    setLoginStatus("입장 완료", "success");
-    hideLoginGate();
-  } else {
-    showLoginGate("ID를 확인해주세요. 2~40자 한글/영문/숫자/._-만 가능합니다.");
-  }
-  if (button) {
-    button.disabled = false;
-    button.textContent = originalText;
+  try {
+    const normalizedId = normalizeWatchlistId(elements.loginInput.value);
+    if (!/^[0-9A-Za-z가-힣_.-]{2,40}$/.test(normalizedId)) {
+      showLoginGate("아이디를 확인해주세요. 2~40자 한글/영문/숫자/._-만 가능합니다.");
+      return;
+    }
+    if (state.inviteRequired && !state.inviteAuthorized) {
+      setLoginStatus("초대 코드를 확인하는 중");
+      const inviteResult = await authorizeInviteCode(elements.loginInviteInput?.value);
+      if (!inviteResult.ok) {
+        showLoginGate(inviteResult.message);
+        elements.loginInviteInput?.focus();
+        return;
+      }
+    }
+    setLoginStatus("이용 가능 인원을 확인하는 중");
+    const accessResult = await authorizeDashboardIdentity(normalizedId);
+    if (!accessResult.ok) {
+      showLoginGate(accessResult.message);
+      if (accessResult.capacityFull) showAccessCapacityModal();
+      return;
+    }
+    setLoginStatus("내 관심 ID로 들어가는 중");
+    const ok = await applyWatchlistId(normalizedId, { merge: true });
+    if (ok) {
+      setLoginStatus("입장 완료", "success");
+      hideLoginGate();
+    } else {
+      showLoginGate("아이디를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+    }
+  } finally {
+    state.loginSubmitting = false;
+    elements.loginForm.removeAttribute("aria-busy");
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 });
 elements.watchlistIdForm?.addEventListener("submit", (event) => {
@@ -7863,7 +8047,7 @@ elements.trendRefresh?.addEventListener("click", () => {
     loadMarketImpactAnalysis({ force: true });
     return;
   }
-  loadTrends(state.view === "trend-past" ? "past" : "events", { force: true });
+  loadTrends(state.view === "trend-past" ? "past" : state.activeTrendTab, { force: true });
 });
 for (const tab of elements.trendTabs) {
   tab.addEventListener("click", () => setTrendTab(tab.dataset.trendTab));

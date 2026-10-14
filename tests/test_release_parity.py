@@ -42,9 +42,9 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261013us146"
-    assert len(contract["assets"]) == 12
-    assert len(contract["asset_sha256"]) == 12
+    assert contract["product_version"] == "20261014us148"
+    assert len(contract["assets"]) == 6
+    assert len(contract["asset_sha256"]) == 6
     assert set(contract["asset_sha256"]) == {
         asset.split("?", 1)[0] for asset in contract["assets"]
     }
@@ -54,9 +54,9 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
         for asset in contract["assets"]
         if not asset.endswith("/us.webmanifest")
     )
-    assert any("/dashboard-app-v170.js" in asset for asset in contract["assets"])
-    assert any("/assets/dashboard/styles.css" in asset for asset in contract["assets"])
-    assert not any("/assets/nasdaq/app.js" in asset for asset in contract["assets"])
+    assert any("/assets/nasdaq/app.js" in asset for asset in contract["assets"])
+    assert any("/assets/nasdaq/styles.css" in asset for asset in contract["assets"])
+    assert not any("/dashboard-app-v170.js" in asset for asset in contract["assets"])
 
 
 def test_release_parity_rejects_a_stale_staging_asset() -> None:
@@ -368,8 +368,8 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
             "DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE",
             "DASHBOARD_STAGING_RAILWAY_WEB_SERVICE",
         ],
-        "region": "DASHBOARD_STAGING_RAILWAY_REGION (observed canonical ID, e.g. us-west2; aliases rejected)",
-        "region_reconciliation": "clear all other observed regions on selected staging web/collector; verify scale acknowledgement",
+        "region": "DASHBOARD_STAGING_RAILWAY_REGION (preferred canonical ID; a stale friendly name may resolve only when exactly one canonical region is observed)",
+        "region_reconciliation": "resolve exactly one observed canonical region or require an exact match; clear all other observed regions; verify scale acknowledgement",
         "application_state_timeout_seconds": 600,
         "status_poll_seconds": 15,
         "rate_limit_retry": "read-only status queries only; maximum 3 retries, each wait capped at 60s; unresolved state retains DB",

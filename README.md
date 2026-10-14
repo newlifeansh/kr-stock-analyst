@@ -438,10 +438,11 @@ concurrency 그룹으로 직렬화해 QA 중에 다른 작업이 서비스를 �
 `us-market-web-production-production.up.railway.app`입니다. `us-market` 프로젝트
 안에서 미국 staging/production은 서로 다른 환경·서비스·DB를 사용합니다.
 공식 미국 공개 주소는 **`secretnote.cloud/us`를 유지**합니다. 현재 운영에서는
-아직 국내 web이 이 경로를 직접 처리합니다. 새 후보의 국내 web에는
-`US_PUBLIC_BACKEND_URL` 관문을 준비해 `/us` 화면·미국 API·정적 자산·
-WebSocket을 독립 미국 web로 전달하며, 미국 상류 장애 시 국내 데이터로
-대체하지 않고 502로 차단합니다. 국내 스테이징 관문은 미국 스테이징 web를
+국내 web의 `US_PUBLIC_BACKEND_URL` 관문이 `/us` 화면·미국 API·정적 자산·
+WebSocket을 독립 미국 web로 전달합니다. 미국 상류 장애 시 국내 데이터로
+대체하지 않고 502로 차단합니다. 미국 화면은 보존된 `app/static/nasdaq`
+전용 셸·사이드 내비게이션을 사용하며 국내 `/dashboard` HTML·CSS·JavaScript와
+서비스워커 캐시를 공유하지 않습니다. 국내 스테이징 관문은 미국 스테이징 web를
 가리키고 `us-gateway` live/E2E 증거를 별도로 남깁니다.
 
 운영 전환은 두 운영 프로젝트의 web·collector가 **동일한 승인 후보
