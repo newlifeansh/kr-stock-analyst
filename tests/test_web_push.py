@@ -290,6 +290,9 @@ def test_operator_community_popular_sends_once_to_enabled_domestic_subscribers(m
 
         assert preview["eligible_subscriptions"] == 2
         assert preview["sent"] == 0
+        assert preview["url"] == (
+            "/dashboard/005930?tab=community&community_mode=popular"
+        )
         assert calls == []
 
         receipt = runtime.send_operator_community_popular(
@@ -300,6 +303,9 @@ def test_operator_community_popular_sends_once_to_enabled_domestic_subscribers(m
         assert receipt["audience"] == "all_enabled_domestic_subscribers"
         assert receipt["sent"] == 2
         assert receipt["failed"] == 0
+        assert receipt["url"] == (
+            "/dashboard/005930?tab=community&community_mode=popular"
+        )
         assert len(calls) == 2
         payload = json.loads(calls[0]["data"])
         assert payload["title"] == "삼성전자 오늘 커뮤니티 인기글"
@@ -308,7 +314,13 @@ def test_operator_community_popular_sends_once_to_enabled_domestic_subscribers(m
             "투자 판단 전 원문을 확인하세요."
         )
         assert payload["market_scope"] == "kr"
+        assert payload["url"] == (
+            "/dashboard/005930?tab=community&community_mode=popular"
+        )
         assert db.query(PushNotificationHistory).count() == 2
+        assert {
+            row.url for row in db.query(PushNotificationHistory).all()
+        } == {"/dashboard/005930?tab=community&community_mode=popular"}
 
         duplicate = runtime.send_operator_community_popular(
             db, code="005930", dry_run=False, now=now
@@ -341,6 +353,165 @@ def test_operator_community_popular_fails_closed_when_rank_is_missing(monkeypatc
             assert "rank 1 is unavailable" in str(exc)
         else:
             raise AssertionError("missing popular post must block the send")
+    finally:
+        db.close()
+
+
+def test_operator_stock_news_sends_once_with_news_anchor_to_enabled_domestic_subscribers(
+    monkeypatch,
+):
+    db = _session()
+    calls = []
+    try:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+        db.add_all(
+            [
+                PushSubscription(
+                    share_id="domestic-1",
+                    endpoint="https://push.example/domestic-1",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="kr",
+                    enabled=True,
+                ),
+                PushSubscription(
+                    share_id="domestic-2",
+                    endpoint="https://push.example/domestic-2",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="kr",
+                    enabled=True,
+                ),
+                PushSubscription(
+                    share_id="us-1",
+                    endpoint="https://push.example/us-1",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="us",
+                    enabled=True,
+                ),
+                PushSubscription(
+                    share_id="disabled-1",
+                    endpoint="https://push.example/disabled-1",
+                    p256dh="p" * 64,
+                    auth="a" * 24,
+                    market_scope="kr",
+                    enabled=False,
+                ),
+            ]
+        )
+        db.commit()
+        monkeypatch.setattr(
+            web_push,
+            "_fetch_naver_item_news",
+            lambda *_args, **_kwargs: [
+                {
+                    "external_id": "011:202610141001",
+                    "title": "삼성전자, 차세대 반도체 투자 확대",
+                    "source": "서울경제",
+                    "url": "https://n.news.naver.com/mnews/article/011/202610141001",
+                    "published_at": "2026-10-14T10:30:00",
+                }
+            ],
+        )
+        monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+        runtime = web_push.WebPushRuntime(_settings())
+        now = datetime(2026, 10, 14, 12, 0, tzinfo=timezone(timedelta(hours=9)))
+
+        preview = runtime.send_operator_stock_news(
+            db, code="005930", dry_run=True, now=now
+        )
+
+        assert preview["status"] == "preview"
+        assert preview["eligible_subscriptions"] == 2
+        assert preview["sent"] == 0
+        assert preview["news_title"] == "삼성전자, 차세대 반도체 투자 확대"
+        assert preview["url"] == "/dashboard/005930?tab=news#stock-news-section"
+        assert len(preview["news_id"]) == 20
+        assert calls == []
+
+        receipt = runtime.send_operator_stock_news(
+            db,
+            code="005930",
+            expected_news_id=str(preview["news_id"]),
+            dry_run=False,
+            now=now,
+        )
+
+        assert receipt["status"] == "sent"
+        assert receipt["audience"] == "all_enabled_domestic_subscribers"
+        assert receipt["sent"] == 2
+        assert receipt["failed"] == 0
+        assert len(calls) == 2
+        payload = json.loads(calls[0]["data"])
+        assert payload["kind"] == "stock_news"
+        assert payload["title"] == "삼성전자 새 종목뉴스"
+        assert payload["body"] == "서울경제 · 삼성전자, 차세대 반도체 투자 확대"
+        assert payload["url"] == "/dashboard/005930?tab=news#stock-news-section"
+        assert {
+            row.url for row in db.query(PushNotificationHistory).all()
+        } == {"/dashboard/005930?tab=news#stock-news-section"}
+
+        duplicate = runtime.send_operator_stock_news(
+            db,
+            code="005930",
+            expected_news_id=str(preview["news_id"]),
+            dry_run=False,
+            now=now,
+        )
+
+        assert duplicate["already_sent"] == 2
+        assert duplicate["sent"] == 0
+        assert duplicate["failed"] == 0
+        assert len(calls) == 2
+    finally:
+        db.close()
+
+
+def test_operator_stock_news_fails_closed_when_article_changes_or_rank_is_missing(
+    monkeypatch,
+):
+    db = _session()
+    try:
+        db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+        db.commit()
+        monkeypatch.setattr(
+            web_push,
+            "_fetch_naver_item_news",
+            lambda *_args, **_kwargs: [
+                {
+                    "external_id": "011:current",
+                    "title": "현재 기사",
+                    "source": "서울경제",
+                    "url": "https://n.news.naver.com/mnews/article/011/current",
+                }
+            ],
+        )
+        runtime = web_push.WebPushRuntime(_settings())
+
+        try:
+            runtime.send_operator_stock_news(
+                db,
+                code="005930",
+                expected_news_id="0" * 20,
+                dry_run=False,
+            )
+        except RuntimeError as exc:
+            assert "stock news changed" in str(exc)
+        else:
+            raise AssertionError("changed stock news must block the send")
+
+        try:
+            runtime.send_operator_stock_news(
+                db,
+                code="005930",
+                rank=2,
+                dry_run=False,
+            )
+        except RuntimeError as exc:
+            assert "rank 2 is unavailable" in str(exc)
+        else:
+            raise AssertionError("missing stock news rank must block the send")
     finally:
         db.close()
 

@@ -33,7 +33,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.community_feed import build_stock_community_feed
-from app.services.stock_dashboard import _naver_snapshot
+from app.services.stock_dashboard import _fetch_naver_item_news, _naver_snapshot
 from app.services.community_feed import (
     build_stock_community_feed,
     build_us_stock_community_feed,
@@ -186,6 +186,7 @@ PUSH_KIND_TO_CONDITION = {
     "market_ai_signal": "market_ai_signal",
     "recommendation_update": "recommendation_update",
     "community_popular": "community_popular",
+    "stock_news": "major_event",
     "price_move": "price_move",
     "report": "disclosure_report",
     "disclosure": "disclosure_report",
@@ -626,6 +627,11 @@ def _ai_signal_candidate(
 
 def _stock_url(name: str) -> str:
     return f"/dashboard/{quote(name, safe='')}"
+
+
+def _stock_news_detail_url(code: str) -> str:
+    encoded_code = quote(str(code or "").strip().upper(), safe="")
+    return f"/dashboard/{encoded_code}?tab=news#stock-news-section"
 
 
 def _fresh_v8_intraday_market_snapshot(snapshot: dict[str, object], now: datetime) -> bool:
@@ -2159,8 +2165,16 @@ class WebPushRuntime:
             operator_approved
             and subscription.enabled
             and subscription_market_scope(subscription) == candidate.market_scope == "kr"
-            and candidate.kind == "community_popular"
-            and candidate.event_key.startswith("operator-community-popular:kr:")
+            and (
+                (
+                    candidate.kind == "community_popular"
+                    and candidate.event_key.startswith("operator-community-popular:kr:")
+                )
+                or (
+                    candidate.kind == "stock_news"
+                    and candidate.event_key.startswith("operator-stock-news:kr:")
+                )
+            )
         )
         if not approved_broadcast and not candidate_enabled(subscription, candidate):
             return False
@@ -2349,7 +2363,10 @@ class WebPushRuntime:
                 f"{rank}위 ‘{display_title}’ · 공감 {like_count:,} · 조회 {view_count:,} · "
                 "투자 판단 전 원문을 확인하세요."
             ),
-            url=f"/dashboard/{quote(normalized_code, safe='')}",
+            url=(
+                f"/dashboard/{quote(normalized_code, safe='')}"
+                "?tab=community&community_mode=popular"
+            ),
             tag=f"operator-community-popular-kr-{normalized_code}-{digest}",
             occurred_at=current_kst,
             stock_codes=(normalized_code,),
@@ -2400,6 +2417,126 @@ class WebPushRuntime:
             "like_count": like_count,
             "view_count": view_count,
             "event_key": event_key,
+            "eligible_subscriptions": len(subscriptions),
+            "already_sent": len(already_sent_ids),
+            "sent": sent,
+            "failed": failed,
+            "url": candidate.url,
+        }
+
+    def send_operator_stock_news(
+        self,
+        db: Session,
+        *,
+        code: str,
+        rank: int = 1,
+        expected_news_id: Optional[str] = None,
+        dry_run: bool = True,
+        now: Optional[datetime] = None,
+    ) -> dict[str, object]:
+        """Preview or send one current stock-news article to enabled KR subscribers."""
+
+        normalized_code = str(code or "").strip().upper()
+        if not normalized_code:
+            raise ValueError("stock code is required")
+        if rank < 1:
+            raise ValueError("rank must be at least 1")
+        if not dry_run and not self.configured:
+            raise RuntimeError("web push is not configured")
+
+        stock = db.get(StockMaster, normalized_code)
+        if stock is None or not stock.is_active:
+            raise ValueError(f"active stock not found: {normalized_code}")
+
+        try:
+            source_rows = _fetch_naver_item_news(normalized_code, strict=True)
+        except Exception as exc:
+            raise RuntimeError("current stock news source is unavailable") from exc
+        news_rows = [
+            row
+            for row in source_rows
+            if isinstance(row, dict) and str(row.get("title") or "").strip()
+        ]
+        if len(news_rows) < rank:
+            raise RuntimeError(f"current stock news rank {rank} is unavailable")
+
+        selected = news_rows[rank - 1]
+        news_title = " ".join(str(selected.get("title") or "").split())
+        press_name = " ".join(str(selected.get("source") or "네이버 금융").split())
+        source_identity = str(
+            selected.get("external_id")
+            or selected.get("url")
+            or news_title
+        ).strip()
+        if not source_identity or not news_title:
+            raise RuntimeError("stock news identity or title is missing")
+        news_id = hashlib.sha256(
+            f"naver_finance:{normalized_code}:{source_identity}".encode("utf-8")
+        ).hexdigest()[:20]
+        normalized_expected_news_id = str(expected_news_id or "").strip()
+        if normalized_expected_news_id and news_id != normalized_expected_news_id:
+            raise RuntimeError(
+                f"stock news changed: expected {normalized_expected_news_id}, got {news_id}"
+            )
+
+        current = now or datetime.now(KST)
+        current_kst = current.astimezone(KST) if current.tzinfo else current.replace(tzinfo=KST)
+        display_title = news_title if len(news_title) <= 96 else f"{news_title[:93]}…"
+        candidate = NotificationCandidate(
+            event_key=f"operator-stock-news:kr:{normalized_code}:{news_id}",
+            kind="stock_news",
+            title=f"{stock.name} 새 종목뉴스",
+            body=f"{press_name} · {display_title}",
+            url=_stock_news_detail_url(normalized_code),
+            tag=f"operator-stock-news-kr-{normalized_code}-{news_id}",
+            occurred_at=current_kst,
+            stock_codes=(normalized_code,),
+            market_scope="kr",
+        )
+
+        subscriptions = [
+            subscription
+            for subscription in db.scalars(
+                select(PushSubscription).where(PushSubscription.enabled.is_(True))
+            ).all()
+            if subscription_market_scope(subscription) == "kr"
+        ]
+        subscription_ids = [subscription.id for subscription in subscriptions]
+        already_sent_ids: set[int] = set()
+        if subscription_ids:
+            already_sent_ids = set(
+                db.scalars(
+                    select(PushDelivery.subscription_id).where(
+                        PushDelivery.subscription_id.in_(subscription_ids),
+                        PushDelivery.event_key == candidate.event_key,
+                        PushDelivery.status.in_(("sent", "baseline")),
+                    )
+                ).all()
+            )
+
+        sent = 0
+        failed = 0
+        if not dry_run:
+            for subscription in subscriptions:
+                if subscription.id in already_sent_ids:
+                    continue
+                if self._send(db, subscription, candidate, operator_approved=True):
+                    sent += 1
+                else:
+                    failed += 1
+
+        return {
+            "status": "preview" if dry_run else ("sent" if failed == 0 else "partial_failure"),
+            "dry_run": dry_run,
+            "market_scope": "kr",
+            "audience": "all_enabled_domestic_subscribers",
+            "code": normalized_code,
+            "name": stock.name,
+            "rank": rank,
+            "news_id": news_id,
+            "news_title": news_title,
+            "press_name": press_name,
+            "event_key": candidate.event_key,
             "eligible_subscriptions": len(subscriptions),
             "already_sent": len(already_sent_ids),
             "sent": sent,
