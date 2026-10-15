@@ -113,7 +113,7 @@ jobs:
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_WEB_SERVICE" \
             > artifacts/qa-data-signal/domestic-production-web-runtime.jsonl
-      - name: Reproduce one completed-session evidence check without persistence
+      - name: Reproduce the forward cohort evidence check without persistence
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -143,12 +143,8 @@ jobs:
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
             env DATABASE_URL="$database_url" \
-              analyst regular-session-prices \
-                --codes 005930 \
-                --from-date 2026-10-15 \
-                --to-date 2026-10-15 \
-                --max-pairs 1 \
-            > artifacts/qa-data-signal/domestic-regular-session-sample.json 2>&1
+              python scripts/diagnose_forward_regular_session.py \
+            > artifacts/qa-data-signal/domestic-regular-session-cohort.json 2>&1
           unset database_url
       - name: Upload domestic regular-session diagnostic evidence
         if: always()
