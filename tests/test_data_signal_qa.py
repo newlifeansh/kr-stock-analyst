@@ -1505,6 +1505,9 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "커뮤니티 시장 토글이 미국 국기·태극기" in source
     assert "def watchlist_groups_case" in source
     assert 'case_id="SIG-UI-024"' in source
+    assert "state.quoteStreamScopes.clear();" in source
+    assert "syncQuoteStreamSubscriptions = () => {};" in source
+    assert "await loadWatchlist({force: true, ttlMs: 0});" in source
     assert '[data-code="035720"][data-market-scope="kr"]' in source
     assert '"code": "035420"' in source
     assert '"qa delayed quote fixture"' in source
@@ -1719,6 +1722,21 @@ def test_ai_signal_e2e_compares_one_live_revision_instead_of_stale_counts() -> N
     assert '"ui_snapshot": ui_signal_snapshot' in case_source
     assert 'arg=market_signals["current_count"]' not in case_source
     assert 'ui_signal_snapshot["revision"],' not in case_source
+    assert "candidate_scan_contract = page.evaluate(" in case_source
+    assert '"label": "시총 상위 150개 탐색 완료"' in case_source
+    assert '"detail": "매수 후보 0개 · 매도 대기 0개 · 10개 종목 재검증 중"' in case_source
+
+
+def test_ai_signal_performance_e2e_treats_zero_trades_as_an_empty_sample() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    case_source = source.split("def signal_performance_overview_case", 1)[1].split(
+        "def stock_case", 1
+    )[0]
+
+    assert 'missing_state.get("status") != "표본 없음"' in case_source
+    assert 'missing_state.get("value") != "-"' in case_source
+    assert "성과 표본이 없을 때 빈 표본 상태" in case_source
+    assert "성과 표본이 없을 때 집계 중 상태" not in case_source
 
 
 def test_sticky_signal_controls_wait_for_page_load_not_a_stale_snapshot_count() -> None:
@@ -2784,11 +2802,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261015v576" />'
+            '<link href="/assets/dashboard/styles.css?v=20261015v577" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261015v576"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261015v577"></script>'
             '</body></html>',
             self._meta(path),
         )

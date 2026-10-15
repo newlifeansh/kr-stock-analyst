@@ -2514,6 +2514,24 @@ def run_e2e_checks(
                       };
                     }"""
                 )
+                candidate_scan_contract = page.evaluate(
+                    """() => aiSignalCandidateScanView({
+                      universeCount: 150,
+                      buyCandidates: 0,
+                      sellCandidates: 0,
+                      unverifiedCount: 10,
+                      closed: false,
+                    })"""
+                )
+                if candidate_scan_contract != {
+                    "state": "delayed",
+                    "label": "시총 상위 150개 탐색 완료",
+                    "detail": "매수 후보 0개 · 매도 대기 0개 · 10개 종목 재검증 중",
+                }:
+                    raise QaFailure(
+                        "장중 후보 탐색 완료·빈 후보·재검증 상태 문구가 구분되지 않습니다.",
+                        candidate_scan_contract,
+                    )
                 current_count = ui_signal_snapshot["domModeCounts"]["current"]
                 history_count = ui_signal_snapshot["domModeCounts"]["history"]
                 stage_counts = ui_signal_snapshot["stageCounts"]
@@ -3251,6 +3269,7 @@ def run_e2e_checks(
                         "history": history_count,
                     },
                     "ui_snapshot": ui_signal_snapshot,
+                    "candidate_scan_contract": candidate_scan_contract,
                     "stage_counts": stage_counts,
                     "signal_label_contract": signal_label_contract,
                     "live_return_contract": live_return_contract,
@@ -3468,12 +3487,12 @@ def run_e2e_checks(
                 )
                 if (
                     missing_state.get("hidden") is True
-                    or missing_state.get("status") != "집계 중"
-                    or missing_state.get("value") != "집계 중"
+                    or missing_state.get("status") != "표본 없음"
+                    or missing_state.get("value") != "-"
                     or float(missing_state.get("overflow") or 0) > 1
                 ):
                     raise QaFailure(
-                        "성과 표본이 없을 때 집계 중 상태와 리플로가 유지되지 않습니다.",
+                        "성과 표본이 없을 때 빈 표본 상태와 리플로가 유지되지 않습니다.",
                         missing_state,
                     )
                 return {
@@ -9427,6 +9446,22 @@ def run_e2e_checks(
                     ready_selector="body[data-view='portfolio']",
                 )
                 shell = _assert_page_shell(page, theme=theme)
+                page.evaluate(
+                    """async () => {
+                      // This case owns fixed dashboard and quote fixtures. A
+                      // live market-signal socket must not overwrite them
+                      // while the test walks the group and pin interactions.
+                      state.quoteStreamSignalControlActive = false;
+                      closeAiSignalQuoteStreams();
+                      closeWatchlistQuoteStreams();
+                      closeMarketQuoteStreams();
+                      closeRecommendationQuoteStreams();
+                      state.quoteStreamScopes.clear();
+                      pauseQuoteStreamConnection('checking');
+                      syncQuoteStreamSubscriptions = () => {};
+                      await loadWatchlist({force: true, ttlMs: 0});
+                    }"""
+                )
                 page.wait_for_function(
                     """() => (
                       document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3
