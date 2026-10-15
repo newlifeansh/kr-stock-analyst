@@ -2607,6 +2607,59 @@ def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch
         main_module.market_quant_signal_cache.clear()
 
 
+def test_fresh_market_signal_snapshot_retries_incomplete_forward_evidence(monkeypatch):
+    from app import main as main_module
+
+    refresh_calls = []
+    payload = {
+        "status": "ready",
+        "strategy_version": "position-lifecycle-v8.1",
+        "snapshot_generated_at": datetime.now(timezone.utc),
+        "as_of": datetime.now(ZoneInfo("Asia/Seoul")),
+        "universe_count": 100,
+        "recent_days": 27,
+        "preliminary_count": 1,
+        "confirmed_count": 0,
+        "execution_replay_unverified_count": 1,
+        "items": [
+            {
+                "code": "035420",
+                "name": "NAVER",
+                "side": "buy",
+                "signal": "예비 매수",
+                "signal_date": datetime.now(ZoneInfo("Asia/Seoul")).date(),
+                "status": "preliminary",
+                "is_preliminary": True,
+            }
+        ],
+    }
+    main_module.market_quant_signal_cache.clear()
+    monkeypatch.setattr(
+        main_module,
+        "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_market_quant_signal_snapshot",
+        lambda *args, **kwargs: refresh_calls.append((args, kwargs)),
+    )
+    try:
+        response = TestClient(app).get(
+            "/market/quant-signals?universe_limit=100&limit=0&recent_days=27"
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "refreshing"
+        assert body["snapshot_state"] == "fresh"
+        assert body["stale_preliminary_count"] == 1
+        assert body["preliminary_count"] == 0
+        assert refresh_calls
+    finally:
+        main_module.market_quant_signal_cache.clear()
+
+
 def test_cached_market_signal_snapshot_attaches_latest_filter_forward_comparison(
     monkeypatch,
 ):

@@ -104,6 +104,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_signal_transition.test_forward_regular_quote_does_not_use_preopen_open_and_keeps_date_validation",
         "tests.test_regular_signal_transition.test_forward_quality_marks_corrupt_seal_invalid_without_crashing",
         "tests.test_regular_signal_transition.test_forward_quality_counts_new_policy_without_retagging_legacy_evidence",
+        "tests.test_quote_stream_scaling.test_market_signal_refresh_preserves_snapshot_until_forward_evidence_is_complete",
+        "tests.test_app.test_fresh_market_signal_snapshot_retries_incomplete_forward_evidence",
     ),
     "DATA-KR-QUOTE-SESSION-001": (
         "tests.test_live_stock_quote.test_kis_source_session_and_business_date_are_preserved_for_every_venue",
