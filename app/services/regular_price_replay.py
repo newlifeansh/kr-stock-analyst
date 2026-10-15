@@ -129,7 +129,15 @@ def regular_ordered_paths(envelope: RegularPriceEnvelope) -> dict[date, list[qs.
     bars = {bar.trade_date: bar for bar in qs._normalize_prices(envelope.lower)}
     result = {}
     for day, evidence in envelope.evidence.items():
-        if evidence.get("coverage_basis") == "naver_38_buckets_with_complete_opening_volume_anchor":
+        if evidence.get("coverage_basis") in {
+            # Retain replay compatibility for evidence stored before the
+            # independently confirmed halt-interval contract was introduced.
+            "naver_38_buckets_with_complete_opening_volume_anchor",
+            (
+                "naver_regular_buckets_with_complete_opening_volume_anchor_"
+                "and_confirmed_empty_intervals"
+            ),
+        }:
             # load_regular_session_evidence already recomputes both sources,
             # their opening-volume anchor and every bucket. Missing minutes
             # contain no traded volume: omit them, never invent executions.
