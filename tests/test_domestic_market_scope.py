@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 import app.main as main_module
 from app.config import Settings
@@ -99,21 +98,30 @@ def test_us_spinout_shell_is_separate_from_the_domestic_product():
         market_universe="kr",
         client_version="kr-version",
     )
-    us_shell = _read("app/static/nasdaq/index.html").replace(
-        "__US_ASSET_VERSION__", "us-version"
+    us_shell = render_dashboard_product_shell(
+        template,
+        market_universe="us",
+        client_version="us-version",
     )
-    us_source = _read("app/static/nasdaq/app.js")
+    us_source = _read("app/static/dashboard/app.js")
 
     assert '<html lang="ko" data-market-universe="us">' in us_shell
     assert '<meta name="secret-note-market-universe" content="us" />' in us_shell
-    assert '<title>비밀노트 · 미국증시</title>' in us_shell
-    assert 'href="/assets/nasdaq/styles.css?v=us-version"' in us_shell
-    assert 'src="/assets/nasdaq/app.js?v=us-version"' in us_shell
-    assert 'href="/assets/dashboard/styles.css' not in us_shell
-    assert 'src="/dashboard-app-v170.js' not in us_shell
-    assert re.findall(r'\bid="([^"]+)"', us_shell) != re.findall(
-        r'\bid="([^"]+)"', domestic_shell
+    assert '<title>비밀노트 | 미국증시</title>' in us_shell
+    assert 'href="/assets/dashboard/styles.css?v=us-version&amp;build=us-version"' in us_shell
+    assert 'src="/dashboard-app-v170.js?v=us-version"' in us_shell
+    normalized_us = (
+        us_shell.replace('data-market-universe="us"', 'data-market-universe="kr"')
+        .replace('content="us"', 'content="kr"')
+        .replace("비밀노트 | 미국증시", "비밀노트 | 국내증시")
+        .replace("/us.webmanifest", "/dashboard.webmanifest")
+        .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
+        .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
+        .replace("us-version", "kr-version")
     )
-    assert 'const US_APP_BASE_PATH = "/us";' in us_source
+    assert normalized_us == domestic_shell
+    assert 'const IS_US_ONLY_PRODUCT = PRODUCT_MARKET_UNIVERSE === "us";' in us_source
+    assert 'const requestedMarketScopeValue = IS_US_ONLY_PRODUCT\n  ? "us"' in us_source
+    assert 'IS_US_ONLY_PRODUCT\n        ? Promise.resolve(null)' in us_source
     assert 'liveUrl("/market/global-assets?limit=30")' in us_source
-    assert 'fetch(`/us/watchlists/${encodeURIComponent(shareId)}`)' in us_source
+    assert 'const PRODUCT_SERVICE_WORKER_PATH = IS_US_ONLY_PRODUCT ? "/us-sw.js"' in us_source

@@ -153,20 +153,21 @@ def test_us_entry_uses_the_us_only_shell_and_global_market_snapshot():
     client = TestClient(main_module.app)
 
     shell = client.get("/us")
-    script = client.get("/assets/nasdaq/app.js")
+    script = client.get("/dashboard-app-v170.js")
     manifest = client.get("/us.webmanifest")
 
     assert shell.status_code == 200
     assert '<html lang="ko" data-market-universe="us">' in shell.text
-    assert 'id="overview-view" hidden' in shell.text
-    assert 'id="overview-us"' in shell.text
-    assert 'id="side-nav"' in shell.text
-    assert 'href="/assets/nasdaq/styles.css?v=20261014us148"' in shell.text
+    assert 'id="home-view" class="app-page app-home"' in shell.text
+    assert 'id="home-market-carousel"' in shell.text
+    assert 'id="bottom-nav"' in shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261015us149&amp;build=20261015us149"' in shell.text
     assert script.status_code == 200
+    assert 'const IS_US_ONLY_PRODUCT = PRODUCT_MARKET_UNIVERSE === "us";' in script.text
     assert 'liveUrl("/market/global-assets?limit=30")' in script.text
+    assert 'const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version"' in script.text
     assert manifest.status_code == 200
-    assert manifest.json()["start_url"] == "/us?view=overview"
+    assert manifest.json()["start_url"] == "/us?view=home"
     assert manifest.json()["scope"] == "/us"
     assert manifest.json()["name"] == "비밀노트 미국증시"
-    assert 'const workerPath = `${window.__US_PUBLIC_GATEWAY__ || ""}/us-sw.js`' in script.text
-    assert 'navigator.serviceWorker.register(workerPath, { scope: "/us" })' in script.text
+    assert 'const PRODUCT_SERVICE_WORKER_PATH = IS_US_ONLY_PRODUCT ? "/us-sw.js"' in script.text

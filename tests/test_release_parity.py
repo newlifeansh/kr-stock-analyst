@@ -42,9 +42,9 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261014us148"
-    assert len(contract["assets"]) == 6
-    assert len(contract["asset_sha256"]) == 6
+    assert contract["product_version"] == "20261015us149"
+    assert len(contract["assets"]) == 12
+    assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
         asset.split("?", 1)[0] for asset in contract["assets"]
     }
@@ -54,9 +54,9 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
         for asset in contract["assets"]
         if not asset.endswith("/us.webmanifest")
     )
-    assert any("/assets/nasdaq/app.js" in asset for asset in contract["assets"])
-    assert any("/assets/nasdaq/styles.css" in asset for asset in contract["assets"])
-    assert not any("/dashboard-app-v170.js" in asset for asset in contract["assets"])
+    assert any("/dashboard-app-v170.js" in asset for asset in contract["assets"])
+    assert any("/assets/dashboard/styles.css" in asset for asset in contract["assets"])
+    assert not any("/assets/nasdaq/app.js" in asset for asset in contract["assets"])
 
 
 def test_release_parity_rejects_a_stale_staging_asset() -> None:
@@ -295,6 +295,10 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "Verify US production version and asset hashes" in workflow
     assert "Run domestic production read-only checks" in workflow
     assert "Run US production read-only checks" in workflow
+    assert "Verify current US screen through the canonical gateway" in workflow
+    assert "--surface us-gateway" in workflow
+    assert "us-production-ui-e2e.json" in workflow
+    assert "QA_DASHBOARD_INVITE_CODE" in workflow
     assert "Capture failed US collector runtime evidence" in workflow
     assert "us-production-collector-runtime.jsonl" in workflow
     assert "Enforce post-deployment verification" in workflow
@@ -305,6 +309,7 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert 'steps.us_live.outcome }}\" = \"success\"' not in enforcement
     assert "::warning::Domestic read-only live QA" in enforcement
     assert "::warning::US read-only live QA" in enforcement
+    assert 'steps.us_ui_e2e.outcome }}\" = \"success\"' in enforcement
 
     catalog = {case["id"]: case for case in load_qa_catalog()["cases"]}
     release_case = catalog["DATA-COM-009"]
