@@ -150,6 +150,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_session_prices.test_sparse_regular_minutes_require_independent_volume_coverage_not_interpolation",
         "tests.test_regular_session_prices.test_sparse_regular_coverage_accepts_opening_bucket_gap_after_cross_source_match",
         "tests.test_regular_session_prices.test_sparse_regular_coverage_still_requires_observed_opening_trade_anchor",
+        "tests.test_regular_session_prices.test_delayed_first_trade_requires_zero_cross_source_volume_offset",
         "tests.test_regular_session_prices.test_sparse_regular_coverage_accepts_missing_last_preauction_minute",
         "tests.test_regular_session_prices.test_cross_source_absent_closing_auction_uses_last_actual_regular_trade",
         "tests.test_regular_session_prices.test_sparse_regular_coverage_rejects_conflicting_price_volume_or_closing_print",

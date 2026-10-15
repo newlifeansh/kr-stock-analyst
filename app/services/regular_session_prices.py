@@ -104,8 +104,9 @@ def _verified_naver_closing_auction(
     """
     if payload.get("code") != code or payload.get("stockExchangeType") != "KRX" or payload.get("periodType") != "week":
         raise ValueError("wrong closing-auction source identity")
-    if not regular or regular[0]["trade_time"] != "090000":
-        raise ValueError("cross-source coverage requires an observed opening trade anchor")
+    if not regular or not "090000" <= regular[0]["trade_time"] <= "090900":
+        raise ValueError("cross-source coverage requires a first-bucket trade anchor")
+    delayed_opening_trade = regular[0]["trade_time"] != "090000"
     candles = (payload.get("priceInfos") or {}).get(day.strftime("%Y%m%d"))
     if not isinstance(candles, list):
         raise ValueError("missing dated closing-auction evidence")
@@ -149,6 +150,13 @@ def _verified_naver_closing_auction(
         observed_offset = last_cumulative - cumulative
         if offset is None:
             offset = observed_offset
+            if delayed_opening_trade and offset != 0:
+                # A later first KIS trade is safe only when Naver's first
+                # bucket contains exactly the same total actual volume. Any
+                # offset could hide an omitted opening print or pre-open volume.
+                raise ValueError(
+                    "delayed opening anchor requires zero cross-source volume offset"
+                )
         if observed_offset < 0 or observed_offset != offset:
             raise ValueError("closing source conflicts with KIS pre-auction volume")
         pending_empty_buckets = 0
@@ -282,7 +290,10 @@ def regular_session_evidence(
                 result["source"] += "+naver_krx_closing_auction"
         if (
             not regular
-            or regular[0]["trade_time"] != "090000"
+            or (
+                regular[0]["trade_time"] != "090000"
+                and not sparse_prefix_verified
+            )
             or (
                 not verified_no_closing_trade
                 and regular[-1]["trade_time"] != "153000"
