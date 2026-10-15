@@ -747,6 +747,44 @@ def test_canonical_refresh_swaps_cache_before_publishing_transformed_revision(
     assert events == ["seal", "cache", "canonicalize", "revision"]
 
 
+def test_market_signal_refresh_preserves_snapshot_until_forward_evidence_is_complete(
+    monkeypatch, caplog,
+):
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("an incomplete evidence pass must not build or publish a snapshot")
+
+    caplog.set_level("WARNING", logger=main_module.logger.name)
+    monkeypatch.setattr(main_module, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        main_module, "_repair_market_quant_signal_ohlc", lambda *_args, **_kwargs: 0
+    )
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        "app.services.regular_signal_transition.collect_forward_session",
+        lambda *_args, **_kwargs: {
+            "state": "incomplete",
+            "attempted": 250,
+            "ready": 200,
+            "bounded": 25,
+            "deferred": 50,
+            "unverified": [{"code": "005930"}],
+        },
+    )
+    monkeypatch.setattr(main_module, "finalize_open_intraday_paths_for_session", unexpected)
+    monkeypatch.setattr(main_module, "_build_market_quant_signal_payload", unexpected)
+    monkeypatch.setattr(main_module, "save_market_quant_signal_snapshot", unexpected)
+
+    assert main_module._refresh_market_quant_signal_snapshot() is None
+    assert "preserving the previous market signal snapshot" in caplog.text
+
+
 def test_kis_recovery_status_only_reaches_realtime_codes(monkeypatch):
     async def exercise():
         realtime_queue = asyncio.Queue()

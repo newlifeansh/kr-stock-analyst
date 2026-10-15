@@ -1106,6 +1106,23 @@ def _refresh_market_quant_signal_snapshot(
                 logger.info("Regular signal price evidence: state=%s attempted=%s ready=%s bounded=%s unverified=%s",
                             regular.get("state"), regular.get("attempted"), regular.get("ready"),
                             regular.get("bounded"), len(regular.get("unverified", [])))
+                if regular.get("state") == "incomplete":
+                    # The sidecar collector intentionally limits each pass. Do
+                    # not turn a partial pass into a fresh publication: callers
+                    # must keep the prior snapshot stale so the guarded refresh
+                    # path retries until every required regular-session pair is
+                    # either ready or safely bounded.
+                    logger.warning(
+                        "Regular signal price evidence is incomplete; preserving "
+                        "the previous market signal snapshot: attempted=%s ready=%s "
+                        "bounded=%s deferred=%s unverified=%s",
+                        regular.get("attempted"),
+                        regular.get("ready"),
+                        regular.get("bounded"),
+                        regular.get("deferred"),
+                        len(regular.get("unverified", [])),
+                    )
+                    return None
                 sealed = finalize_open_intraday_paths_for_session(
                     db,
                     current_time,
@@ -4245,7 +4262,10 @@ def get_market_quant_signals(
             background_tasks.add_task(_refresh_entry_filter_shadow_snapshot)
         freshness = _market_quant_signal_snapshot_freshness(payload, current_time)
         payload.update(freshness)
-        if freshness["snapshot_state"] == "stale":
+        execution_evidence_incomplete = (
+            int(payload.get("execution_replay_unverified_count") or 0) > 0
+        )
+        if freshness["snapshot_state"] == "stale" or execution_evidence_incomplete:
             payload["status"] = "refreshing"
             payload = _suppress_stale_preliminary_market_signals(payload)
             background_tasks.add_task(
