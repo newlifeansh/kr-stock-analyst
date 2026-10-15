@@ -1106,12 +1106,14 @@ def _refresh_market_quant_signal_snapshot(
                 logger.info("Regular signal price evidence: state=%s attempted=%s ready=%s bounded=%s unverified=%s",
                             regular.get("state"), regular.get("attempted"), regular.get("ready"),
                             regular.get("bounded"), len(regular.get("unverified", [])))
-                if regular.get("state") == "incomplete":
+                if regular.get("state") == "incomplete" and int(
+                    regular.get("deferred") or 0
+                ) > 0:
                     # The sidecar collector intentionally limits each pass. Do
-                    # not turn a partial pass into a fresh publication: callers
-                    # must keep the prior snapshot stale so the guarded refresh
-                    # path retries until every required regular-session pair is
-                    # either ready or safely bounded.
+                    # not publish while required pairs have not even been
+                    # inspected. Once inspection is complete, per-code source
+                    # failures are isolated by the payload builder so healthy
+                    # names can still be scanned without blessing the failures.
                     logger.warning(
                         "Regular signal price evidence is incomplete; preserving "
                         "the previous market signal snapshot: attempted=%s ready=%s "
@@ -1123,6 +1125,12 @@ def _refresh_market_quant_signal_snapshot(
                         len(regular.get("unverified", [])),
                     )
                     return None
+                if regular.get("unverified"):
+                    logger.warning(
+                        "Regular signal price evidence has isolated failures; "
+                        "continuing the healthy-code scan: unverified=%s",
+                        len(regular["unverified"]),
+                    )
                 sealed = finalize_open_intraday_paths_for_session(
                     db,
                     current_time,
@@ -4265,9 +4273,15 @@ def get_market_quant_signals(
         execution_evidence_incomplete = (
             int(payload.get("execution_replay_unverified_count") or 0) > 0
         )
-        if freshness["snapshot_state"] == "stale" or execution_evidence_incomplete:
+        isolated_unverified = (
+            payload.get("unverified_codes_isolated") is True
+        )
+        if freshness["snapshot_state"] == "stale" or (
+            execution_evidence_incomplete and not isolated_unverified
+        ):
             payload["status"] = "refreshing"
             payload = _suppress_stale_preliminary_market_signals(payload)
+        if freshness["snapshot_state"] == "stale" or execution_evidence_incomplete:
             background_tasks.add_task(
                 _refresh_market_quant_signal_snapshot,
                 universe_limit,

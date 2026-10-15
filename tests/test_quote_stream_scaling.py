@@ -785,6 +785,74 @@ def test_market_signal_refresh_preserves_snapshot_until_forward_evidence_is_comp
     assert "preserving the previous market signal snapshot" in caplog.text
 
 
+def test_market_signal_refresh_publishes_healthy_codes_after_complete_isolation(
+    monkeypatch, caplog,
+):
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    payload = {
+        "status": "ready",
+        "data_state": "ready",
+        "evidence_state": "degraded",
+        "execution_replay_unverified_count": 2,
+        "unverified_codes_isolated": True,
+        "items": [{"code": "005930", "is_preliminary": True}],
+    }
+    events = []
+    caplog.set_level("WARNING", logger=main_module.logger.name)
+    monkeypatch.setattr(main_module, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        main_module, "_repair_market_quant_signal_ohlc", lambda *_args, **_kwargs: 0
+    )
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        "app.services.regular_signal_transition.collect_forward_session",
+        lambda *_args, **_kwargs: {
+            "state": "incomplete",
+            "attempted": 2,
+            "ready": 0,
+            "bounded": 0,
+            "deferred": 0,
+            "unverified": [{"code": "122630"}, {"code": "310970"}],
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "finalize_open_intraday_paths_for_session",
+        lambda *_args, **_kwargs: {"pending": 0, "finalized": 0, "unverified": 0},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_build_market_quant_signal_payload",
+        lambda *_args, **_kwargs: events.append("build") or payload,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "save_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: events.append("save") or payload,
+    )
+    monkeypatch.setattr(main_module.market_quant_signal_cache, "set", lambda *_args: None)
+    monkeypatch.setattr(
+        main_module, "_canonical_ai_signal_revision_payload",
+        lambda *_args, **_kwargs: payload,
+    )
+    monkeypatch.setattr(
+        main_module, "_record_ai_signal_revision",
+        lambda *_args, **_kwargs: {"revision": 1},
+    )
+
+    result = main_module._refresh_market_quant_signal_snapshot()
+
+    assert result is payload
+    assert events == ["build", "save"]
+    assert "continuing the healthy-code scan" in caplog.text
+
+
 def test_kis_recovery_status_only_reaches_realtime_codes(monkeypatch):
     async def exercise():
         realtime_queue = asyncio.Queue()

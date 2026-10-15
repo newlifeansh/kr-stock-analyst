@@ -5950,7 +5950,10 @@ def load_market_quant_signal_feed(
         except (UnverifiedIntradayPathError, UnverifiedRegularSessionPrice) as exc:
             unverified_codes.add(code)
             for previous_item in previous_items_by_code.get(code, []):
-                if previous_item.get("history_frozen"):
+                if (
+                    previous_item.get("history_frozen")
+                    or previous_item.get("is_preliminary")
+                ):
                     continue
                 frozen = deepcopy(previous_item)
                 frozen["execution_replay_state"] = "unverified"
@@ -6246,9 +6249,16 @@ def load_market_quant_signal_feed(
         if current_rank_by_code.get(code, capped_universe_limit + 1) <= core_universe_limit
     )
     current_extended_count = max(0, len(current_universe_codes) - current_core_count)
+    isolated_unverified = bool(forward_mode and unverified_codes)
     result = {
         "status": "ready",
-        "data_state": "degraded" if unverified_codes else "ready",
+        # Forward-mode failures are removed from new candidate/confirmation
+        # output one code at a time. The remaining scoped feed is usable while
+        # the separate evidence state keeps the exclusions visible and retried.
+        "data_state": (
+            "ready" if not unverified_codes or isolated_unverified else "degraded"
+        ),
+        "evidence_state": "degraded" if unverified_codes else "ready",
         "data_message": (
             f"{len(unverified_codes)}개 종목의 장중 체결 근거를 재검증 중입니다. "
             "해당 종목의 이전 신호만 표시하며 새 확정 알림은 보류합니다."
@@ -6256,6 +6266,7 @@ def load_market_quant_signal_feed(
         ),
         "execution_replay_unverified_count": len(unverified_codes),
         "execution_replay_unverified_codes": sorted(unverified_codes),
+        "unverified_codes_isolated": isolated_unverified,
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
