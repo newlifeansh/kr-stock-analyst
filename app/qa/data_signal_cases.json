@@ -52,7 +52,7 @@
       "modes": [
         "gate"
       ],
-      "automation": "pytest 날짜별 분봉·독립 DB 가격 근거·상하한 재현/임계값 판정 계약; 실제 수집·운영 연결 검증은 후보 준비 후 별도 live 증거 필요",
+      "automation": "pytest 날짜별 분봉·독립 DB 가격 근거·KIS 15:30 거래량 0 지시 행의 교차 원천 복구·상하한 재현/임계값 판정 계약; 실제 수집·운영 연결 검증은 후보 준비 후 별도 live 증거 필요",
       "preconditions": [
         "2026-09-14 이후 KRX 일봉에 애프터마켓 가격이 포함될 수 있다.",
         "기존 DailyPrice와 매매 이력을 수정하지 않는다."
@@ -66,14 +66,14 @@
         "opening_uncertainty": "exact unavailable -> bounded OHLCV evidence; opt-in audit only, never an invented point value",
         "bounded_replay": "explicit opt-in lower/upper turnover envelopes only; production_ready=false",
         "production_evidence_replay": "checksum/count verified read-only production price and frozen entry archive; never import into or overwrite local/production history",
-        "auction_fallback": "dated Naver KRX single-price 15:30 bucket only after all 38 pre-auction OHLC/volume buckets match KIS",
+        "auction_fallback": "KIS 15:30 row missing or zero-volume indicative -> dated Naver KRX single-price 15:30 bucket only after all 38 pre-auction OHLC/volume buckets match KIS",
         "sparse_coverage": "complete 09:00-09:09 volume anchor plus 38 matched OHLC/cumulative-volume buckets and actual matching close; no interpolated execution",
         "conflict_policy": "fail closed, append evidence without overwrite"
       },
       "steps": [
         "캘린더의 모든 예정 거래일을 검사하며 기존 일봉에 없는 날도 누락으로 확인한다. 날짜별 분봉 조회는 max_points로 15:30 체결을 버리지 않는다.",
         "중복·날짜 오류·누락 분봉·0거래 종가·비정상 가격을 차단하고, 동시호가의 0거래 지시가격은 체결에서 제외한다.",
-        "KIS 종가만 누락된 경우 네이버 KRX 동일 날짜의 09:00~15:19 모든 10분 구간 OHLC·누적 거래량 차이를 비교한다. 양수 단일가격 15:30 경매만 복구하고 장후 15:40 거래는 제외한다.",
+        "KIS 15:30 종가 행이 누락되거나 거래량 0의 지시 행인 경우 네이버 KRX 동일 날짜의 09:00~15:19 모든 10분 구간 OHLC·누적 거래량 차이를 비교한다. 양수 단일가격 15:30 경매만 복구하고 장후 15:40 거래는 제외한다.",
         "정규장 중간 분봉이 비면 09:00~09:09 양수 분봉 10개로 장전 거래량 차이의 기준을 고정하고, 38개 구간 모두의 OHLC·누적 거래량 차이와 종가 체결을 대조한다. 첫 구간 누락 또는 가격/거래량 불일치는 차단하고, 확인된 무거래 시간에는 가상 봉·체결을 넣지 않는다.",
         "정규장 거래량을 합산하고 거래대금의 각 분봉 누적 차이를 가격 범위×거래량과 대조한다. 장전 기준액이 없고 시초 분봉이 단일가격이 아니면 정확값 대신 상하한을 보존하고 bounded로 분리한다. 기본 시그널 로더는 이를 수용하지 않는다.",
         "bounded 근거는 기본 loader에서 거절하고 명시적 opt-in 읽기 전용 상·하한 시나리오에서만 사용한다. OHLCV·정규장 분봉 경로는 두 끝점에서 동일해야 하며, 기존 화면 일봉을 수정하지 않는다.",
@@ -85,12 +85,12 @@
       "expected": [
         "정규장 신호용 가격은 시간외 시세·거래량·거래대금과 분리된다.",
         "과거 버전·화면 가격·매매 이력은 덮어쓰지 않고 재계산 입력만 별도로 제공한다.",
-        "부족한 근거는 unverified 또는 명시적으로 labelled된 bounded 상·하한으로 보존하며, 단일 거래대금을 추정하지 않는다.",
+        "부족한 근거는 unverified 또는 명시적으로 labelled된 bounded 상·하한으로 보존하며, 단일 거래대금을 추정하지 않는다. KIS의 거래량 0인 15:30 지시 행은 실제 체결로 인정하지 않고 검증된 교차 원천 체결로만 교체한다.",
         "상·하한 증명은 가격 기반 유동성·비용의 불변성만 보고하고 production_ready=false 및 독립 진입근거 미검증 상태를 유지한다."
       ],
       "failure_criteria": [
         "누적 거래대금을 합산하거나 전체 일봉으로 미검증 정규장 근거를 대체한다.",
-        "15:30 체결을 max_points 제한으로 버리거나 누락·위변조 근거를 ready로 반환한다.",
+        "15:30 체결을 max_points 제한으로 버리거나 거래량 0인 지시 행을 실제 체결로 사용하거나 누락·위변조 근거를 ready로 반환한다.",
         "장초 첫 10분의 누락 거래량을 장전 차이로 흡수하거나, 구간·종가 원천 불일치를 통과시키거나, 빈 시간에 가상 체결을 생성한다.",
         "bounded 거래대금을 단일 관측값처럼 loader·시그널에 전달하거나 OHLCV가 달라진 끝점·뒤집힌 상하한을 통과시킨다.",
         "하한 < 거래대금 임계값 <= 상한인 구간을 invariant로 승인하거나, 제한된 증명을 운영/독립 진입근거 승인으로 표시한다.",
@@ -304,10 +304,10 @@
       "modes": ["gate", "live"],
       "automation": "GitHub Actions main push deterministic pytest·QA gate → 단일 GHCR OCI digest 빌드 → 미국 web/collector → 국내 web/collector 자동 운영 배포 → 4개 서비스 동일 digest 기동 → 양 시장 production version·asset hash·critical-data readiness 필수 검증 + read-only live 증거·경고",
       "preconditions": ["운영 배포 의도가 승인된 변경만 main에 병합한다.", "국내·미국 운영 Railway 프로젝트와 web·collector 서비스, URL, RAILWAY_API_TOKEN을 준비한다.", "production 환경의 매회 수동 reviewer 승인을 제거하고 main 병합 권한을 배포 승인 경계로 사용한다.", "이전 정상 운영 OCI digest를 롤백 후보로 보존한다."],
-      "inputs": {"trigger": "push to main", "default_order": "main push→gate→build once→US production→dashboard production→production parity/readiness/live", "staging_required": false, "production_us_ui_e2e": "canonical /us-gateway current shared UI; authenticated mobile dark/light, report and screenshots retained; failure blocks release", "manual_staging_available": true, "source": "github.sha", "artifact_identity": "ghcr.io/<owner>/<repo>@sha256:<64 hex>", "production_environment": "production", "railway_auth_env": "RAILWAY_API_TOKEN", "railway_projects": {"dashboard": "PRODUCTION_RAILWAY_PROJECT_ID", "us": "US_PRODUCTION_RAILWAY_PROJECT_ID"}, "production_urls": {"dashboard": "PRODUCTION_BASE_URL", "us": "US_PRODUCTION_BASE_URL"}, "process_roles": {"web": "web", "collector": "collector"}, "us_market_enabled": true, "post_deploy_required": ["four-service exact digest deployment", "release parity", "critical-data readiness including domestic market signal and US Top100"], "post_deploy_observed": ["read-only live QA", "US collector runtime logs on readiness failure"]},
-      "steps": ["main에 push된 정확한 SHA를 checkout해 전체 pytest와 machine-readable gate를 실행하고 하나라도 실패하면 빌드·배포를 시작하지 않는다.", "gate를 통과한 SHA로 GHCR 이미지를 한 번만 빌드하고 source SHA·v8.0 release tag·OCI SHA-256 digest를 증거로 남긴다.", "국내·미국 운영 프로젝트와 URL이 서로 다르고 image ref가 digest 형식인지 확인한다.", "미국과 국내 web·collector에 PROCESS_ROLE을 강제하고 미국 web·collector에는 US_MARKET_ENABLED=true를 유지한다.", "동일 image@sha256을 미국 운영 web·collector에 먼저 연결하고 이어 국내 운영 web·collector에 연결한 뒤 네 서비스의 최신 deployment가 모두 SUCCESS·동일 digest인지 대기한다.", "양 운영 URL의 제품 버전·정적 자산 해시·국내 시그널 ready·미국 Top100 100/100/100 ready를 필수 검증한다.", "read-only live QA를 항상 실행하고 외부 공급자·장 상태 P0는 경고와 증거로 남긴다. 미국 readiness가 실패하면 collector runtime 로그도 보존한다.", "사후 검증 증거를 90일 보존한다."],
-      "expected": ["main 변경은 deterministic gate를 통과한 경우에만 자동으로 운영 배포된다.", "국내·미국 운영의 web·collector 네 서비스가 동일한 불변 OCI digest로 SUCCESS 상태가 된다.", "정상 자동 배포 경로는 스테이징 기동이나 운영자별 후보 승인 대기를 요구하지 않으며 수동 스테이징은 진단용으로 남는다.", "배포 후 양 시장 제품 버전·자산 내용·핵심 데이터가 현재 main SHA와 일치하고 ready이다.", "live QA 운영 P0는 통과로 변조하지 않고 경고·증거로 남는다."],
-      "failure_criteria": ["pytest 또는 gate 실패 후 이미지 빌드나 운영 배포가 시작된다.", "미국·국내 운영에 서로 다른 이미지 또는 태그만 지정된 가변 이미지를 배포하거나 collector deployment SUCCESS를 확인하지 않는다.", "자동 경로가 스테이징 준비나 매회 production reviewer 승인 때문에 대기한다.", "web·collector 역할이 뒤바뀌거나 미국 운영에서 US_MARKET_ENABLED가 꺼진다.", "한 시장만 배포하고 다른 시장을 같은 버전으로 기록하거나 사후 parity·critical-data readiness 중 하나를 생략한다.", "live QA를 실행하지 않거나 실패 증거를 성공으로 변조하거나, 미국 readiness 실패 시 collector 진단 증거를 남기지 않는다."]
+      "inputs": {"trigger": "push to main", "default_order": "main push→gate→build once→US production→dashboard production→production parity/readiness/live", "staging_required": false, "production_us_ui_e2e": "canonical /us-gateway current shared UI; authenticated mobile dark/light, report and screenshots retained; GitHub secret가 비면 국내 운영 Railway web의 기존 초대 코드를 마스킹해 사용; failure blocks release", "manual_staging_available": true, "source": "github.sha", "artifact_identity": "ghcr.io/<owner>/<repo>@sha256:<64 hex>", "production_environment": "production", "railway_auth_env": "RAILWAY_API_TOKEN", "railway_projects": {"dashboard": "PRODUCTION_RAILWAY_PROJECT_ID", "us": "US_PRODUCTION_RAILWAY_PROJECT_ID"}, "production_urls": {"dashboard": "PRODUCTION_BASE_URL", "us": "US_PRODUCTION_BASE_URL"}, "process_roles": {"web": "web", "collector": "collector"}, "us_market_enabled": true, "post_deploy_required": ["four-service exact digest deployment", "release parity", "critical-data readiness including domestic market signal and US Top100"], "post_deploy_observed": ["read-only live QA", "US collector runtime logs on readiness failure"]},
+      "steps": ["main에 push된 정확한 SHA를 checkout해 전체 pytest와 machine-readable gate를 실행하고 하나라도 실패하면 빌드·배포를 시작하지 않는다.", "gate를 통과한 SHA로 GHCR 이미지를 한 번만 빌드하고 source SHA·v8.0 release tag·OCI SHA-256 digest를 증거로 남긴다.", "국내·미국 운영 프로젝트와 URL이 서로 다르고 image ref가 digest 형식인지 확인한다.", "미국과 국내 web·collector에 PROCESS_ROLE을 강제하고 미국 web·collector에는 US_MARKET_ENABLED=true를 유지한다.", "동일 image@sha256을 미국 운영 web·collector에 먼저 연결하고 이어 국내 운영 web·collector에 연결한 뒤 네 서비스의 최신 deployment가 모두 SUCCESS·동일 digest인지 대기한다.", "양 운영 URL의 제품 버전·정적 자산 해시·국내 시그널 ready·미국 Top100 100/100/100 ready를 필수 검증한다.", "read-only live QA를 항상 실행하고 외부 공급자·장 상태 P0는 경고와 증거로 남긴다. 미국 readiness가 실패하면 collector runtime 로그도 보존한다.", "운영 US gateway E2E 전에 GitHub production secret의 초대 코드를 우선 사용하고, 비어 있으면 Railway 국내 운영 web의 기존 DASHBOARD_INVITE_CODE를 비밀 마스킹한 환경값으로만 전달한다.", "사후 검증 증거를 90일 보존한다."],
+      "expected": ["main 변경은 deterministic gate를 통과한 경우에만 자동으로 운영 배포된다.", "국내·미국 운영의 web·collector 네 서비스가 동일한 불변 OCI digest로 SUCCESS 상태가 된다.", "정상 자동 배포 경로는 스테이징 기동이나 운영자별 후보 승인 대기를 요구하지 않으며 수동 스테이징은 진단용으로 남는다.", "배포 후 양 시장 제품 버전·자산 내용·핵심 데이터가 현재 main SHA와 일치하고 ready이다.", "live QA 운영 P0는 통과로 변조하지 않고 경고·증거로 남는다.", "운영 초대 코드가 GitHub에 중복 저장되지 않아도 Railway의 현재 코드를 노출 없이 재사용해 canonical US gateway E2E가 실행된다."],
+      "failure_criteria": ["pytest 또는 gate 실패 후 이미지 빌드나 운영 배포가 시작된다.", "미국·국내 운영에 서로 다른 이미지 또는 태그만 지정된 가변 이미지를 배포하거나 collector deployment SUCCESS를 확인하지 않는다.", "자동 경로가 스테이징 준비나 매회 production reviewer 승인 때문에 대기한다.", "web·collector 역할이 뒤바뀌거나 미국 운영에서 US_MARKET_ENABLED가 꺼진다.", "한 시장만 배포하고 다른 시장을 같은 버전으로 기록하거나 사후 parity·critical-data readiness 중 하나를 생략한다.", "live QA를 실행하지 않거나 실패 증거를 성공으로 변조하거나, 미국 readiness 실패 시 collector 진단 증거를 남기지 않는다.", "운영 초대 코드가 GitHub secret에 없다는 이유만으로 E2E 전체를 시작 전 실패시키거나 Railway 변수값을 로그에 노출한다."]
     },
     {
       "id": "DATA-COM-006",

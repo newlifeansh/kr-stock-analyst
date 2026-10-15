@@ -298,6 +298,11 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "Verify current US screen through the canonical gateway" in workflow
     assert "--surface us-gateway" in workflow
     assert "us-production-ui-e2e.json" in workflow
+    assert "Resolve production invite code for canonical US screen verification" in workflow
+    assert "CONFIGURED_INVITE_CODE" in workflow
+    assert "railway variable list --json" in workflow
+    assert "::add-mask::$invite_code" in workflow
+    assert 'echo "QA_DASHBOARD_INVITE_CODE=$invite_code" >> "$GITHUB_ENV"' in workflow
     assert "QA_DASHBOARD_INVITE_CODE" in workflow
     assert "Capture failed US collector runtime evidence" in workflow
     assert "us-production-collector-runtime.jsonl" in workflow

@@ -160,7 +160,7 @@ def regular_session_evidence(
         if len(actual_prefix) < 380 and closing_auction_evidence is not None:
             closing = _verified_naver_closing_auction(code, trade_date, actual_prefix, closing_auction_evidence)
             observed_close = next((row for row in regular if row["trade_time"] == "153000"), None)
-            if observed_close is not None and any(
+            if observed_close is not None and _integer(observed_close.get("volume")) > 0 and any(
                 _integer(observed_close.get(key)) != _integer(closing[key])
                 for key in ("open", "high", "low", "price", "volume", "trading_value")
             ):
@@ -168,8 +168,20 @@ def regular_session_evidence(
             sparse_prefix_verified = True
             result["coverage_basis"] = "naver_38_buckets_with_complete_opening_volume_anchor"
             result["source"] += "+naver_krx_regular_coverage"
-        if regular and regular[-1]["trade_time"] != "153000" and closing_auction_evidence is not None:
-            regular = regular + [_verified_naver_closing_auction(code, trade_date, regular, closing_auction_evidence)]
+        closing_trade_missing = bool(
+            regular
+            and (
+                regular[-1]["trade_time"] != "153000"
+                or _integer(regular[-1].get("volume")) <= 0
+            )
+        )
+        if closing_trade_missing and closing_auction_evidence is not None:
+            preauction = [row for row in regular if row["trade_time"] <= "151900"]
+            regular = preauction + [
+                _verified_naver_closing_auction(
+                    code, trade_date, preauction, closing_auction_evidence
+                )
+            ]
             result["source"] += "+naver_krx_closing_auction"
         if not regular or regular[0]["trade_time"] != "090000" or regular[-1]["trade_time"] != "153000":
             raise ValueError("missing regular opening or closing trade")

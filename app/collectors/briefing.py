@@ -747,7 +747,11 @@ class KisRestBriefingProvider:
             cursor = next_cursor
         result = {"rows": [points[key] for key in sorted(points)], "preopen_baseline": baseline, "closing_auction_evidence": None}
         regular_prefix_count = sum("090000" <= stamp <= "151900" for stamp in points)
-        if "151900" in points and ("153000" not in points or regular_prefix_count < 380):
+        closing_row = points.get("153000")
+        closing_trade_missing = (
+            closing_row is None or int(closing_row.get("volume") or 0) <= 0
+        )
+        if "151900" in points and (closing_trade_missing or regular_prefix_count < 380):
             try:
                 response = requests.get(
                     f"https://api.stock.naver.com/chart/domestic/item/{code}",
