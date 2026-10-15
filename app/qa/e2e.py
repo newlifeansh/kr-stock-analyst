@@ -9409,6 +9409,22 @@ def run_e2e_checks(
                     ready_selector="body[data-view='portfolio']",
                 )
                 shell = _assert_page_shell(page, theme=theme)
+                page.evaluate(
+                    """async () => {
+                      // This case owns fixed dashboard and quote fixtures. A
+                      // live market-signal socket must not overwrite them
+                      // while the test walks the group and pin interactions.
+                      state.quoteStreamSignalControlActive = false;
+                      closeAiSignalQuoteStreams();
+                      closeWatchlistQuoteStreams();
+                      closeMarketQuoteStreams();
+                      closeRecommendationQuoteStreams();
+                      state.quoteStreamScopes.clear();
+                      pauseQuoteStreamConnection('checking');
+                      syncQuoteStreamSubscriptions = () => {};
+                      await loadWatchlist({force: true, ttlMs: 0});
+                    }"""
+                )
                 page.wait_for_function(
                     """() => (
                       document.querySelectorAll('#watchlist-body [data-watch-card]').length === 3

@@ -1505,6 +1505,9 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "커뮤니티 시장 토글이 미국 국기·태극기" in source
     assert "def watchlist_groups_case" in source
     assert 'case_id="SIG-UI-024"' in source
+    assert "state.quoteStreamScopes.clear();" in source
+    assert "syncQuoteStreamSubscriptions = () => {};" in source
+    assert "await loadWatchlist({force: true, ttlMs: 0});" in source
     assert '[data-code="035720"][data-market-scope="kr"]' in source
     assert '"code": "035420"' in source
     assert '"qa delayed quote fixture"' in source
