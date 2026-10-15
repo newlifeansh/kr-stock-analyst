@@ -116,17 +116,40 @@ jobs:
       - name: Reproduce one completed-session evidence check without persistence
         continue-on-error: true
         run: |
+          set -euo pipefail
+          services="$(railway service list --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production)"
+          database_service="$(jq -r \
+            --arg web "$PRODUCTION_RAILWAY_WEB_SERVICE" \
+            --arg collector "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
+            '[.[] | select(.id != $web and .id != $collector) |
+              select((.name // "") | test("postgres|database"; "i"))][0].id // empty' \
+            <<< "$services")"
+          if test -z "$database_service"; then
+            database_service="$(jq -r \
+              --arg web "$PRODUCTION_RAILWAY_WEB_SERVICE" \
+              --arg collector "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
+              '[.[] | select(.id != $web and .id != $collector)][0].id // empty' \
+              <<< "$services")"
+          fi
+          test -n "$database_service"
+          database_url="$(railway variable list --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$database_service" | jq -r '.DATABASE_PUBLIC_URL // empty')"
+          test -n "$database_url"
+          echo "::add-mask::$database_url"
           set -o pipefail
           railway run \
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
-            sh -c 'export DATABASE_URL="${DATABASE_PUBLIC_URL:-$DATABASE_URL}"; \
-              exec analyst regular-session-prices \
+            env DATABASE_URL="$database_url" \
+              analyst regular-session-prices \
                 --codes 005930 \
                 --from-date 2026-10-15 \
                 --to-date 2026-10-15 \
-                --max-pairs 1' \
+                --max-pairs 1 \
             > artifacts/qa-data-signal/domestic-regular-session-sample.json 2>&1
+          unset database_url
       - name: Upload domestic regular-session diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
