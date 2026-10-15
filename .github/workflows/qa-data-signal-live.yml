@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: domestic-staging-runtime
+  group: domestic-diagnostic-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
