@@ -164,6 +164,59 @@ def test_dated_regular_source_keeps_closing_auction_and_preopen_baseline(monkeyp
     assert evidence(rows)["state"] == "ready"
 
 
+def test_dated_regular_source_pages_past_five_sparse_responses(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.config import Settings
+
+    provider = KisRestBriefingProvider(
+        Settings(kis_app_key="fixture", kis_app_secret="fixture")
+    )
+    calls = []
+    source = [
+        {
+            "stck_bsop_date": row["trade_date"],
+            "stck_cntg_hour": row["trade_time"],
+            "stck_oprc": row["open"],
+            "stck_hgpr": row["high"],
+            "stck_lwpr": row["low"],
+            "stck_prpr": row["price"],
+            "cntg_vol": row["volume"],
+            "acml_tr_pbmn": row["trading_value"],
+        }
+        for row in minute_rows()
+        if row["trade_time"] >= "090000"
+    ]
+
+    def get(_path, _tr_id, params):
+        calls.append(params["FID_INPUT_HOUR_1"])
+        if params["FID_INPUT_HOUR_1"] == "085900":
+            return {
+                "output2": [
+                    {
+                        "stck_bsop_date": "20261008",
+                        "stck_cntg_hour": "195900",
+                        "acml_tr_pbmn": "999999",
+                    }
+                ]
+            }
+        return {
+            "output2": [
+                row
+                for row in reversed(source)
+                if row["stck_cntg_hour"] <= params["FID_INPUT_HOUR_1"]
+            ][:75]
+        }
+
+    monkeypatch.setattr(provider, "_get", get)
+
+    result = provider.fetch_regular_session_data("005930", DAY)
+
+    assert len(calls) == 7
+    assert result["rows"][0]["trade_time"] == "090000"
+    assert result["rows"][-1]["trade_time"] == "153000"
+    assert result["preopen_baseline"]["kind"] == "observed_day_boundary"
+
+
 def test_dated_regular_source_fetches_cross_source_close_for_zero_volume_1530(
     monkeypatch,
 ):
@@ -222,6 +275,62 @@ def test_dated_regular_source_fetches_cross_source_close_for_zero_volume_1530(
     assert result["rows"][-1]["volume"] == 0
     assert result["closing_auction_evidence"] == naver_auction_fixture()
     assert requested[0][1]["params"] == {"periodType": "week"}
+
+
+def test_dated_regular_source_fetches_cross_source_for_sparse_tail(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.config import Settings
+
+    provider = KisRestBriefingProvider(
+        Settings(kis_app_key="fixture", kis_app_secret="fixture")
+    )
+    source = [
+        {
+            "stck_bsop_date": row["trade_date"],
+            "stck_cntg_hour": row["trade_time"],
+            "stck_oprc": row["open"],
+            "stck_hgpr": row["high"],
+            "stck_lwpr": row["low"],
+            "stck_prpr": row["price"],
+            "cntg_vol": row["volume"],
+            "acml_tr_pbmn": row["trading_value"],
+        }
+        for row in minute_rows()
+        if row["trade_time"] != "151900"
+    ]
+
+    def get(_path, _tr_id, params):
+        return {
+            "output2": [
+                row
+                for row in reversed(source)
+                if row["stck_cntg_hour"] <= params["FID_INPUT_HOUR_1"]
+            ][:120]
+        }
+
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return naver_auction_fixture()
+
+    requested = []
+
+    def request(url, **kwargs):
+        requested.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(provider, "_get", get)
+    monkeypatch.setattr("app.collectors.briefing.requests.get", request)
+
+    result = provider.fetch_regular_session_data("005930", DAY)
+
+    assert "151900" not in {row["trade_time"] for row in result["rows"]}
+    assert result["closing_auction_evidence"] == naver_auction_fixture()
+    assert len(requested) == 1
 
 
 def test_dated_regular_source_does_not_relabel_wrong_dates(monkeypatch):
@@ -371,12 +480,24 @@ def test_cross_source_auction_never_recovers_wrong_venue_date_or_bad_prefix():
     corruptions = []
     for field, value in (("code", "000660"), ("stockExchangeType", "NXT"), ("periodType", "day"), ("priceInfos", {"20261008": []})):
         corruptions.append({**naver_auction_fixture(), field: value})
-    for index, field, value in ((0, "highPrice", 120), (1, "accumulatedTradingVolume", 206), (-1, "highPrice", 120), (-1, "accumulatedTradingVolume", 3805), (-1, "localDateTime", "20261012154000")):
+    for index, field, value in ((0, "highPrice", 120), (1, "accumulatedTradingVolume", 206), (-1, "highPrice", 120), (-1, "accumulatedTradingVolume", 3805)):
         changed = naver_auction_fixture()
         changed["priceInfos"]["20261012"][index][field] = value
         corruptions.append(changed)
     for naver in corruptions:
         assert rsp.regular_session_evidence("005930", DAY, rows, observed_at=OBSERVED, closing_auction_evidence=naver)["state"] == "unverified"
+
+    # A 15:40 print is after-market evidence, not a shifted closing auction.
+    # When both dated regular sources omit 15:30, preserve the last actual
+    # regular trade instead of relabelling the later bucket.
+    shifted = naver_auction_fixture()
+    shifted["priceInfos"]["20261012"][-1]["localDateTime"] = "20261012154000"
+    no_close = rsp.regular_session_evidence(
+        "005930", DAY, rows, observed_at=OBSERVED,
+        closing_auction_evidence=shifted,
+    )
+    assert no_close["state"] == "ready"
+    assert no_close["regular_rows"][-1]["trade_time"] == "151900"
     assert rsp.regular_session_evidence("005930", DAY, rows[:70] + rows[71:], observed_at=OBSERVED, closing_auction_evidence=naver_auction_fixture())["state"] == "unverified"
 
 
@@ -540,11 +661,62 @@ def test_sparse_regular_minutes_require_independent_volume_coverage_not_interpol
     assert len(regular_ordered_paths(inputs)[DAY]) == 380
 
 
-def test_sparse_regular_coverage_cannot_absorb_an_opening_gap_into_preopen_volume():
+def test_sparse_regular_coverage_accepts_opening_bucket_gap_after_cross_source_match():
     rows, naver = sparse_regular_fixture("090500")
     result = rsp.regular_session_evidence("005930", DAY, rows, observed_at=OBSERVED, closing_auction_evidence=naver)
+    assert result["state"] == "ready", result["reason"]
+    assert result["prices"]["volume"] == 3800
+
+
+def test_sparse_regular_coverage_still_requires_observed_opening_trade_anchor():
+    rows, naver = sparse_regular_fixture("090000")
+    result = rsp.regular_session_evidence(
+        "005930", DAY, rows, observed_at=OBSERVED,
+        closing_auction_evidence=naver,
+    )
     assert result["state"] == "unverified"
-    assert "opening volume anchor" in result["reason"]
+    assert "opening trade anchor" in result["reason"]
+
+
+def test_sparse_regular_coverage_accepts_missing_last_preauction_minute():
+    rows, naver = sparse_regular_fixture("151900")
+    result = rsp.regular_session_evidence(
+        "005930", DAY, rows, observed_at=OBSERVED,
+        closing_auction_evidence=naver,
+    )
+    assert result["state"] == "ready", result["reason"]
+    assert result["regular_rows"][-1]["trade_time"] == "153000"
+
+
+def test_cross_source_absent_closing_auction_uses_last_actual_regular_trade(db):
+    rows = [row for row in minute_rows() if row["trade_time"] != "153000"]
+    naver = naver_auction_fixture()
+    naver["priceInfos"]["20261012"] = [
+        bucket
+        for bucket in naver["priceInfos"]["20261012"]
+        if bucket["localDateTime"][-6:] != "153000"
+    ]
+
+    result = rsp.regular_session_evidence(
+        "005930", DAY, rows, observed_at=OBSERVED,
+        closing_auction_evidence=naver,
+    )
+
+    assert result["state"] == "ready", result["reason"]
+    assert result["prices"] == {
+        "open": 100,
+        "high": 100,
+        "low": 100,
+        "close": 100,
+        "volume": 3800,
+        "trading_value": 380000,
+    }
+    assert result["regular_rows"][-1]["trade_time"] == "151900"
+    assert result["source"].endswith("+naver_krx_no_closing_trade")
+    rsp.store_regular_session_evidence(db, result, observed_at=OBSERVED)
+    db.commit()
+    loaded = rsp.load_regular_session_evidence(db, "005930", DAY)
+    assert loaded["prices"] == result["prices"]
 
 
 def test_sparse_regular_coverage_rejects_conflicting_price_volume_or_closing_print():
