@@ -117,14 +117,15 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          railway ssh \
+          railway run \
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
-            analyst regular-session-prices \
-              --codes 005930 \
-              --from-date 2026-10-15 \
-              --to-date 2026-10-15 \
-              --max-pairs 1 \
+            sh -c 'export DATABASE_URL="${DATABASE_PUBLIC_URL:-$DATABASE_URL}"; \
+              exec analyst regular-session-prices \
+                --codes 005930 \
+                --from-date 2026-10-15 \
+                --to-date 2026-10-15 \
+                --max-pairs 1' \
             > artifacts/qa-data-signal/domestic-regular-session-sample.json 2>&1
       - name: Upload domestic regular-session diagnostic evidence
         if: always()
