@@ -580,6 +580,35 @@ def test_cross_source_regular_coverage_accepts_independently_confirmed_halt_buck
     assert "+naver_krx_regular_coverage" in result["source"]
 
 
+def test_cross_source_coverage_labels_remain_append_only_replay_compatible(db):
+    rows, naver = halted_regular_fixture()
+    canonical = rsp.regular_session_evidence(
+        "005930",
+        DAY,
+        rows,
+        observed_at=OBSERVED,
+        closing_auction_evidence=naver,
+    )
+    assert canonical["state"] == "ready", canonical["reason"]
+
+    for coverage_basis in (
+        rsp.NAVER_REGULAR_COVERAGE_BASIS,
+        (
+            "naver_regular_buckets_with_complete_opening_volume_anchor_"
+            "and_confirmed_empty_intervals"
+        ),
+    ):
+        stored = deepcopy(canonical)
+        stored["coverage_basis"] = coverage_basis
+        rsp.store_regular_session_evidence(db, stored, observed_at=OBSERVED)
+        db.commit()
+
+    assert db.scalar(select(func.count()).select_from(SignalSessionPrice)) == 2
+    loaded = rsp.load_regular_session_evidence(db, "005930", DAY)
+    assert loaded["prices"] == canonical["prices"]
+    assert loaded["coverage_basis"] in rsp.NAVER_REGULAR_COVERAGE_BASIS_ALIASES
+
+
 def test_empty_regular_bucket_requires_matching_cross_source_absence_and_later_proof():
     rows, _naver = halted_regular_fixture()
     conflicting = rsp.regular_session_evidence(

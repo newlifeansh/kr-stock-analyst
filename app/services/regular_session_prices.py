@@ -27,6 +27,18 @@ REGULAR_PRICE_BASIS = "krx-regular-session-v4-candidate"
 REGULAR_PRICE_EFFECTIVE_DATE = date(2026, 9, 14)
 REGULAR_PRICE_SOURCE = "kis_dated_minutes:FHKST03010230:J"
 PRICE_FIELDS = ("open", "high", "low", "close", "volume", "trading_value")
+NAVER_REGULAR_COVERAGE_BASIS = (
+    "naver_38_buckets_with_complete_opening_volume_anchor"
+)
+NAVER_REGULAR_COVERAGE_BASIS_ALIASES = frozenset(
+    {
+        NAVER_REGULAR_COVERAGE_BASIS,
+        (
+            "naver_regular_buckets_with_complete_opening_volume_anchor_"
+            "and_confirmed_empty_intervals"
+        ),
+    }
+)
 
 
 class UnverifiedRegularSessionPrice(RuntimeError):
@@ -35,6 +47,34 @@ class UnverifiedRegularSessionPrice(RuntimeError):
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _matches_recomputed_evidence(
+    stored: dict[str, Any], recomputed: dict[str, Any]
+) -> bool:
+    """Compare evidence while retaining append-only coverage-label aliases.
+
+    The coverage wording changed without a price-basis version change during
+    the halt-interval rollout. Both labels describe the same independently
+    verified KIS/Naver contract; hashes and every other evidence field remain
+    exact. Treating only this label as an alias keeps records written before
+    and during that rollout readable without weakening integrity checks.
+    """
+    if stored == recomputed:
+        return True
+    if (
+        stored.get("coverage_basis") not in NAVER_REGULAR_COVERAGE_BASIS_ALIASES
+        or recomputed.get("coverage_basis")
+        not in NAVER_REGULAR_COVERAGE_BASIS_ALIASES
+    ):
+        return False
+    return {
+        **stored,
+        "coverage_basis": NAVER_REGULAR_COVERAGE_BASIS,
+    } == {
+        **recomputed,
+        "coverage_basis": NAVER_REGULAR_COVERAGE_BASIS,
+    }
 
 
 def _integer(value: Any, *, positive: bool = False) -> int:
@@ -190,10 +230,11 @@ def regular_session_evidence(
             ):
                 raise ValueError("closing source conflicts with actual KIS closing trade")
             sparse_prefix_verified = True
-            result["coverage_basis"] = (
-                "naver_regular_buckets_with_complete_opening_volume_anchor_"
-                "and_confirmed_empty_intervals"
-            )
+            # Keep the persisted identifier stable. The QA contract defines
+            # how jointly absent halt intervals are proven; changing this
+            # append-only label without a basis-version bump would make older
+            # evidence fail deterministic recomputation.
+            result["coverage_basis"] = NAVER_REGULAR_COVERAGE_BASIS
             result["source"] += "+naver_krx_regular_coverage"
             regular = [
                 row
@@ -333,7 +374,7 @@ def store_regular_session_evidence(
         preopen_baseline=evidence.get("preopen_baseline"),
         closing_auction_evidence=evidence.get("closing_auction_evidence"),
     )
-    if verified != evidence:
+    if not _matches_recomputed_evidence(evidence, verified):
         raise ValueError("evidence failed deterministic recomputation")
     digest = sha256(_json(evidence).encode()).hexdigest()
     existing = db.scalar(select(SignalSessionPrice).where(
@@ -380,7 +421,7 @@ def load_regular_session_evidence(
         try:
             evidence = json.loads(record.payload)["evidence"]
             regenerated = regular_session_evidence(code, trade_date, evidence["raw_rows"], observed_at=record.observed_at.replace(tzinfo=timezone.utc), preopen_baseline=evidence.get("preopen_baseline"), closing_auction_evidence=evidence.get("closing_auction_evidence"))
-            if evidence != regenerated or sha256(_json(evidence).encode()).hexdigest() != record.evidence_hash or evidence["state"] != record.state or evidence["state"] not in states:
+            if not _matches_recomputed_evidence(evidence, regenerated) or sha256(_json(evidence).encode()).hexdigest() != record.evidence_hash or evidence["state"] != record.state or evidence["state"] not in states:
                 raise ValueError("integrity mismatch")
         except (ValueError, KeyError, TypeError) as exc:
             raise UnverifiedRegularSessionPrice("정규장 가격 근거의 무결성이 깨졌습니다") from exc

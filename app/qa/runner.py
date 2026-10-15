@@ -150,6 +150,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_session_prices.test_sparse_regular_coverage_rejects_conflicting_price_volume_or_closing_print",
         "tests.test_regular_session_prices.test_cross_source_regular_coverage_accepts_independently_confirmed_halt_buckets[False]",
         "tests.test_regular_session_prices.test_cross_source_regular_coverage_accepts_independently_confirmed_halt_buckets[True]",
+        "tests.test_regular_session_prices.test_cross_source_coverage_labels_remain_append_only_replay_compatible",
         "tests.test_regular_session_prices.test_empty_regular_bucket_requires_matching_cross_source_absence_and_later_proof",
         "tests.test_regular_price_replay.test_regular_turnover_certificate_proves_liquidity_and_cost_without_claiming_full_approval",
         "tests.test_regular_price_replay.test_regular_turnover_certificate_rejects_any_inclusive_threshold_crossing[5000000000]",
