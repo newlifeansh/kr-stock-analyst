@@ -107,7 +107,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quote_stream_scaling.test_market_signal_refresh_preserves_snapshot_until_forward_evidence_is_complete",
         "tests.test_quote_stream_scaling.test_market_signal_refresh_publishes_healthy_codes_after_complete_isolation",
         "tests.test_app.test_fresh_market_signal_snapshot_retries_incomplete_forward_evidence",
-        "tests.test_app.test_fresh_market_signal_snapshot_keeps_isolated_healthy_candidates",
+        "tests.test_app.test_fresh_market_signal_snapshot_keeps_isolated_healthy_candidates_without_read_retry",
     ),
     "DATA-KR-QUOTE-SESSION-001": (
         "tests.test_live_stock_quote.test_kis_source_session_and_business_date_are_preserved_for_every_venue",
