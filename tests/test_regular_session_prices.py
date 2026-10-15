@@ -675,7 +675,21 @@ def test_sparse_regular_coverage_still_requires_observed_opening_trade_anchor():
         closing_auction_evidence=naver,
     )
     assert result["state"] == "unverified"
-    assert "opening trade anchor" in result["reason"]
+    assert "zero cross-source volume offset" in result["reason"]
+
+
+def test_delayed_first_trade_requires_zero_cross_source_volume_offset():
+    rows, naver = sparse_regular_fixture("090000")
+    for bucket in naver["priceInfos"]["20261012"]:
+        bucket["accumulatedTradingVolume"] -= 5
+
+    result = rsp.regular_session_evidence(
+        "005930", DAY, rows, observed_at=OBSERVED,
+        closing_auction_evidence=naver,
+    )
+
+    assert result["state"] == "ready", result["reason"]
+    assert result["regular_rows"][0]["trade_time"] == "090100"
 
 
 def test_sparse_regular_coverage_accepts_missing_last_preauction_minute():
