@@ -294,13 +294,30 @@ jobs:
           --surface us
           --base-url "$US_PRODUCTION_BASE_URL"
           --output artifacts/qa-data-signal/us-production-live.json
+      - name: Resolve production invite code for canonical US screen verification
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          CONFIGURED_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
+        run: |
+          set -euo pipefail
+          invite_code="$CONFIGURED_INVITE_CODE"
+          if test -z "$invite_code"; then
+            npm install --global @railway/cli@5.45.7
+            invite_code="$(railway variable list --json \
+              --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+              --service "$PRODUCTION_RAILWAY_WEB_SERVICE" | \
+              jq -r '.DASHBOARD_INVITE_CODE // empty')"
+          fi
+          test -n "$invite_code"
+          echo "::add-mask::$invite_code"
+          echo "QA_DASHBOARD_INVITE_CODE=$invite_code" >> "$GITHUB_ENV"
+          unset invite_code
       - name: Install Chromium for canonical US screen verification
         run: playwright install --with-deps chromium
       - id: us_ui_e2e
         name: Verify current US screen through the canonical gateway
         continue-on-error: true
         env:
-          QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
           QA_DASHBOARD_SHARE_ID: qa-automation
         run: >-
           analyst qa data-signal
