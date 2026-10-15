@@ -52,7 +52,7 @@
       "modes": [
         "gate"
       ],
-      "automation": "pytest 날짜별 분봉·독립 DB 가격 근거·KIS 15:30 거래량 0 지시 행의 교차 원천 복구·양 원천 무체결 중단 구간·상하한 재현/임계값 판정 계약; 실제 수집·운영 연결 검증은 후보 준비 후 별도 live 증거 필요",
+      "automation": "pytest 날짜별 분봉·독립 DB 가격 근거·KIS 15:30 거래량 0 지시 행의 교차 원천 복구·양 원천 무체결 중단 구간·append-only coverage label 호환·상하한 재현/임계값 판정 계약; 실제 수집·운영 연결 검증은 후보 준비 후 별도 live 증거 필요",
       "preconditions": [
         "2026-09-14 이후 KRX 일봉에 애프터마켓 가격이 포함될 수 있다.",
         "기존 DailyPrice와 매매 이력을 수정하지 않는다."
@@ -68,7 +68,7 @@
         "production_evidence_replay": "checksum/count verified read-only production price and frozen entry archive; never import into or overwrite local/production history",
         "auction_fallback": "KIS 15:30 row missing or zero-volume indicative -> dated Naver KRX single-price 15:30 bucket only after every observed pre-auction bucket matches KIS and any jointly absent middle bucket is followed by an unchanged cross-source cumulative-volume offset",
         "sparse_coverage": "complete 09:00-09:09 volume anchor plus matched OHLC/cumulative-volume buckets; jointly absent middle halt buckets require later cumulative proof, trailing gaps fail closed, and no execution is interpolated",
-        "conflict_policy": "fail closed, append evidence without overwrite"
+        "conflict_policy": "fail closed, append evidence without overwrite; the two halt-rollout coverage labels are equivalent only when every other stored field and hash remains exact"
       },
       "steps": [
         "캘린더의 모든 예정 거래일을 검사하며 기존 일봉에 없는 날도 누락으로 확인한다. 날짜별 분봉 조회는 max_points로 15:30 체결을 버리지 않는다.",
@@ -79,12 +79,12 @@
         "bounded 근거는 기본 loader에서 거절하고 명시적 opt-in 읽기 전용 상·하한 시나리오에서만 사용한다. OHLCV·정규장 분봉 경로는 두 끝점에서 동일해야 하며, 기존 화면 일봉을 수정하지 않는다.",
         "상·하한 전체에서 가격 기반 유동성 임계값과 체결비용이 불변임을 검사한다. 하한 < 임계값 <= 상한이면 ambiguous로 두며 이 증명만으로 독립 진입근거나 운영 사용 승인을 만들지 않는다.",
         "CLI는 명시 종목·기간·호출 수 제한과 기본 dry-run을 적용하고 --persist일 때만 별도 근거 테이블에 추가 저장한다. 원천·해시·기존 일봉의 사본을 보존한다.",
-        "수집 결과 재검증·해시 변조·상충 증거를 검사하고 미검증 일봉으로 폴백하거나 재수집으로 저장 충돌을 숨기지 않는지 확인한다.",
+        "수집 결과 재검증·해시 변조·상충 증거를 검사한다. 같은 basis version 안에서 배포 전후에 저장된 두 coverage label은 나머지 필드와 해시가 정확할 때만 동등하게 재생하며, 미검증 일봉으로 폴백하거나 재수집으로 실제 저장 충돌을 숨기지 않는다.",
         "근거 테이블이 없는 환경에서도 dry-run은 DDL 없이 검사한다. 누적 대금은 부동소수점 손실 없이 정수로 파싱한다."
       ],
       "expected": [
         "정규장 신호용 가격은 시간외 시세·거래량·거래대금과 분리된다.",
-        "과거 버전·화면 가격·매매 이력은 덮어쓰지 않고 재계산 입력만 별도로 제공한다.",
+        "과거 버전·화면 가격·매매 이력은 덮어쓰지 않고 재계산 입력만 별도로 제공한다. halt rollout 전후의 정상 append-only coverage label은 basis version을 바꾸거나 재수집하지 않고 재생된다.",
         "부족한 근거는 unverified 또는 명시적으로 labelled된 bounded 상·하한으로 보존하며, 단일 거래대금을 추정하지 않는다. KIS의 거래량 0인 15:30 지시 행은 실제 체결로 인정하지 않고 검증된 교차 원천 체결로만 교체한다. 양 원천의 누적 거래량으로 확인된 중간 거래 중단 구간은 빈 경로로 보존한다.",
         "상·하한 증명은 가격 기반 유동성·비용의 불변성만 보고하고 production_ready=false 및 독립 진입근거 미검증 상태를 유지한다."
       ],
@@ -94,6 +94,7 @@
         "장초 첫 10분의 누락 거래량을 장전 차이로 흡수하거나, 한 원천에만 존재하는 빈 구간·후속 누적 거래량으로 확인되지 않은 마지막 공백·구간/종가 원천 불일치를 통과시키거나, 빈 시간에 가상 체결을 생성한다.",
         "bounded 거래대금을 단일 관측값처럼 loader·시그널에 전달하거나 OHLCV가 달라진 끝점·뒤집힌 상하한을 통과시킨다.",
         "하한 < 거래대금 임계값 <= 상한인 구간을 invariant로 승인하거나, 제한된 증명을 운영/독립 진입근거 승인으로 표시한다.",
+        "coverage label 문구만 달라진 기존 정상 근거를 손상으로 차단하거나, 반대로 label 이외 필드·해시 변조까지 별칭으로 통과시킨다.",
         "기존 DailyPrice 또는 이전 근거를 덮어쓴다."
       ]
     },

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.models import DailyPrice
 from app.services import quant_signals as qs
 from app.services.regular_session_prices import (
+    NAVER_REGULAR_COVERAGE_BASIS_ALIASES,
     PRICE_FIELDS,
     REGULAR_PRICE_BASIS,
     REGULAR_PRICE_EFFECTIVE_DATE,
@@ -129,15 +130,7 @@ def regular_ordered_paths(envelope: RegularPriceEnvelope) -> dict[date, list[qs.
     bars = {bar.trade_date: bar for bar in qs._normalize_prices(envelope.lower)}
     result = {}
     for day, evidence in envelope.evidence.items():
-        if evidence.get("coverage_basis") in {
-            # Retain replay compatibility for evidence stored before the
-            # independently confirmed halt-interval contract was introduced.
-            "naver_38_buckets_with_complete_opening_volume_anchor",
-            (
-                "naver_regular_buckets_with_complete_opening_volume_anchor_"
-                "and_confirmed_empty_intervals"
-            ),
-        }:
+        if evidence.get("coverage_basis") in NAVER_REGULAR_COVERAGE_BASIS_ALIASES:
             # load_regular_session_evidence already recomputes both sources,
             # their opening-volume anchor and every bucket. Missing minutes
             # contain no traded volume: omit them, never invent executions.
