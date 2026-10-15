@@ -2107,16 +2107,18 @@ def test_market_feed_isolates_dated_minute_chart_outage_and_keeps_other_signals(
         db.commit()
         quant_signals.save_market_quant_signal_snapshot(
             db,
-            {"strategy_version": quant_signals.STRATEGY_VERSION, "items": [{
-                "code": "005930", "name": "삼성전자", "side": "sell",
-                "event_side": "partial_sell", "status": "confirmed",
-                "is_preliminary": False, "signal": "1차 수익확정",
-                "signal_date": "2026-10-07",
-                "signal_at": "2026-10-07T09:01:00+09:00",
-                "execution_date": "2026-10-07", "price": 105,
-                "entry_price": 101, "target_sell_price": 105,
-                "return_rate": 1.5, "intraday_execution_verified": True,
-            }]},
+            {"strategy_version": quant_signals.STRATEGY_VERSION, "items": [
+                {
+                    "code": "005930", "name": "삼성전자", "side": "sell",
+                    "event_side": "partial_sell", "status": "confirmed",
+                    "is_preliminary": False, "signal": "1차 수익확정",
+                    "signal_date": "2026-10-07",
+                    "signal_at": "2026-10-07T09:01:00+09:00",
+                    "execution_date": "2026-10-07", "price": 105,
+                    "entry_price": 101, "target_sell_price": 105,
+                    "return_rate": 1.5, "intraday_execution_verified": True,
+                },
+            ]},
             universe_limit=2, limit=0, recent_days=30,
         )
         monkeypatch.setattr(
@@ -2144,6 +2146,7 @@ def test_market_feed_isolates_dated_minute_chart_outage_and_keeps_other_signals(
             historical_intraday_chart_loader=unavailable,
         )
         assert result["data_state"] == "degraded"
+        assert result["unverified_codes_isolated"] is False
         assert result["execution_replay_unverified_codes"] == ["005930"]
         by_code = {item["code"]: item for item in result["items"]}
         assert by_code["005930"]["execution_replay_state"] == "unverified"

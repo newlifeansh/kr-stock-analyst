@@ -704,7 +704,10 @@ class KisRestBriefingProvider:
         points: dict[str, dict[str, object]] = {}
         baseline = None
         cursor = "153100"
-        for _ in range(5):
+        # Some dated responses page fewer than 120 actual-trade rows. Keep a
+        # bounded margin beyond the four pages needed for a dense session so
+        # the 08:59 day-boundary probe is still reached for sparse sessions.
+        for _ in range(8):
             payload = self._get(
                 "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", "FHKST03010230",
                 {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
@@ -751,7 +754,9 @@ class KisRestBriefingProvider:
         closing_trade_missing = (
             closing_row is None or int(closing_row.get("volume") or 0) <= 0
         )
-        if "151900" in points and (closing_trade_missing or regular_prefix_count < 380):
+        if regular_prefix_count > 0 and (
+            closing_trade_missing or regular_prefix_count < 380
+        ):
             try:
                 response = requests.get(
                     f"https://api.stock.naver.com/chart/domestic/item/{code}",
