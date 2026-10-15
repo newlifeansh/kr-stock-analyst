@@ -14,6 +14,8 @@ from sqlalchemy import delete, func, select
 
 from app.db import SessionLocal, get_db, init_db
 from app.main import (
+    DASHBOARD_CLIENT_VERSION,
+    US_DASHBOARD_CLIENT_VERSION,
     _page_summary_client_requests,
     _page_summary_global_requests,
     _page_summary_rate_lock,
@@ -263,7 +265,7 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
         .replace("/us.webmanifest", "/dashboard.webmanifest")
         .replace("127.0.0.1:8001/us", "127.0.0.1:8001/dashboard")
         .replace('href="/us?view=ai-signals"', 'href="/dashboard?view=ai-signals"')
-        .replace("20261015us149", "20261015v576")
+        .replace(US_DASHBOARD_CLIENT_VERSION, DASHBOARD_CLIENT_VERSION)
     )
     assert normalized_us == dashboard.text
 
