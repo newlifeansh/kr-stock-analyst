@@ -164,6 +164,66 @@ def test_dated_regular_source_keeps_closing_auction_and_preopen_baseline(monkeyp
     assert evidence(rows)["state"] == "ready"
 
 
+def test_dated_regular_source_fetches_cross_source_close_for_zero_volume_1530(
+    monkeypatch,
+):
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.config import Settings
+
+    provider = KisRestBriefingProvider(
+        Settings(kis_app_key="fixture", kis_app_secret="fixture")
+    )
+    source = [
+        {
+            "stck_bsop_date": row["trade_date"],
+            "stck_cntg_hour": row["trade_time"],
+            "stck_oprc": row["open"],
+            "stck_hgpr": row["high"],
+            "stck_lwpr": row["low"],
+            "stck_prpr": row["price"],
+            "cntg_vol": row["volume"],
+            "acml_tr_pbmn": row["trading_value"],
+        }
+        for row in minute_rows()
+    ]
+    source[-1]["cntg_vol"] = 0
+    source[-1]["acml_tr_pbmn"] = source[-2]["acml_tr_pbmn"]
+
+    def get(_path, _tr_id, params):
+        return {
+            "output2": [
+                row
+                for row in reversed(source)
+                if row["stck_cntg_hour"] <= params["FID_INPUT_HOUR_1"]
+            ][:120]
+        }
+
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return naver_auction_fixture()
+
+    requested = []
+
+    def request(url, **kwargs):
+        requested.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(provider, "_get", get)
+    monkeypatch.setattr("app.collectors.briefing.requests.get", request)
+
+    result = provider.fetch_regular_session_data("005930", DAY)
+
+    assert result["rows"][-1]["trade_time"] == "153000"
+    assert result["rows"][-1]["volume"] == 0
+    assert result["closing_auction_evidence"] == naver_auction_fixture()
+    assert requested[0][1]["params"] == {"periodType": "week"}
+
+
 def test_dated_regular_source_does_not_relabel_wrong_dates(monkeypatch):
     from app.collectors.briefing import KisRestBriefingProvider
     from app.config import Settings
@@ -274,6 +334,36 @@ def test_missing_auction_requires_cross_source_prefix_and_actual_single_price(db
     rsp.store_regular_session_evidence(db, result, observed_at=OBSERVED)
     db.commit()
     assert rsp.load_regular_session_evidence(db, "005930", DAY)["prices"]["close"] == 110
+
+
+def test_zero_volume_1530_requires_and_uses_verified_cross_source_close():
+    rows = minute_rows()
+    rows[-1]["volume"] = 0
+    rows[-1]["trading_value"] = rows[-2]["trading_value"]
+
+    assert evidence(rows)["state"] == "unverified"
+
+    result = rsp.regular_session_evidence(
+        "005930",
+        DAY,
+        rows,
+        observed_at=OBSERVED,
+        closing_auction_evidence=naver_auction_fixture(),
+    )
+
+    assert result["state"] == "ready", result["reason"]
+    assert result["prices"] == {
+        "open": 100,
+        "high": 110,
+        "low": 100,
+        "close": 110,
+        "volume": 3900,
+        "trading_value": 391000,
+    }
+    assert result["raw_rows"][-1]["volume"] == 0
+    assert result["regular_rows"][-1]["trade_time"] == "153000"
+    assert result["regular_rows"][-1]["volume"] == 100
+    assert result["source"].endswith("+naver_krx_closing_auction")
 
 
 def test_cross_source_auction_never_recovers_wrong_venue_date_or_bad_prefix():
