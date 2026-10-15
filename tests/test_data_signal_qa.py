@@ -1737,6 +1737,13 @@ def test_ai_signal_performance_e2e_treats_zero_trades_as_an_empty_sample() -> No
     assert 'missing_state.get("value") != "-"' in case_source
     assert "성과 표본이 없을 때 빈 표본 상태" in case_source
     assert "성과 표본이 없을 때 집계 중 상태" not in case_source
+    assert 'page.locator(\'[data-ai-signal-stage="recent-sell"]\').click()' in case_source
+    assert 'summary.completed_trade_items' in case_source
+    assert 'completed_list.get("ledgerCount")' in case_source
+    assert 'completed_list.get("summaryCount")' in case_source
+    assert '"청산일 최신순"' in case_source
+    assert '"매도" not in label' in case_source
+    assert '"completed_trade_list": completed_list' in case_source
 
 
 def test_sticky_signal_controls_wait_for_page_load_not_a_stale_snapshot_count() -> None:
@@ -2116,7 +2123,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261015us149",
+                "us_dashboard_version": "20261016us150",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2124,7 +2131,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261015us149",
+                "us_dashboard_version": "20261016us150",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2233,6 +2240,34 @@ class FakeReadOnlyApi:
                     "as_of": "2026-08-29T10:00:00+09:00",
                     "return_basis": "completed_trade_net_of_costs",
                     "benchmark_basis": "same_market_same_holding_period",
+                    "completed_trade_window_days": 30,
+                    "completed_trade_items": [
+                        {
+                            "code": "005930" if index < 2 else f"{index:06d}",
+                            "name": "삼성전자" if index < 2 else f"종목 {index}",
+                            "market": "KOSPI",
+                            "market_scope": "kr",
+                            "currency": "KRW",
+                            "side": "sell",
+                            "event_side": "sell",
+                            "signal_date": (
+                                date(2026, 8, 28) - timedelta(days=index)
+                            ).isoformat(),
+                            "entry_date": (
+                                date(2026, 8, 20) - timedelta(days=index)
+                            ).isoformat(),
+                            "execution_date": (
+                                date(2026, 8, 29) - timedelta(days=index)
+                            ).isoformat(),
+                            "price": 100_000 + index,
+                            "return_rate": 2.0 if index < 12 else -1.0,
+                            "display_return_rate": 2.0 if index < 12 else -1.0,
+                            "display_return_kind": "closed_trade",
+                            "state_after": "exited",
+                            "status": "confirmed",
+                        }
+                        for index in range(20)
+                    ],
                     "windows": {
                         "7d": {
                             "window_days": 7,
@@ -2711,7 +2746,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261015us149"}, self._meta(path)
+            return {"version": "20261016us150"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2758,11 +2793,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261015us149" />'
+                '<link href="/assets/dashboard/styles.css?v=20261016us150" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261015us149"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261016us150"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2802,11 +2837,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261015v577" />'
+            '<link href="/assets/dashboard/styles.css?v=20261016v578" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261015v577"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261016v578"></script>'
             '</body></html>',
             self._meta(path),
         )
@@ -3252,6 +3287,12 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
         "matched_benchmark_trades": 20,
         "average_excess_return": 0.85,
         "sample_state": "sufficient",
+    }
+    assert by_id["SIG-PERF-001"]["evidence"]["completed_trade_ledger"] == {
+        "window_days": 30,
+        "count": 20,
+        "latest_execution_date": "2026-08-29",
+        "oldest_execution_date": "2026-08-10",
     }
     assert by_id["SIG-ENTRY-008"]["status"] == "pass"
     assert by_id["SIG-ENTRY-008"]["evidence"]["active"] is False

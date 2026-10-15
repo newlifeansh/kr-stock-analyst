@@ -4017,12 +4017,72 @@ def _live_checks(
                         "average_excess_return": window.get("average_excess_return"),
                         "sample_state": window.get("sample_state"),
                     }
+                completed_trade_items = summary.get("completed_trade_items")
+                _assert(
+                    int(summary.get("completed_trade_window_days") or 0) == 30
+                    and isinstance(completed_trade_items, list),
+                    "30일 매도 확정 원장 계약이 없거나 기간이 다릅니다.",
+                    completed_trade_window_days=summary.get(
+                        "completed_trade_window_days"
+                    ),
+                )
+                completed_trade_items = completed_trade_items or []
+                month_completed = int(
+                    ((windows.get("30d") or {}).get("completed_trades")) or 0
+                )
+                execution_dates: list[str] = []
+                identities: list[tuple[str, str, str, str]] = []
+                for item in completed_trade_items:
+                    _assert(
+                        isinstance(item, dict)
+                        and item.get("status") == "confirmed"
+                        and item.get("event_side") == "sell"
+                        and item.get("state_after") == "exited"
+                        and item.get("display_return_kind") == "closed_trade"
+                        and _finite_number(item.get("return_rate")) is not None,
+                        "30일 매도 확정 원장에 미확정·부분매도·비정상 수익률이 섞였습니다.",
+                        item=item,
+                    )
+                    execution_date = str(item.get("execution_date") or "")[:10]
+                    _assert(
+                        len(execution_date) == 10,
+                        "매도 확정 원장에 청산일이 없습니다.",
+                        item=item,
+                    )
+                    execution_dates.append(execution_date)
+                    identities.append(
+                        (
+                            str(item.get("code") or ""),
+                            execution_date,
+                            str(item.get("signal_date") or "")[:10],
+                            str(item.get("entry_date") or "")[:10],
+                        )
+                    )
+                _assert(
+                    len(completed_trade_items) == month_completed
+                    and execution_dates == sorted(execution_dates, reverse=True)
+                    and len(identities) == len(set(identities)),
+                    "30일 요약 건수·청산일 최신순·이벤트 중복 계약이 맞지 않습니다.",
+                    month_completed=month_completed,
+                    ledger_count=len(completed_trade_items),
+                    execution_dates=execution_dates,
+                )
+                evidence["completed_trade_ledger"] = {
+                    "window_days": 30,
+                    "count": len(completed_trade_items),
+                    "latest_execution_date": execution_dates[0]
+                    if execution_dates
+                    else None,
+                    "oldest_execution_date": execution_dates[-1]
+                    if execution_dates
+                    else None,
+                }
                 return evidence
 
             collector.check(
                 "SIG-PERF-001",
                 signal_performance_contract,
-                pass_message="7일·15일·30일 완료 거래 평균 수익률 계약을 확인했습니다.",
+                pass_message="7일·15일·30일 완료 거래 성과와 30일 매도 확정 원장 계약을 확인했습니다.",
             )
 
             def entry_safety_guard_contract() -> dict[str, Any]:

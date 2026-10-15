@@ -1636,22 +1636,52 @@ def _run_us_e2e_checks(
                     ready_selector="#ai-signals-view",
                 )
                 page.wait_for_selector("#ai-signal-performance:not([hidden])", state="visible")
+                page.locator('[data-ai-signal-stage="recent-sell"]').click()
+                page.wait_for_selector(".ai-signal-completed-list-header", state="visible")
                 evidence = []
                 for width in (320, 390, 1280):
                     page.set_viewport_size({"width": width, "height": 900})
-                    observed = page.locator("#ai-signal-performance").evaluate(
-                        """card => ({
+                    observed = page.evaluate(
+                        """() => {
+                        const card = document.querySelector('#ai-signal-performance');
+                        const summary = state.aiSignalPerformanceSummary || {};
+                        const ledger = Array.isArray(summary.completed_trade_items)
+                          ? summary.completed_trade_items : [];
+                        const rows = [...document.querySelectorAll(
+                          '#ai-signals-page-list > .home-ai-signal-row'
+                        )];
+                        return {
                           labels: [...card.querySelectorAll('.ai-signal-performance-label')].map(n => n.textContent.trim()),
                           values: [...card.querySelectorAll('.ai-signal-performance-value')].map(n => n.textContent.trim()),
                           note: card.querySelector('#ai-signal-performance-note')?.textContent || '',
                           overflow: card.scrollWidth - card.clientWidth,
                           pageOverflow: document.documentElement.scrollWidth - innerWidth,
-                        })"""
+                          ledgerCount: ledger.length,
+                          summaryCount: Number(summary.windows?.['30d']?.completed_trades || 0),
+                          tabCount: Number(document.querySelector(
+                            '[data-ai-signal-stage="recent-sell"] span'
+                          )?.textContent?.replace(/,/g, '') || 0),
+                          rowCount: rows.length,
+                          header: document.querySelector(
+                            '.ai-signal-completed-list-header'
+                          )?.textContent?.trim() || '',
+                          dates: rows.map(row => row.aiSignalItem?.execution_date || ''),
+                          dateLabels: rows.map(row => row.querySelector(
+                            '[data-field="ai_signal_date"]'
+                          )?.textContent?.trim() || ''),
+                        };
+                        }"""
                     )
                     if (observed["labels"] != ["최근 7일", "최근 15일", "최근 30일"]
                             or "비용·세금·환율 반영 전" not in observed["note"]
+                            or observed["ledgerCount"] != observed["summaryCount"]
+                            or observed["rowCount"] != observed["ledgerCount"]
+                            or observed["tabCount"] != observed["ledgerCount"]
+                            or "청산일 최신순" not in observed["header"]
+                            or observed["dates"] != sorted(observed["dates"], reverse=True)
+                            or any("매도" not in label for label in observed["dateLabels"])
                             or observed["overflow"] > 1 or observed["pageOverflow"] > 1):
-                        raise QaFailure("미국 성과 기간·비용 전 표기·리플로가 일치하지 않습니다.", observed)
+                        raise QaFailure("미국 성과 기간·비용 전 표기·30일 매도 목록·리플로가 일치하지 않습니다.", observed)
                     page.locator("#ai-signal-performance").screenshot(
                         path=str(output_dir / f"performance-us-{width}-{theme}.png")
                     )
@@ -3495,11 +3525,60 @@ def run_e2e_checks(
                         "성과 표본이 없을 때 빈 표본 상태와 리플로가 유지되지 않습니다.",
                         missing_state,
                     )
+                page.locator('[data-ai-signal-stage="recent-sell"]').click()
+                page.wait_for_selector(".ai-signal-completed-list-header", state="visible")
+                completed_list = page.evaluate(
+                    """() => {
+                      const summary = state.aiSignalPerformanceSummary || {};
+                      const ledger = Array.isArray(summary.completed_trade_items)
+                        ? summary.completed_trade_items : [];
+                      const rows = [...document.querySelectorAll(
+                        '#ai-signals-page-list > .home-ai-signal-row'
+                      )];
+                      return {
+                        ledgerCount: ledger.length,
+                        summaryCount: Number(summary.windows?.['30d']?.completed_trades || 0),
+                        tabCount: Number(document.querySelector(
+                          '[data-ai-signal-stage="recent-sell"] span'
+                        )?.textContent?.replace(/,/g, '') || 0),
+                        rowCount: rows.length,
+                        header: document.querySelector(
+                          '.ai-signal-completed-list-header'
+                        )?.textContent?.trim() || '',
+                        dates: rows.map(row => row.aiSignalItem?.execution_date || ''),
+                        dateLabels: rows.map(row => row.querySelector(
+                          '[data-field="ai_signal_date"]'
+                        )?.textContent?.trim() || ''),
+                        pageOverflow: document.documentElement.scrollWidth - innerWidth,
+                      };
+                    }"""
+                )
+                if (
+                    completed_list.get("ledgerCount")
+                    != completed_list.get("summaryCount")
+                    or completed_list.get("rowCount")
+                    != completed_list.get("ledgerCount")
+                    or completed_list.get("tabCount")
+                    != completed_list.get("ledgerCount")
+                    or "청산일 최신순" not in str(completed_list.get("header") or "")
+                    or completed_list.get("dates")
+                    != sorted(completed_list.get("dates") or [], reverse=True)
+                    or any(
+                        "매도" not in label
+                        for label in completed_list.get("dateLabels") or []
+                    )
+                    or float(completed_list.get("pageOverflow") or 0) > 1
+                ):
+                    raise QaFailure(
+                        "30일 요약과 매도 확정 목록의 건수·정렬·날짜 표기가 일치하지 않습니다.",
+                        completed_list,
+                    )
                 return {
                     **shell,
                     "contract": contract,
                     "reflow": reflow,
                     "missing_state": missing_state,
+                    "completed_trade_list": completed_list,
                 }
 
             results.append(

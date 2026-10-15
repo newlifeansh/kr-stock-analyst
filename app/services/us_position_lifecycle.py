@@ -1354,25 +1354,35 @@ def build_us_signal_performance_summary(
     US replay returns are gross price returns. Never label them net of costs
     or apply the domestic entry guard to this presentation-only summary.
     """
+    completed_events: list[tuple[dict[str, Any], date, Decimal]] = []
+    seen = set()
+    for event in events:
+        exited_on = _parse_snapshot_date(event.get("execution_date"))
+        if event.get("side") != "sell" or event.get("state_after") != "exited" or exited_on is None:
+            continue
+        try:
+            value = Decimal(str(event.get("return_rate")))
+        except Exception:
+            continue
+        identity = (
+            event.get("code"),
+            exited_on,
+            str(event.get("signal_date") or "")[:10],
+            str(event.get("entry_date") or "")[:10],
+        )
+        if not value.is_finite() or identity in seen:
+            continue
+        seen.add(identity)
+        completed_events.append((event, exited_on, value))
+
     windows = {}
     for days in (7, 15, 30):
         cutoff = as_of.date() - timedelta(days=days)
-        values = []
-        seen = set()
-        for event in events:
-            exited_on = _parse_snapshot_date(event.get("execution_date"))
-            if (event.get("side") != "sell" or event.get("state_after") != "exited"
-                    or exited_on is None or not cutoff <= exited_on <= as_of.date()):
-                continue
-            try:
-                value = Decimal(str(event.get("return_rate")))
-            except Exception:
-                continue
-            identity = (event.get("code"), exited_on, event.get("signal_date"))
-            if not value.is_finite() or identity in seen:
-                continue
-            seen.add(identity)
-            values.append(value)
+        values = [
+            value
+            for _event, exited_on, value in completed_events
+            if cutoff <= exited_on <= as_of.date()
+        ]
         count = len(values)
         wins = sum(value > 0 for value in values)
         windows[f"{days}d"] = {
@@ -1386,10 +1396,55 @@ def build_us_signal_performance_summary(
             "sample_state": "sufficient" if count >= 20 else "limited",
             "minimum_required_trades": 20,
         }
+    ledger_days = 30
+    ledger_cutoff = as_of.date() - timedelta(days=ledger_days)
+    completed_trade_items = [
+        {
+            "code": event.get("code"),
+            "name": event.get("name") or event.get("code"),
+            "market": event.get("market"),
+            "market_scope": "us",
+            "currency": "USD",
+            "signal": event.get("label") or "전략 매도",
+            "side": "sell",
+            "event_side": "sell",
+            "signal_date": event.get("signal_date"),
+            "execution_date": exited_on,
+            "entry_date": event.get("entry_date"),
+            "price": event.get("price") or event.get("exit_price"),
+            "entry_price": event.get("entry_price"),
+            "return_rate": _decimal(value),
+            "display_return_rate": _decimal(value),
+            "display_return_kind": "closed_trade",
+            "display_return_event_date": exited_on,
+            "display_return_event_side": "sell",
+            "holding_days": event.get("holding_days"),
+            "state_after": "exited",
+            "status": "confirmed",
+            "is_preliminary": False,
+            "lifecycle_replay_version": US_LIFECYCLE_REPLAY_VERSION,
+        }
+        for event, exited_on, value in sorted(
+            (
+                entry
+                for entry in completed_events
+                if ledger_cutoff <= entry[1] <= as_of.date()
+            ),
+            key=lambda entry: (
+                entry[1],
+                str(entry[0].get("signal_date") or ""),
+                str(entry[0].get("code") or ""),
+            ),
+            reverse=True,
+        )
+    ]
     return {
         "version": "us-performance-v1", "as_of": as_of,
         "return_basis": "completed_trade_gross_price_return",
-        "benchmark_basis": "not_available", "windows": windows,
+        "benchmark_basis": "not_available",
+        "completed_trade_window_days": ledger_days,
+        "completed_trade_items": completed_trade_items,
+        "windows": windows,
     }
 
 
@@ -1625,7 +1680,15 @@ def build_us_position_lifecycle_feed(
         if replay.get("complete") is True and code in signal_eligible_codes:
             replay_complete_codes.add(code)
             performance_events.extend(
-                {**event, "code": code} for event in replay.get("events") or []
+                {
+                    **event,
+                    "code": code,
+                    "name": member.get("name") or code,
+                    "market": member.get("market") or member.get("exchange"),
+                    "market_scope": "us",
+                    "currency": "USD",
+                }
+                for event in replay.get("events") or []
             )
         replay_action = str(replay.get("action") or "no_signal")
         if action == "no_signal":

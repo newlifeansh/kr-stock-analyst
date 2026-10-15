@@ -5115,21 +5115,33 @@ def test_market_signal_performance_summary_uses_completed_net_returns_and_matche
         db.commit()
         items = [
             {
+                "code": "005930",
+                "name": "삼성전자",
                 "status": "confirmed",
                 "event_side": "sell",
                 "state_after": "exited",
                 "market": "KOSPI",
+                "signal_date": date(2026, 8, 30),
                 "entry_date": date(2026, 8, 31),
                 "execution_date": date(2026, 9, 10),
+                "price": 105_000,
+                "entry_price": 100_000,
+                "holding_days": 10,
                 "return_rate": Decimal("5.00"),
             },
             {
+                "code": "005930",
+                "name": "삼성전자",
                 "status": "confirmed",
                 "event_side": "sell",
                 "state_after": "exited",
                 "market": "KOSPI",
+                "signal_date": date(2026, 9, 9),
                 "entry_date": date(2026, 9, 10),
                 "execution_date": date(2026, 9, 20),
+                "price": 98_940,
+                "entry_price": 102_000,
+                "holding_days": 10,
                 "return_rate": Decimal("-3.00"),
             },
             {
@@ -5143,6 +5155,7 @@ def test_market_signal_performance_summary_uses_completed_net_returns_and_matche
             },
         ]
 
+        items.append(dict(items[1]))
         items.append({**items[0], "execution_date": date(2026, 9, 26), "return_rate": Decimal("99")})
         summary = quant_signals.build_market_signal_performance_summary(
             db,
@@ -5165,6 +5178,17 @@ def test_market_signal_performance_summary_uses_completed_net_returns_and_matche
 
     month = summary["windows"]["30d"]
     assert month["completed_trades"] == 2
+    assert summary["completed_trade_window_days"] == 30
+    assert month["completed_trades"] == len(summary["completed_trade_items"])
+    assert [item["execution_date"] for item in summary["completed_trade_items"]] == [
+        date(2026, 9, 20),
+        date(2026, 9, 10),
+    ]
+    assert [item["code"] for item in summary["completed_trade_items"]] == [
+        "005930",
+        "005930",
+    ]
+    assert summary["completed_trade_items"][0]["display_return_kind"] == "closed_trade"
     assert set(summary["windows"]) == {"7d", "15d", "30d"}
     assert summary["benchmark_basis"] == "same_market_same_holding_period"
 

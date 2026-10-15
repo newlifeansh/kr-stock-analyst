@@ -29072,6 +29072,33 @@ body[data-view="ai-signals"] .app-content {
   text-align: center;
 }
 
+#ai-signals-view .ai-signal-completed-list-header {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 10px;
+  border-bottom: 1px solid light-dark(#edf0f4, #37333b);
+  color: light-dark(#151922, #f2eff5);
+}
+
+#ai-signals-view .ai-signal-completed-list-header strong {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 780;
+  line-height: 1.4;
+}
+
+#ai-signals-view .ai-signal-completed-list-header span {
+  flex: 0 0 auto;
+  color: light-dark(#7d8795, #aaa4b1);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
 #ai-signals-view .ai-signals-page-list > .ai-signal-refreshing {
   margin: 10px 20px;
   padding: 12px 14px;
@@ -33334,6 +33361,12 @@ body[data-view="ai-signals"] .shell[data-ui-version="3.0"] {
 }
 
 @media (max-width: 359px) {
+  #ai-signals-view .ai-signal-completed-list-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   #ai-signals-view .home-ai-signal-supporting {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;

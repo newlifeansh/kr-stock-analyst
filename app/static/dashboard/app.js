@@ -15460,6 +15460,9 @@ function homeAiSignalView(item = {}) {
   const transition = item.current?.lifecycle?.latest_transition;
   const transitionLabel = String(transition?.label || "");
   const latestTransitionWasSell = /매도|청산/.test(transitionLabel);
+  const confirmedFullExit = item.status === "confirmed"
+    && String(item.event_side || item.side || "").toLowerCase() === "sell"
+    && item.state_after === "exited";
   const preliminary = isPreliminaryAiSignal(item);
   // Keep this helper self-contained: it is also exercised independently by
   // the client contract tests and must not depend on page-level routing state.
@@ -15500,7 +15503,7 @@ function homeAiSignalView(item = {}) {
     const profitStage = Number(current.profit_stage || transition?.profit_stage || 1);
     return { key: "recent-sell", label: `부분 수익 확정(${profitStage}차)`, tone: "sell", signalDate, signalAt, updatedAt, preliminary: false };
   }
-  if (action === "exited" || latestTransitionWasSell) {
+  if (action === "exited" || latestTransitionWasSell || confirmedFullExit) {
     return {
       key: "recent-sell",
       label: usModelReplay ? "전략 매도 확정" : (isSignalReconciliation(item) ? "전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"),
@@ -15734,6 +15737,21 @@ function marketAiSignalItems(payload = {}) {
       return sanitizePendingEntryAiSignal(mapped);
     })
     .filter(Boolean);
+}
+
+function aiSignalCompletedTradeItems(summary = state.aiSignalPerformanceSummary) {
+  if (!Array.isArray(summary?.completed_trade_items)) return [];
+  return marketAiSignalItems({
+    items: summary.completed_trade_items,
+    as_of: summary.as_of,
+    status: "ready",
+    data_state: "ready",
+  }).filter((item) => (
+    item.status === "confirmed"
+    && item.event_side === "sell"
+    && item.state_after === "exited"
+    && item.display_return_kind === "closed_trade"
+  ));
 }
 
 function sanitizePendingEntryAiSignal(item = {}) {
@@ -16203,6 +16221,16 @@ function aiSignalDateLine(item = {}, view = {}) {
   if (view.preliminary) {
     const basis = item.current?.live_observation === true ? "장중 기준" : "장 마감 기준";
     return `${signalDate} ${basis}`;
+  }
+  const completedSell = view.key === "recent-sell"
+    && item.status === "confirmed"
+    && String(item.event_side || item.side || "").toLowerCase() === "sell"
+    && item.state_after === "exited";
+  if (completedSell) {
+    const soldOn = compactSignalDate(item.execution_date || item.display_return_event_date);
+    return soldOn && soldOn !== "-" && soldOn !== signalDate
+      ? `신호 ${signalDate} · 매도 ${soldOn}`
+      : `매도 ${soldOn && soldOn !== "-" ? soldOn : signalDate}`;
   }
   const confirmedEntry = aiSignalConfirmedEntry(item);
   const executionDate = confirmedEntry.executionDate ? compactSignalDate(confirmedEntry.executionDate) : "";
@@ -19392,6 +19420,14 @@ function renderAiSignalsPage() {
     if (state.view === "ai-signals") connectAiSignalQuoteStreams(state.aiSignalItems);
     return;
   }
+  const hasCompletedTradeLedger = Array.isArray(
+    state.aiSignalPerformanceSummary?.completed_trade_items,
+  );
+  const completedTradeItems = hasCompletedTradeLedger
+    ? aiSignalCompletedTradeItems()
+      .filter((item) => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope))
+    : modeItems.filter((item) => aiSignalMatchesStage(item, "recent-sell"));
+  counts["recent-sell"] = completedTradeItems.length;
   for (const tab of elements.aiSignalStageTabs) {
     const count = counts[tab.dataset.aiSignalStage] || 0;
     const countNode = tab.querySelector("span");
@@ -19399,8 +19435,18 @@ function renderAiSignalsPage() {
       countNode.textContent = formatNumber(count);
     }
   }
-  const visible = modeItems.filter((item) => aiSignalMatchesStage(item, state.aiSignalStage));
+  const visible = state.aiSignalStage === "recent-sell"
+    ? completedTradeItems
+    : modeItems.filter((item) => aiSignalMatchesStage(item, state.aiSignalStage));
   const nextRows = [];
+  if (state.aiSignalStage === "recent-sell") {
+    const listHeader = el("header", "ai-signal-completed-list-header");
+    listHeader.append(
+      el("strong", "", "최근 30일 매도 확정"),
+      el("span", "", `${formatNumber(visible.length)}건 · 청산일 최신순`),
+    );
+    nextRows.push(listHeader);
+  }
   if (!visible.length) {
     const labels = {
       all: "전체",
@@ -19413,7 +19459,9 @@ function renderAiSignalsPage() {
       ? "최근 30일 시장 AI 시그널을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
       : state.aiSignalStage.startsWith("preliminary-")
         ? `현재 ${labels[state.aiSignalStage]} 활성 신호가 없습니다.`
-        : `최근 30일 ${labels[state.aiSignalStage]} 신호가 없습니다.`;
+        : state.aiSignalStage === "recent-sell"
+          ? "최근 30일 전량 매도 확정 거래가 없습니다."
+          : `최근 30일 ${labels[state.aiSignalStage]} 신호가 없습니다.`;
     const emptyState = el("p", "muted", message);
     emptyState.setAttribute("role", "status");
     nextRows.push(emptyState);
