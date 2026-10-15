@@ -78,3 +78,54 @@ jobs:
       - name: Stop domestic staging after live QA
         if: ${{ always() && matrix.surface == 'dashboard' }}
         run: ./scripts/railway_staging_runtime.sh down
+
+  production-regular-session-diagnostic:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PRODUCTION_RAILWAY_PROJECT_ID: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
+      PRODUCTION_RAILWAY_COLLECTOR_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install read-only diagnostic dependencies
+        run: |
+          pip install -e '.[qa,mcp]'
+          npm install --global @railway/cli@5.45.7
+      - name: Capture domestic collector runtime evidence
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/qa-data-signal
+          railway logs --latest --json --lines 1000 \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
+            > artifacts/qa-data-signal/domestic-production-collector-runtime.jsonl
+      - name: Reproduce one completed-session evidence check without persistence
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          railway run \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
+            analyst regular-session-prices \
+              --codes 005930 \
+              --from-date 2026-10-15 \
+              --to-date 2026-10-15 \
+              --max-pairs 1 \
+            > artifacts/qa-data-signal/domestic-regular-session-sample.json 2>&1
+      - name: Upload domestic regular-session diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: domestic-regular-session-diagnostic-${{ github.sha }}
+          path: artifacts/qa-data-signal
+          if-no-files-found: error
+          retention-days: 30
