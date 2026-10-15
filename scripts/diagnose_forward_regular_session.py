@@ -6,7 +6,7 @@ sanitized failure categories already permitted by the collector report.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import json
 from zoneinfo import ZoneInfo
 
@@ -64,9 +64,10 @@ def main() -> None:
         if cohort:
             codes.extend(cohort["codes"])
         selected = sorted(set(codes))
+        provider = KisRestBriefingProvider(get_settings())
         report = collect_regular_session_prices(
             db,
-            KisRestBriefingProvider(get_settings()),
+            provider,
             codes=selected,
             start=REGULAR_FORWARD_START,
             end=completed,
@@ -74,6 +75,67 @@ def main() -> None:
             persist=False,
             max_pairs=250,
         )
+
+        source_shapes = []
+        for failure in report["unverified"]:
+            code = failure["code"]
+            trade_date = date.fromisoformat(failure["trade_date"])
+            source = provider.fetch_regular_session_data(code, trade_date)
+            regular = {
+                str(row.get("trade_time") or "").zfill(6): row
+                for row in source["rows"]
+                if "090000" <= str(row.get("trade_time") or "").zfill(6) <= "153000"
+            }
+            expected_prefix = []
+            instant = datetime.combine(trade_date, datetime.min.time()).replace(
+                hour=9
+            )
+            while instant.strftime("%H%M%S") <= "151900":
+                expected_prefix.append(instant.strftime("%H%M%S"))
+                instant += timedelta(minutes=1)
+            positive_prefix = [
+                stamp
+                for stamp in expected_prefix
+                if stamp in regular and int(regular[stamp].get("volume") or 0) > 0
+            ]
+            zero_prefix = [
+                stamp
+                for stamp in expected_prefix
+                if stamp in regular and int(regular[stamp].get("volume") or 0) == 0
+            ]
+            closing = regular.get("153000")
+            naver = source.get("closing_auction_evidence") or {}
+            buckets = (naver.get("priceInfos") or {}).get(
+                trade_date.strftime("%Y%m%d")
+            ) or []
+            source_shapes.append(
+                {
+                    "code": code,
+                    "trade_date": trade_date.isoformat(),
+                    "source_row_count": len(source["rows"]),
+                    "missing_prefix_times": [
+                        stamp for stamp in expected_prefix if stamp not in regular
+                    ],
+                    "zero_volume_prefix_times": zero_prefix,
+                    "first_positive_prefix_time": (
+                        positive_prefix[0] if positive_prefix else None
+                    ),
+                    "last_positive_prefix_time": (
+                        positive_prefix[-1] if positive_prefix else None
+                    ),
+                    "closing_row_present": closing is not None,
+                    "closing_row_positive": bool(
+                        closing and int(closing.get("volume") or 0) > 0
+                    ),
+                    "naver_bucket_times": [
+                        str(bucket.get("localDateTime") or "")[-6:]
+                        for bucket in buckets
+                    ],
+                    "preopen_baseline_kind": (
+                        source.get("preopen_baseline") or {}
+                    ).get("kind"),
+                }
+            )
 
     print(
         json.dumps(
@@ -84,6 +146,7 @@ def main() -> None:
                 ),
                 "cohort_size": len(selected),
                 "report": report,
+                "source_shapes": source_shapes,
             },
             ensure_ascii=False,
             indent=2,
