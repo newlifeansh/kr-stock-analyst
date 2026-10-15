@@ -480,6 +480,50 @@ def sparse_regular_fixture(missing="094000"):
     return rows, naver
 
 
+def halted_regular_fixture(*, keep_zero_volume_rows=False):
+    start, end = "124000", "125900"
+    rows = minute_rows()
+    removed_volume = sum(
+        row["volume"] for row in rows if start <= row["trade_time"] <= end
+    )
+    removed_value = sum(
+        row["volume"] * row["price"]
+        for row in rows
+        if start <= row["trade_time"] <= end
+    )
+    if keep_zero_volume_rows:
+        baseline = next(
+            row["trading_value"]
+            for row in rows
+            if row["trade_time"] == "123900"
+        )
+        for row in rows:
+            if start <= row["trade_time"] <= end:
+                row["volume"] = 0
+                row["trading_value"] = baseline
+            elif row["trade_time"] > end:
+                row["trading_value"] -= removed_value
+    else:
+        rows = [row for row in rows if not start <= row["trade_time"] <= end]
+        for row in rows:
+            if row["trade_time"] > end:
+                row["trading_value"] -= removed_value
+    rows[-1]["volume"] = 0
+    rows[-1]["trading_value"] = rows[-2]["trading_value"]
+
+    naver = naver_auction_fixture()
+    buckets = []
+    for bucket in naver["priceInfos"]["20261012"]:
+        stamp = bucket["localDateTime"][-6:]
+        if stamp in {"124000", "125000"}:
+            continue
+        if stamp > end:
+            bucket["accumulatedTradingVolume"] -= removed_volume
+        buckets.append(bucket)
+    naver["priceInfos"]["20261012"] = buckets
+    return rows, naver
+
+
 def test_sparse_regular_minutes_require_independent_volume_coverage_not_interpolation(db):
     from app.services.regular_price_replay import regular_price_envelope, regular_ordered_paths
     rows, naver = sparse_regular_fixture()
@@ -509,3 +553,61 @@ def test_sparse_regular_coverage_rejects_conflicting_price_volume_or_closing_pri
         naver["priceInfos"]["20261012"][bucket_index][field] = value
         result = rsp.regular_session_evidence("005930", DAY, rows, observed_at=OBSERVED, closing_auction_evidence=naver)
         assert result["state"] == "unverified"
+
+
+@pytest.mark.parametrize("keep_zero_volume_rows", [False, True])
+def test_cross_source_regular_coverage_accepts_independently_confirmed_halt_buckets(
+    keep_zero_volume_rows,
+):
+    rows, naver = halted_regular_fixture(
+        keep_zero_volume_rows=keep_zero_volume_rows
+    )
+
+    result = rsp.regular_session_evidence(
+        "005930",
+        DAY,
+        rows,
+        observed_at=OBSERVED,
+        closing_auction_evidence=naver,
+    )
+
+    assert result["state"] == "ready", result["reason"]
+    assert result["prices"]["close"] == 110
+    assert result["prices"]["volume"] == 3700
+    assert not {
+        row["trade_time"] for row in result["regular_rows"]
+    }.intersection({f"12{minute:02d}00" for minute in range(40, 60)})
+    assert "+naver_krx_regular_coverage" in result["source"]
+
+
+def test_empty_regular_bucket_requires_matching_cross_source_absence_and_later_proof():
+    rows, _naver = halted_regular_fixture()
+    conflicting = rsp.regular_session_evidence(
+        "005930",
+        DAY,
+        rows,
+        observed_at=OBSERVED,
+        closing_auction_evidence=naver_auction_fixture(),
+    )
+    assert conflicting["state"] == "unverified"
+    assert "conflicts with Naver trades" in conflicting["reason"]
+
+    trailing_rows = [
+        row
+        for row in minute_rows()
+        if not "151000" <= row["trade_time"] <= "151900"
+    ]
+    trailing_naver = naver_auction_fixture()
+    trailing_naver["priceInfos"]["20261012"] = [
+        bucket
+        for bucket in trailing_naver["priceInfos"]["20261012"]
+        if bucket["localDateTime"][-6:] != "151000"
+    ]
+    trailing = rsp.regular_session_evidence(
+        "005930",
+        DAY,
+        trailing_rows,
+        observed_at=OBSERVED,
+        closing_auction_evidence=trailing_naver,
+    )
+    assert trailing["state"] == "unverified"

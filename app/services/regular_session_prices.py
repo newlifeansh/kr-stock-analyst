@@ -54,10 +54,12 @@ def _verified_naver_closing_auction(
 ) -> dict[str, Any]:
     """Recover only the single-price closing auction, never a missing intraday path.
 
-    Naver's KRX weekly chart has ten-minute buckets.  Every regular bucket
-    before the auction must match KIS OHLC and cumulative volume up to a
-    constant pre-open offset. The 15:30 bucket ends before 15:40 after-hours;
-    its O/H/L/C must be one price and its volume delta strictly positive.
+    Naver's KRX weekly chart has ten-minute buckets. Every observed regular
+    bucket before the auction must match KIS OHLC and cumulative volume up to
+    a constant pre-open offset. A jointly absent middle bucket is accepted
+    only when a later bucket preserves that offset. The 15:30 bucket ends
+    before 15:40 after-hours; its O/H/L/C must be one price and its volume
+    delta strictly positive.
     """
     if payload.get("code") != code or payload.get("stockExchangeType") != "KRX" or payload.get("periodType") != "week":
         raise ValueError("wrong closing-auction source identity")
@@ -80,13 +82,28 @@ def _verified_naver_closing_auction(
     cumulative = 0
     offset = None
     last_cumulative = None
+    pending_empty_buckets = 0
     for index in range(0, 380, 10):
         expected_start = datetime.combine(day, time(9)) + timedelta(minutes=index)
         expected_end = expected_start + timedelta(minutes=10)
         minutes = [row for row in regular if expected_start.strftime("%H%M%S") <= row["trade_time"] < expected_end.strftime("%H%M%S")]
+        bucket_key = expected_start.strftime("%Y%m%d%H%M%S")
+        bucket = buckets.get(bucket_key)
         if not minutes:
-            raise ValueError("unverified empty pre-auction bucket")
-        bucket = buckets.get(expected_start.strftime("%Y%m%d%H%M%S")) or {}
+            # A volatility interruption or exchange halt can legitimately
+            # leave an entire ten-minute interval without a print. Accept it
+            # only when the independent Naver KRX series omits the same
+            # bucket and a later observed bucket proves the cumulative-volume
+            # offset stayed unchanged. A trailing gap cannot be proven this
+            # way because the 15:30 bucket also contains the closing auction.
+            if bucket is not None:
+                raise ValueError("KIS empty bucket conflicts with Naver trades")
+            if offset is None:
+                raise ValueError("closing recovery requires an opening volume anchor")
+            pending_empty_buckets += 1
+            continue
+        if bucket is None:
+            raise ValueError("Naver missing a KIS pre-auction bucket")
         actual = [_integer(bucket.get(key), positive=True) for key in ("openPrice", "highPrice", "lowPrice", "currentPrice")]
         expected = [_integer(minutes[0]["open"], positive=True), max(_integer(row["high"], positive=True) for row in minutes), min(_integer(row["low"], positive=True) for row in minutes), _integer(minutes[-1]["price"], positive=True)]
         if actual != expected:
@@ -98,6 +115,9 @@ def _verified_naver_closing_auction(
             offset = observed_offset
         if observed_offset < 0 or observed_offset != offset:
             raise ValueError("closing source conflicts with KIS pre-auction volume")
+        pending_empty_buckets = 0
+    if pending_empty_buckets:
+        raise ValueError("unverified trailing empty pre-auction bucket")
     indicative = buckets.get(day.strftime("%Y%m%d") + "152000")
     if indicative is not None and _integer(indicative.get("accumulatedTradingVolume")) != last_cumulative:
         raise ValueError("unverified positive-volume closing auction interval")
@@ -155,19 +175,34 @@ def regular_session_evidence(
             parsed.append((instant, row))
         parsed.sort(key=lambda pair: pair[0])
         regular = [row for instant, row in parsed if time(9) <= instant.time() <= time(15, 30)]
-        actual_prefix = [row for row in regular if "090000" <= row["trade_time"] <= "151900"]
+        prefix_rows = [row for row in regular if "090000" <= row["trade_time"] <= "151900"]
+        actual_prefix = [row for row in prefix_rows if _integer(row.get("volume")) > 0]
         sparse_prefix_verified = False
+        verified_closing = None
         if len(actual_prefix) < 380 and closing_auction_evidence is not None:
-            closing = _verified_naver_closing_auction(code, trade_date, actual_prefix, closing_auction_evidence)
+            verified_closing = _verified_naver_closing_auction(
+                code, trade_date, actual_prefix, closing_auction_evidence
+            )
             observed_close = next((row for row in regular if row["trade_time"] == "153000"), None)
             if observed_close is not None and _integer(observed_close.get("volume")) > 0 and any(
-                _integer(observed_close.get(key)) != _integer(closing[key])
+                _integer(observed_close.get(key)) != _integer(verified_closing[key])
                 for key in ("open", "high", "low", "price", "volume", "trading_value")
             ):
                 raise ValueError("closing source conflicts with actual KIS closing trade")
             sparse_prefix_verified = True
-            result["coverage_basis"] = "naver_38_buckets_with_complete_opening_volume_anchor"
+            result["coverage_basis"] = (
+                "naver_regular_buckets_with_complete_opening_volume_anchor_"
+                "and_confirmed_empty_intervals"
+            )
             result["source"] += "+naver_krx_regular_coverage"
+            regular = [
+                row
+                for row in regular
+                if not (
+                    "090000" <= row["trade_time"] <= "151900"
+                    and _integer(row.get("volume")) == 0
+                )
+            ]
         closing_trade_missing = bool(
             regular
             and (
@@ -176,9 +211,15 @@ def regular_session_evidence(
             )
         )
         if closing_trade_missing and closing_auction_evidence is not None:
-            preauction = [row for row in regular if row["trade_time"] <= "151900"]
+            preauction = [
+                row
+                for row in regular
+                if row["trade_time"] <= "151900"
+                and _integer(row.get("volume")) > 0
+            ]
             regular = preauction + [
-                _verified_naver_closing_auction(
+                verified_closing
+                or _verified_naver_closing_auction(
                     code, trade_date, preauction, closing_auction_evidence
                 )
             ]

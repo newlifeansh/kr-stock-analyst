@@ -327,9 +327,27 @@ jobs:
           --timeout 45
           --output artifacts/qa-data-signal/us-production-ui-e2e.json
           --artifact-dir artifacts/qa-data-signal/us-production-ui-screenshots
-      - name: Install Railway CLI for failed US readiness diagnostics
-        if: always() && steps.us_readiness.outcome == 'failure'
+      - name: Install Railway CLI for failed production readiness diagnostics
+        if: >-
+          always() &&
+          (steps.dashboard_readiness.outcome == 'failure' ||
+           steps.us_readiness.outcome == 'failure')
         run: npm install --global @railway/cli@5.45.7
+      - name: Capture failed domestic web and collector runtime evidence
+        if: always() && steps.dashboard_readiness.outcome == 'failure'
+        continue-on-error: true
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          mkdir -p artifacts/qa-data-signal
+          railway logs --latest --json --lines 500 \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_WEB_SERVICE" \
+            > artifacts/qa-data-signal/dashboard-production-web-runtime.jsonl
+          railway logs --latest --json --lines 500 \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
+            > artifacts/qa-data-signal/dashboard-production-collector-runtime.jsonl
       - name: Capture failed US collector runtime evidence
         if: always() && steps.us_readiness.outcome == 'failure'
         continue-on-error: true
