@@ -143,7 +143,7 @@ jobs:
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" \
             env DATABASE_URL="$database_url" \
-              python scripts/diagnose_forward_regular_session.py --source-shapes-only \
+              python scripts/diagnose_forward_regular_session.py \
             > artifacts/qa-data-signal/domestic-regular-session-cohort.json 2>&1
           unset database_url
       - name: Upload domestic regular-session diagnostic evidence
