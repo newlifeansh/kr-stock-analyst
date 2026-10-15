@@ -1008,8 +1008,8 @@
       "preconditions": ["검증 완료된 미국 Top100 전체 재생 이력을 준비한다."],
       "inputs": {"windows_days": [7, 15, 30], "return_basis": "completed_trade_gross_price_return", "public_cost_basis": "gross_before_costs_tax_fx", "minimum_sample": 20},
       "steps": ["전량 매도 완료 이벤트를 화면 행 제한 전에 종목·청산일 기준으로 집계한다.", "경계일·미래일·비정상 수치·중복·부분매도를 검증한다.", "미국 화면에는 미국 요약만 선택하고 비용·세금·환율 반영 전 모델 성과로 표기한다."],
-      "expected": ["표시 행 수와 무관하게 전체 완료 거래가 집계된다.", "표본이 없으면 수익률은 null이며 화면은 집계 중을 표시한다.", "기존 스냅샷은 추가 성과 필드 갱신 대상이 되며 매매 전략은 바뀌지 않는다."],
-      "failure_criteria": ["보유 미실현·부분매도·미래 데이터가 섞인다.", "상위 20개 화면 행만 평균내거나 국내 순수익과 미국 비용 전 수익을 혼용한다."]
+      "expected": ["표시 행 수와 무관하게 전체 완료 거래가 집계된다.", "표본이 없으면 수익률은 null이며 화면은 표본 없음과 값 대시를 표시한다.", "기존 스냅샷은 추가 성과 필드 갱신 대상이 되며 매매 전략은 바뀌지 않는다."],
+      "failure_criteria": ["보유 미실현·부분매도·미래 데이터가 섞인다.", "완료 거래 0건을 집계 중 또는 무한 로딩으로 표시한다.", "상위 20개 화면 행만 평균내거나 국내 순수익과 미국 비용 전 수익을 혼용한다."]
     },
     {
       "id": "SIG-PERF-001",
@@ -1018,11 +1018,11 @@
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
       "automation": "pytest 7일·15일·30일 실현손익 fixture + API 계약 + 360px·데스크톱·200% 리플로 E2E",
-      "preconditions": ["거래비용 반영 완료 거래와 KOSPI·KOSDAQ 종가 이력을 준비한다.", "7일·15일·30일 중 표본 충족 및 부족 상태를 각각 준비한다."],
+      "preconditions": ["거래비용 반영 완료 거래와 KOSPI·KOSDAQ 종가 이력을 준비한다.", "7일·15일·30일 중 완료 0건·참고 표본·표본 충족 상태를 각각 준비한다."],
       "inputs": {"windows_days": [7, 15, 30], "return_basis": "completed_trade_net_of_costs", "benchmark_basis": "same_market_same_holding_period", "minimum_sample": 20, "viewports": [360, 1280], "zoom_percent": 200},
-      "steps": ["전량 매도 완료 거래만 청산일 기준 7일·15일·30일 창에 집계한다.", "각 거래의 진입일·청산일과 같은 시장지수 종가로 백엔드 비교값을 계산한다.", "화면에서 기간별 평균 수익률·완료 건수·승률과 기준일을 대조한다.", "360px·데스크톱·200% 확대와 긴 한국어·결측값에서 행 계층과 리플로를 확인한다."],
-      "expected": ["부분 매도·미실현 보유분은 실현 성과 표본에 섞이지 않는다.", "7일·15일·30일의 평균 수익률·완료 건수·승률이 간결한 세 행으로 재현된다.", "표본 20건 미만은 참고 표본으로 명시하고 색상 외 상태 문구를 함께 표시한다."],
-      "failure_criteria": ["미실현 수익이나 부분 매도를 완료 거래로 집계한다.", "90일 성과나 필터 비교가 상단 평균 수익률 요약에 다시 노출된다.", "모바일·200% 확대에서 값·상태·근거가 겹치거나 가로 스크롤이 생긴다."]
+      "steps": ["전량 매도 완료 거래만 청산일 기준 7일·15일·30일 창에 집계한다.", "각 거래의 진입일·청산일과 같은 시장지수 종가로 백엔드 비교값을 계산한다.", "화면에서 기간별 평균 수익률·완료 건수·승률과 기준일을 대조한다.", "완료 0건인 기간이 로딩 상태가 아닌 빈 표본 상태로 종료되는지 확인한다.", "360px·데스크톱·200% 확대와 긴 한국어·결측값에서 행 계층과 리플로를 확인한다."],
+      "expected": ["부분 매도·미실현 보유분은 실현 성과 표본에 섞이지 않는다.", "7일·15일·30일의 평균 수익률·완료 건수·승률이 간결한 세 행으로 재현된다.", "완료 0건은 표본 없음 배지·값 대시·완료 0건·승률 대시로 표시되고 집계 중으로 남지 않는다.", "표본 20건 미만은 참고 표본으로 명시하고 색상 외 상태 문구를 함께 표시한다."],
+      "failure_criteria": ["미실현 수익이나 부분 매도를 완료 거래로 집계한다.", "완료 거래가 0건인 기간을 집계 중 또는 무한 로딩으로 표시한다.", "90일 성과나 필터 비교가 상단 평균 수익률 요약에 다시 노출된다.", "모바일·200% 확대에서 값·상태·근거가 겹치거나 가로 스크롤이 생긴다."]
     },
     {
       "id": "SIG-ENTRY-008",
@@ -1336,11 +1336,11 @@
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
       "automation": "pytest parity·주말·live-return freeze fixture + watchlist investor-state roundtrip/backward-compatibility + live market feed/revision + same-client-revision representative end-to-end",
-      "preconditions": ["동일 종목·동일 실행의 시장 피드·상세·관심·알림 표면을 조회한다.", "열린 보유·매도 대기 포지션과 완료 매도, 금요일 종가 예비 신호를 준비한다.", "관심종목에 사용자가 직접 선택한 미보유·보유 중 설명 상태와 보유 종목 평균 매수가를 준비한다."],
-      "inputs": {"code": "005930", "signal_date": "2026-08-28", "refresh_at": "2026-08-30T12:38:41+09:00", "live_observation": false, "return_kinds": "open_position,closed_trade", "quote_order": "sequence+observed_at", "signal_revision": "changed_codes", "count_basis": "same_client_revision", "investor_states": ["not_holding", "holding"], "legacy_investor_states": ["before_buy", "after_sell"], "average_buy_price": 71500, "legacy_watchlist_update": "preserve_existing_state_and_average_buy_price", "e2e_replay_pending_policy": "only an exact 503 재검증 중 response may continue as an explicit fail-close state for the non-primary ETF fixture; primary stock and market feed must remain ready"},
-      "steps": ["동일 브라우저 리비전에서 state의 현재·해제 분류 건수와 DOM 필터 건수를 한 번에 읽어 일치 여부를 확인한다.", "action·stage·price·score·signal_date·exposure·display_return_rate·display_return_kind·return_basis를 표면별로 비교한다.", "열린 포지션에 순서가 증가하는 quote를 적용해 현재가·평가수익률·as_of가 같이 변경되는지 확인하고 낮은 sequence·이전 observed_at은 무시한다.", "완료 매도의 매수가·매도가·closed_trade 수익률은 후속 시세와 폴백 상태에서도 고정되는지 확인한다.", "changed_codes가 있는 새 signal_revision에서만 피드를 한 번 갱신하고 initial·동일 리비전을 무시하는지 검사한다.", "관심종목 investor_state와 average_buy_price를 저장·재조회하고 기본값이 not_holding인지, legacy before_buy·after_sell이 not_holding으로 정규화되는지 확인한다.", "이전 클라이언트가 두 필드를 빼고 저장하면 기존 보유 상태와 평균 매수가를 유지하고 명시적으로 not_holding을 저장하면 평균 매수가를 지우는지 확인한다.", "휴장 재계산 후 live_observation=false인 예비 신호의 signal_date·signal_at이 마지막 완료 거래일과 일치하는지 확인한다."],
-      "expected": ["동일 브라우저 리비전의 분류 건수와 동일 시점의 핵심 필드 및 열린 포지션의 비용·잔여비중 보정 수익률이 모든 표면에서 일치한다.", "열린 포지션만 최신 시세와 신호 리비전을 반영하고 완료 매매의 순현금흐름 수익률과 체결가는 불변이다.", "관심종목의 investor_state는 not_holding·holding 두 값으로 계정별·종목별 보존되고 holding일 때만 average_buy_price를 유지하며 신호·점수·실제 주문 내역과 독립적인 사용자 설명 설정이다.", "current.as_of는 재계산 시각을 유지하되 live_observation=false인 signal_date·signal_at은 마지막 장 마감 기준을 유지한다."],
-      "failure_criteria": ["서로 다른 리비전의 API·화면 건수를 비교해 오탐하거나 한 화면만 이전 상태·가격·날짜·수익률을 표시한다.", "늦게 도착한 시세가 최신 손익을 덮어쓰거나 완료 매도의 실현 수익률·체결가가 실시간 시세로 바뀐다.", "initial·중복 리비전이 불필요한 재조회를 일으키거나 신규 changed_codes 리비전이 화면에 반영되지 않는다.", "investor_state 또는 평균 매수가가 저장되지 않거나 legacy 상태가 제3의 고객 상태로 남고 이전 클라이언트 저장이 기존 값을 임의로 초기화한다.", "미보유 상태에 평균 매수가가 남거나 보유 상태의 명시적 평균 매수가가 누락된다.", "주말·휴장일 재계산 시각이 signal_date·signal_at으로 승격된다."]
+      "preconditions": ["동일 종목·동일 실행의 시장 피드·상세·관심·알림 표면을 조회한다.", "열린 보유·매도 대기 포지션과 완료 매도, 금요일 종가 예비 신호를 준비한다.", "후보 0건 및 매수·매도 후보가 있는 상위 150개 장중 탐색 스냅샷과 일부 종목 재검증 상태를 준비한다.", "관심종목에 사용자가 직접 선택한 미보유·보유 중 설명 상태와 보유 종목 평균 매수가를 준비한다."],
+      "inputs": {"code": "005930", "signal_date": "2026-08-28", "refresh_at": "2026-08-30T12:38:41+09:00", "live_observation": false, "return_kinds": "open_position,closed_trade", "quote_order": "sequence+observed_at", "signal_revision": "changed_codes", "count_basis": "same_client_revision", "candidate_scan_scope": "market_cap_top_150", "candidate_scan_interval_seconds": 300, "candidate_stages": ["preliminary-buy", "preliminary-sell"], "investor_states": ["not_holding", "holding"], "legacy_investor_states": ["before_buy", "after_sell"], "average_buy_price": 71500, "legacy_watchlist_update": "preserve_existing_state_and_average_buy_price", "e2e_replay_pending_policy": "only an exact 503 재검증 중 response may continue as an explicit fail-close state for the non-primary ETF fixture; primary stock and market feed must remain ready"},
+      "steps": ["동일 브라우저 리비전에서 state의 현재·해제 분류 건수와 DOM 필터 건수를 한 번에 읽어 일치 여부를 확인한다.", "action·stage·price·score·signal_date·exposure·display_return_rate·display_return_kind·return_basis를 표면별로 비교한다.", "보유 종목이 없어도 fresh 시장 스냅샷의 탐색 종목 수·매수 후보·매도 대기·재검증 종목 수를 목록 상태에 표시하고 0건을 확인 중으로 오인하지 않는지 검사한다.", "열린 포지션에 순서가 증가하는 quote를 적용해 현재가·평가수익률·as_of가 같이 변경되는지 확인하고 낮은 sequence·이전 observed_at은 무시한다.", "완료 매도의 매수가·매도가·closed_trade 수익률은 후속 시세와 폴백 상태에서도 고정되는지 확인한다.", "changed_codes가 있는 새 signal_revision에서만 피드를 한 번 갱신하고 initial·동일 리비전을 무시하는지 검사한다.", "관심종목 investor_state와 average_buy_price를 저장·재조회하고 기본값이 not_holding인지, legacy before_buy·after_sell이 not_holding으로 정규화되는지 확인한다.", "이전 클라이언트가 두 필드를 빼고 저장하면 기존 보유 상태와 평균 매수가를 유지하고 명시적으로 not_holding을 저장하면 평균 매수가를 지우는지 확인한다.", "휴장 재계산 후 live_observation=false인 예비 신호의 signal_date·signal_at이 마지막 완료 거래일과 일치하는지 확인한다."],
+      "expected": ["동일 브라우저 리비전의 분류 건수와 동일 시점의 핵심 필드 및 열린 포지션의 비용·잔여비중 보정 수익률이 모든 표면에서 일치한다.", "fresh 스냅샷은 시총 상위 150개 탐색 완료와 매수 후보·매도 대기 건수를 표시하며 재검증 종목은 별도 지연 상태로 드러낸다.", "열린 포지션만 최신 시세와 신호 리비전을 반영하고 완료 매매의 순현금흐름 수익률과 체결가는 불변이다.", "관심종목의 investor_state는 not_holding·holding 두 값으로 계정별·종목별 보존되고 holding일 때만 average_buy_price를 유지하며 신호·점수·실제 주문 내역과 독립적인 사용자 설명 설정이다.", "current.as_of는 재계산 시각을 유지하되 live_observation=false인 signal_date·signal_at은 마지막 장 마감 기준을 유지한다."],
+      "failure_criteria": ["서로 다른 리비전의 API·화면 건수를 비교해 오탐하거나 한 화면만 이전 상태·가격·날짜·수익률을 표시한다.", "fresh 탐색이 완료됐는데 후보 0건을 계속 확인 중으로 표시하거나 universe_count·예비 단계 건수·재검증 건수가 화면과 다르다.", "늦게 도착한 시세가 최신 손익을 덮어쓰거나 완료 매도의 실현 수익률·체결가가 실시간 시세로 바뀐다.", "initial·중복 리비전이 불필요한 재조회를 일으키거나 신규 changed_codes 리비전이 화면에 반영되지 않는다.", "investor_state 또는 평균 매수가가 저장되지 않거나 legacy 상태가 제3의 고객 상태로 남고 이전 클라이언트 저장이 기존 값을 임의로 초기화한다.", "미보유 상태에 평균 매수가가 남거나 보유 상태의 명시적 평균 매수가가 누락된다.", "주말·휴장일 재계산 시각이 signal_date·signal_at으로 승격된다."]
     },
     {
       "id": "SIG-CONTRACT-004",
