@@ -582,34 +582,23 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-UI-031": (
-        "tests.test_domestic_market_scope."
-        "test_us_spinout_shell_is_separate_from_the_domestic_product",
-        "tests.test_app."
-        "test_us_and_dashboard_paths_serve_independently_versioned_products",
-        "tests.test_app."
-        "test_legacy_nasdaq_routes_redirect_to_canonical_us_paths_with_query_preserved",
-        "tests.test_app."
-        "test_us_stock_path_serves_shell_without_shadowing_us_api_routes",
-        "tests.test_app."
-        "test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache",
-        "tests.test_app."
-        "test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets",
-        "tests.test_app."
-        "test_us_standalone_mobile_controls_preserve_a_live_trend_tab_during_render",
-        "tests.test_data_signal_qa."
-        "test_us_standalone_e2e_checks_archived_actions_and_visible_live_news",
-        "tests.test_market_index_live_endpoint."
-        "test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
-        "tests.test_us_public_gateway."
-        "test_canonical_us_gateway_routes_shell_assets_api_and_isolates_cookies",
-        "tests.test_release_parity."
-        "test_local_us_release_contract_tracks_its_own_versioned_assets",
+        "tests.test_data_signal_qa.test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display",
+        "tests.test_domestic_market_scope.test_us_spinout_shell_is_separate_from_the_domestic_product",
+        "tests.test_app.test_us_and_dashboard_paths_serve_independently_versioned_products",
+        "tests.test_app.test_legacy_nasdaq_routes_redirect_to_canonical_us_paths_with_query_preserved",
+        "tests.test_app.test_us_stock_path_serves_shell_without_shadowing_us_api_routes",
+        "tests.test_app.test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache",
+        "tests.test_app.test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets",
+        "tests.test_app.test_us_ai_signal_back_returns_home_without_relying_on_browser_history",
+        "tests.test_market_index_live_endpoint.test_us_entry_uses_the_us_only_shell_and_global_market_snapshot",
+        "tests.test_us_public_gateway.test_canonical_us_gateway_routes_shell_assets_api_and_isolates_cookies",
+        "tests.test_release_parity.test_local_us_release_contract_tracks_its_own_versioned_assets",
+        "tests.test_data_signal_qa.test_us_e2e_uses_current_shared_product_contract[us-False]",
+        "tests.test_data_signal_qa.test_us_e2e_uses_current_shared_product_contract[us-gateway-True]",
     ),
     "SIG-UI-032": (
-        "tests.test_app."
-        "test_us_and_dashboard_paths_serve_independently_versioned_products",
-        "tests.test_app."
-        "test_us_stock_path_serves_shell_without_shadowing_us_api_routes",
+        "tests.test_staging_dark_theme.test_stock_quote_stays_above_tabs_and_market_tab_contracts_match",
+        "tests.test_app.test_us_stock_path_serves_shell_without_shadowing_us_api_routes",
     ),
     "SIG-UI-033": (
         "tests.test_watchlist_v15."
@@ -2674,7 +2663,7 @@ def _live_checks(
         )
 
         def canonical_us_gateway_contract() -> dict[str, Any]:
-            us_shell, shell_meta = api.get_text("/us", view="overview")
+            us_shell, shell_meta = api.get_text("/us", view="home")
             version, version_meta = api.get("/us-version")
             bridge, bridge_meta = api.get_text("/us-gateway/assets/us-public-bridge.js")
             _assert(
@@ -2686,8 +2675,8 @@ def _live_checks(
             )
             _assert(
                 '<meta name="secret-note-market-universe" content="us"' in us_shell
-                and '/us-gateway/assets/nasdaq/app.js' in us_shell
-                and '/us-gateway/assets/nasdaq/styles.css' in us_shell
+                and '/us-gateway/dashboard-app-v170.js' in us_shell
+                and '/us-gateway/assets/dashboard/styles.css' in us_shell
                 and '/us-gateway/assets/us-public-bridge.js' in us_shell,
                 "미국 셸이 독립 서비스 자산을 사용하지 않습니다.",
                 shell=shell_meta,
@@ -5432,7 +5421,7 @@ def _live_us_gateway_checks(
     api = ReadOnlyApi(base_url, timeout)
     try:
         def contract() -> dict[str, Any]:
-            shell, shell_meta = api.get_text("/us", view="overview")
+            shell, shell_meta = api.get_text("/us", view="home")
             version, version_meta = api.get("/us-version")
             bridge, bridge_meta = api.get_text("/us-gateway/assets/us-public-bridge.js")
             signal, signal_meta = api.get("/us/market/quant-signals", limit=1)
@@ -5444,8 +5433,8 @@ def _live_us_gateway_checks(
                 )
             _assert(
                 '<meta name="secret-note-market-universe" content="us"' in shell
-                and '/us-gateway/assets/nasdaq/app.js' in shell
-                and '/us-gateway/assets/nasdaq/styles.css' in shell
+                and '/us-gateway/dashboard-app-v170.js' in shell
+                and '/us-gateway/assets/dashboard/styles.css' in shell
                 and 'window.__US_PUBLIC_GATEWAY__ = prefix;' in bridge
                 and bool(version.get("version"))
                 and isinstance(signal, dict),
@@ -5525,10 +5514,9 @@ def _live_us_checks(
         )
 
         def us_product_boundary_contract() -> dict[str, Any]:
-            shell, shell_meta = api.get_text("/us", view="overview")
+            shell, shell_meta = api.get_text("/us", view="home")
             domestic_shell, domestic_shell_meta = api.get_text("/dashboard", view="home")
-            source, source_meta = api.get_text("/assets/nasdaq/app.js")
-            styles, styles_meta = api.get_text("/assets/nasdaq/styles.css")
+            source, source_meta = api.get_text("/dashboard-app-v170.js")
             manifest, manifest_meta = api.get("/us.webmanifest")
             version, version_meta = api.get("/us-version")
             assets, assets_meta = api.get("/market/global-assets", limit=30)
@@ -5537,44 +5525,38 @@ def _live_us_checks(
                 '<html lang="ko" data-market-universe="us">' in shell
                 and '<meta name="secret-note-market-universe" content="us" />'
                 in shell
-                and "비밀노트 · 미국증시" in shell,
+                and "비밀노트 | 미국증시" in shell,
                 "스테이징 /us가 미국증시 제품 계약을 제공하지 않습니다.",
                 **shell_meta,
             )
             _assert(
                 re.findall(r'\bid="([^"]+)"', shell)
-                != re.findall(r'\bid="([^"]+)"', domestic_shell)
-                and 'href="/assets/nasdaq/styles.css?' in shell
-                and 'src="/assets/nasdaq/app.js?' in shell
-                and '/assets/dashboard/styles.css' not in shell
-                and '/dashboard-app-v170.js' not in shell
-                and 'id="overview-view"' in shell
-                and 'id="watchlist-view"' in shell
-                and 'id="chart-view"' in shell
-                and 'id="recommend-view"' in shell
-                and 'id="trend-view"' in shell
-                and 'id="market-view"' in shell,
-                "스테이징 /us가 보존된 미국 전용 화면 구조·자산을 사용하지 않습니다.",
+                == re.findall(r'\bid="([^"]+)"', domestic_shell)
+                and 'href="/assets/dashboard/styles.css?' in shell
+                and 'src="/dashboard-app-v170.js?' in shell,
+                "스테이징 /us가 /dashboard와 같은 화면 구조·공통 자산을 사용하지 않습니다.",
                 us_shell=shell_meta,
                 dashboard_shell=domestic_shell_meta,
             )
             _assert(
-                'const US_APP_BASE_PATH = "/us";' in source
-                and 'window.__US_PUBLIC_GATEWAY__ || ""' in source
-                and 'fetch("/session/invite-status"' in source
-                and 'fetch("/session/dashboard-access"' in source
+                'const IS_US_ONLY_PRODUCT = PRODUCT_MARKET_UNIVERSE === "us";'
+                in source
+                and 'const requestedMarketScopeValue = IS_US_ONLY_PRODUCT\n  ? "us"'
+                in source
                 and 'liveUrl("/market/global-assets?limit=30")' in source
-                and 'fetch(`/us/stocks/search?' in source
-                and '#stock-view' in styles
-                and '.recommend-card' in styles
+                and 'const PRODUCT_VERSION_ENDPOINT = IS_US_ONLY_PRODUCT ? "/us-version"'
+                in source
+                and 'document.getElementById("home-ai-response")?.remove();'
+                in source
+                and 'if (IS_US_ONLY_PRODUCT || state.view !== "home")'
+                in source
                 and 'id="home-ai-response"' in domestic_shell,
-                "미국 전용 런타임의 인증·게이트웨이·데이터 경계가 고정되지 않았습니다.",
-                source=source_meta,
-                styles=styles_meta,
+                "공통 대시보드 런타임의 미국 전용 데이터·버전 경계가 고정되지 않았습니다.",
+                **source_meta,
             )
             _assert(
                 manifest.get("scope") == "/us"
-                and manifest.get("start_url") == "/us?view=overview"
+                and manifest.get("start_url") == "/us?view=home"
                 and manifest.get("name") == "비밀노트 미국증시",
                 "미국 PWA manifest 경계가 잘못됐습니다.",
                 manifest=manifest,
@@ -5613,7 +5595,6 @@ def _live_us_checks(
                 "shell": shell_meta,
                 "dashboard_shell": domestic_shell_meta,
                 "source": source_meta,
-                "styles": styles_meta,
                 "manifest": manifest_meta,
                 "version": version_meta,
                 "global_assets": assets_meta,
@@ -5625,7 +5606,7 @@ def _live_us_checks(
         collector.check(
             "SIG-UI-031",
             us_product_boundary_contract,
-            pass_message="스테이징 /us의 보존된 미국 전용 셸·인증·데이터·검색 경계를 확인했습니다.",
+            pass_message="스테이징 /us의 대시보드 화면 동형성·미국 전용 데이터·검색 경계를 확인했습니다.",
         )
 
         def us_market_news_contract() -> dict[str, Any]:
@@ -5689,19 +5670,22 @@ def _live_us_checks(
                 invalid=invalid[:10],
                 **payload_meta,
             )
-            source, source_meta = api.get_text("/assets/nasdaq/app.js")
-            shell, shell_meta = api.get_text("/us", view="trend")
-            css, css_meta = api.get_text("/assets/nasdaq/styles.css")
+            source, source_meta = api.get_text("/dashboard-app-v170.js")
+            ia, ia_meta = api.get_text("/assets/staging/toss-ia.js")
+            css, css_meta = api.get_text("/assets/staging/toss-fidelity.css")
             _assert(
                 'timeZone: "Asia/Seoul"' in source
                 and "한국시간" in source
-                and 'data-trend-tab="events"' in shell
-                and 'data-trend-tab="live"' in shell
-                and 'id="trend-thread"' in shell
-                and ".trend-thread" in css,
-                "미국 전용 트랜드 화면의 한국시간·탭·원문 타임라인 계약이 배포되지 않았습니다.",
+                and 'feedModes.dataset.feedColumns = stagingUsMarketContext ? "2" : "3"'
+                in ia
+                and '.staging-feed-modes[data-feed-columns="2"]' in css
+                and "grid-template-columns: repeat(2, minmax(0, 1fr)) !important"
+                in css
+                and ".staging-feed-panels" in css
+                and "min-height: 0 !important" in css,
+                "미국 피드의 한국시간·2열 탭·여백 제거 계약이 배포되지 않았습니다.",
                 source=source_meta,
-                shell=shell_meta,
+                ia=ia_meta,
                 css=css_meta,
             )
             return {
@@ -5711,14 +5695,14 @@ def _live_us_checks(
                 "forbidden_source_count": 0,
                 "invalid_article_count": 0,
                 "source": source_meta,
-                "shell": shell_meta,
+                "ia": ia_meta,
                 "css": css_meta,
             }
 
         collector.check(
             "DATA-US-NEWS-001",
             us_market_news_contract,
-            pass_message="스테이징 미국 전용 트랜드 화면의 실제 뉴스·한국시간·원문 링크 계약을 확인했습니다.",
+            pass_message="스테이징 미국 시장 실제 뉴스·한국시간·2열 피드 계약을 확인했습니다.",
         )
 
         def us_stock_news_identity_contract() -> dict[str, Any]:

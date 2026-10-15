@@ -313,7 +313,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261014us148"
+US_DASHBOARD_CLIENT_VERSION = "20261015us149"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -3264,17 +3264,8 @@ def us_dashboard_refresh():
             .map((key) => caches.delete(key)));
         }} catch {{}}
         const params = new URLSearchParams(location.search);
-        const aliases = {{
-          home: "overview",
-          search: "recommend",
-          portfolio: "watchlist",
-          "ai-signals": "overview",
-          news: "trend",
-          movers: "market",
-        }};
-        const views = new Set(["overview", "stock", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history", "market"]);
-        const requestedView = aliases[params.get("view")] || params.get("view");
-        const view = views.has(requestedView) ? requestedView : "overview";
+        const views = new Set(["home", "search", "portfolio", "ai-signals", "news", "event-detail", "movers", "stock", "watchlist", "recommend", "recommend-history", "trend", "trend-past", "trend-impact", "chart", "chart-history", "market"]);
+        const view = views.has(params.get("view")) ? params.get("view") : "home";
         const code = String(params.get("code") || "").trim().toUpperCase();
         const destination = /^[A-Z][A-Z0-9.\\-]{{0,11}}$/.test(code)
           ? `/us/stock/${{encodeURIComponent(code)}}?app_build={US_DASHBOARD_CLIENT_VERSION}`
@@ -3319,12 +3310,13 @@ def nasdaq_dashboard_shell(request: Request, code: Optional[str] = None):
 @app.get("/us")
 @app.get("/us/")
 def us_market_dashboard_shell():
-    """Serve the archived standalone US product without the domestic shell."""
-    if not NASDAQ_DASHBOARD_INDEX.exists():
+    """Serve the US-only product through the same visual shell as /dashboard."""
+    if not STOCK_DASHBOARD_INDEX.exists():
         raise HTTPException(status_code=404, detail="US dashboard UI not found")
-    document = NASDAQ_DASHBOARD_INDEX.read_text(encoding="utf-8").replace(
-        "__US_ASSET_VERSION__",
-        US_DASHBOARD_CLIENT_VERSION,
+    document = render_dashboard_product_shell(
+        STOCK_DASHBOARD_INDEX.read_text(encoding="utf-8"),
+        market_universe="us",
+        client_version=US_DASHBOARD_CLIENT_VERSION,
     )
     return HTMLResponse(
         document,

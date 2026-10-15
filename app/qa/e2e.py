@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from collections.abc import Callable
@@ -45,6 +46,8 @@ E2E_CASE_IDS = (
     "SIG-PUSH-COMMUNITY-002",
 )
 US_E2E_CASE_IDS = (
+    "SIG-PERF-US-001",
+    "SIG-UI-032",
     "SIG-UI-031",
     "REC-US-INDEPENDENT-001",
     "DATA-US-NEWS-001",
@@ -109,12 +112,38 @@ def _us_signal_quote_state_ready(state: dict[str, Any]) -> bool:
     if len(rows) != int(state.get("holdingCount") or 0):
         return False
     completed = []
+    legacy_recent = False
     for row in rows:
         if not isinstance(row, dict):
             return False
+        if row.get("rolloutMode") == "hybrid_forward":
+            age = row.get("snapshotAgeMs")
+            fresh = (row.get("snapshotLiveObservation") is True
+                     and isinstance(age, (int, float)) and not isinstance(age, bool)
+                     and 0 <= age <= 150_000)
+            reference = row.get("quoteState") == "reference"
+            price, model_return = row.get("snapshotPrice"), row.get("snapshotReturn")
+            available = all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                            and math.isfinite(v) for v in (price, model_return)) and price > 0
+            if (fresh or reference) and available:
+                expected_freshness = "recent" if fresh else "closed"
+                value = str(row.get("value") or "")
+                if (row.get("freshness") != expected_freshness
+                        or not re.fullmatch(r"[+-]?\d+(?:\.\d+)?%", value)
+                        or abs(float(value[:-1]) - model_return) > 0.0051):
+                    return False
+                expected_summary = "최근 시세" if fresh else "장 마감"
+                if expected_summary not in str(state.get("summary") or ""):
+                    return False
+            elif (row.get("freshness") != "checking"
+                  or row.get("value") != "현재가 확인 중"
+                  or "확인 중" not in str(state.get("summary") or "")):
+                return False
+            continue
         if row.get("freshness") != "recent":
             completed.append(row)
             continue
+        legacy_recent = True
         if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?%", str(row.get("value") or "")):
             return False
         if "현재가 확인 중" in str(row.get("text") or ""):
@@ -126,7 +155,7 @@ def _us_signal_quote_state_ready(state: dict[str, Any]) -> bool:
         age = row.get("ageMs")
         if not isinstance(age, (int, float)) or isinstance(age, bool) or not -5000 <= age <= 30 * 60_000:
             return False
-    if len(completed) < len(rows) and "최근 시세" not in str(state.get("summary") or ""):
+    if legacy_recent and "최근 시세" not in str(state.get("summary") or ""):
         return False
     return _us_completed_signal_quote_state_ready({
         **state, "holdingCount": len(completed), "rows": completed,
@@ -1038,6 +1067,8 @@ def _run_us_e2e_checks(
                 ):
                     raise QaFailure("미국 주요 지수 카드가 완전하지 않습니다.", shell)
 
+                output_dir.mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(output_dir / f"us-current-home-{theme}.png"), full_page=True)
                 page.locator("a.staging-home-signal-chevron").click()
                 page.wait_for_selector("#ai-signals-view", state="visible")
                 page.wait_for_selector(
@@ -1084,6 +1115,12 @@ def _run_us_e2e_checks(
                               const stamp = payload ? quoteFrameTimestamp(payload) : null;
                               return ({
                               code: row.dataset.code,
+                              rolloutMode: row.aiSignalSnapshotItem?.rollout_mode || '',
+                              quoteState: row.aiSignalSnapshotItem?.quote_state || '',
+                              snapshotLiveObservation: row.aiSignalSnapshotItem?.current?.live_observation === true,
+                              snapshotPrice: row.aiSignalSnapshotItem?.current?.price,
+                              snapshotReturn: row.aiSignalSnapshotItem?.current?.return_rate,
+                              snapshotAgeMs: Date.now() - Date.parse(row.aiSignalSnapshotItem?.current?.as_of || ''),
                               text: row.textContent || '',
                               value: row.querySelector('[data-field="ai_signal_return"]')?.textContent?.trim() || '',
                               freshness: row.querySelector('[data-field="ai_signal_return"]')?.dataset?.freshnessState || '',
@@ -2097,7 +2134,7 @@ def run_e2e_checks(
     surface: str = "dashboard",
 ) -> list[dict[str, Any]]:
     if surface in {"us", "us-gateway"}:
-        return _run_us_standalone_e2e_checks(
+        return _run_us_e2e_checks(
             catalog=catalog,
             base_url=base_url,
             timeout=timeout,

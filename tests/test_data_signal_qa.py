@@ -1478,8 +1478,8 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-035" in E2E_CASE_IDS
     from app.qa.e2e import US_E2E_CASE_IDS
     assert "REC-US-INDEPENDENT-001" in US_E2E_CASE_IDS
-    assert "SIG-UI-032" not in US_E2E_CASE_IDS
-    assert "SIG-PERF-US-001" not in US_E2E_CASE_IDS
+    assert "SIG-UI-032" in US_E2E_CASE_IDS
+    assert "SIG-PERF-US-001" in US_E2E_CASE_IDS
     assert "DATA-US-NEWS-001" in US_E2E_CASE_IDS
     assert "def _run_us_standalone_e2e_checks" in source
     assert '"#recommend-list .recommend-card",\n                    state="visible"' in source
@@ -2098,7 +2098,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261014us148",
+                "us_dashboard_version": "20261015us149",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2106,7 +2106,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261014us148",
+                "us_dashboard_version": "20261015us149",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2690,10 +2690,10 @@ class FakeReadOnlyApi:
             return {
                 "name": "비밀노트 미국증시",
                 "scope": "/us",
-                "start_url": "/us?view=overview",
+                "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261014us148"}, self._meta(path)
+            return {"version": "20261015us149"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2739,36 +2739,13 @@ class FakeReadOnlyApi:
             return (
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
-                '<title>비밀노트 · 미국증시</title>'
-                '<link href="/assets/nasdaq/styles.css?v=20261014us148" />'
-                '</head><body><section id="overview-view"></section>'
-                '<section id="stock-view"></section>'
-                '<section id="watchlist-view"></section>'
-                '<section id="chart-view"></section>'
-                '<section id="recommend-view"></section>'
-                '<section id="trend-view"></section>'
-                '<section id="market-view"></section>'
-                '<button data-trend-tab="events"></button>'
-                '<button data-trend-tab="live"></button>'
-                '<div id="trend-thread"></div>'
-                '<script src="/assets/nasdaq/app.js?v=20261014us148"></script>'
+                '<title>비밀노트 | 미국증시</title>'
+                '<link href="/assets/dashboard/styles.css?v=20261015us149" />'
+                '</head><body><section id="home-view"></section>'
+                '<section id="home-ai-response"></section>'
+                '<nav id="bottom-nav"></nav>'
+                '<script src="/dashboard-app-v170.js?v=20261015us149"></script>'
                 '</body></html>',
-                self._meta(path),
-            )
-        if path == "/assets/nasdaq/app.js":
-            return (
-                'const US_APP_BASE_PATH = "/us";\n'
-                'const prefix = window.__US_PUBLIC_GATEWAY__ || "";\n'
-                'fetch("/session/invite-status", {});\n'
-                'fetch("/session/dashboard-access", {});\n'
-                'liveUrl("/market/global-assets?limit=30");\n'
-                'fetch(`/us/stocks/search?query=AAPL`);\n'
-                'timeZone: "Asia/Seoul"; 한국시간;',
-                self._meta(path),
-            )
-        if path == "/assets/nasdaq/styles.css":
-            return (
-                '#stock-view {} .recommend-card {} .trend-thread {}',
                 self._meta(path),
             )
         if path == "/dashboard-app-v170.js":
@@ -2918,8 +2895,8 @@ def test_us_gateway_live_requires_dedicated_shell_assets_and_api(monkeypatch) ->
             if path == "/us":
                 return (
                     '<meta name="secret-note-market-universe" content="us" />'
-                    '<link href="/us-gateway/assets/nasdaq/styles.css?v=us-test" />'
-                    '<script src="/us-gateway/assets/nasdaq/app.js?v=us-test"></script>',
+                    '<link href="/us-gateway/assets/dashboard/styles.css?v=us-test" />'
+                    '<script src="/us-gateway/dashboard-app-v170.js?v=us-test"></script>',
                     self._gateway_meta(path),
                 )
             if path == "/us-gateway/assets/us-public-bridge.js":
@@ -4267,3 +4244,47 @@ def test_cli_writes_gate_json_report(tmp_path: Path) -> None:
 def test_e2e_url_builder_keeps_theme_and_view() -> None:
     url = _page_url("https://example.test/", "/dashboard", view="home", theme="dark")
     assert url == "https://example.test/dashboard?view=home&theme=dark"
+
+
+@pytest.mark.parametrize("surface,gateway", [("us", False), ("us-gateway", True)])
+def test_us_e2e_uses_current_shared_product_contract(monkeypatch, surface, gateway):
+    from app.qa import e2e
+
+    observed = {}
+    def current_product(**kwargs):
+        observed.update(kwargs)
+        return [{"case_id": "SIG-UI-031", "status": "pass"}]
+
+    monkeypatch.setattr(e2e, "_run_us_e2e_checks", current_product)
+    result = e2e.run_e2e_checks(
+        catalog=load_qa_catalog(), base_url="https://fixture.test", timeout=20,
+        surface=surface,
+    )
+    assert observed["gateway_expected"] is gateway
+    assert result == [{"case_id": "SIG-UI-031", "status": "pass"}]
+    cases = {case["id"]: case for case in observed["catalog"]["cases"]}
+    for case_id in e2e.US_E2E_CASE_IDS:
+        assert "e2e" in cases[case_id]["modes"]
+    assert cases["SIG-UI-031"]["inputs"]["route"] == "/us?view=home"
+
+
+def test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display():
+    row = {"rolloutMode": "hybrid_forward", "quoteState": "fresh",
+           "snapshotLiveObservation": True, "snapshotAgeMs": 60_000,
+           "snapshotPrice": 105, "snapshotReturn": 1.234,
+           "freshness": "recent", "value": "+1.23%"}
+    def ready(item, summary="최근 시세 1"):
+        return _us_signal_quote_state_ready({"holdingCount": 1, "summary": summary, "rows": [item]})
+    assert ready(row)
+    for change in ({"snapshotAgeMs": 150001}, {"snapshotAgeMs": -1},
+                   {"snapshotLiveObservation": False}, {"snapshotPrice": None},
+                   {"snapshotReturn": float("nan")}, {"value": "+9.99%"},
+                   {"freshness": "closed"}):
+        assert not ready({**row, **change})
+    stale = {**row, "snapshotAgeMs": 150001, "freshness": "checking", "value": "현재가 확인 중"}
+    assert ready(stale, "확인 중 1")
+    assert not ready({**stale, "value": "+1.23%"}, "확인 중 1")
+    assert not ready(stale, "최근 시세 1")
+    closed = {**row, "snapshotAgeMs": 3600000, "quoteState": "reference", "freshness": "closed"}
+    assert ready(closed, "장 마감 1")
+    assert not ready(closed, "최근 시세 1")

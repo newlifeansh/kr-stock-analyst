@@ -1,13 +1,18 @@
-const DASHBOARD_SW_VERSION = "20261014us148";
+const DASHBOARD_SW_VERSION = "20261015us149";
 const STATIC_CACHE = `secret-note-us-static-${DASHBOARD_SW_VERSION}`;
-const US_GATEWAY_PREFIX = self.location.pathname.startsWith("/us-gateway/") ? "/us-gateway" : "";
 const STATIC_ASSETS = [
-  "/us?view=overview",
-  `${US_GATEWAY_PREFIX}/assets/nasdaq/styles.css?v=20261014us148`,
-  `${US_GATEWAY_PREFIX}/assets/nasdaq/app.js?v=20261014us148`,
-  `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/icon-192.png?v=20260620bq`,
-  `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/icon-512.png?v=20260620bq`,
-  `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/apple-touch-icon.png?v=20260620bq`
+  "/us?view=home",
+  "/assets/dashboard/styles.css?v=20261015us149&build=20261015us149",
+  "/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts",
+  "/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170-chart-fallback-v171-ai-response-visual-fold-v174",
+  "/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170-chart-fallback-v171-ai-response-visual-fold-v174",
+  "/assets/staging/ai-stock-response-logic.js?v=20261010-ai-response-visual-v118",
+  "/assets/staging/stock-change-copy-logic.js?v=20261010-ai-response-visual-v118",
+  "/assets/staging/toss-ia.js?v=20261010-ai-response-visual-v118",
+  "/dashboard-app-v170.js?v=20261015us149",
+  "/assets/dashboard/icons/icon-192.png?v=20260620bq",
+  "/assets/dashboard/icons/icon-512.png?v=20260620bq",
+  "/assets/dashboard/icons/apple-touch-icon.png?v=20260620bq"
 ];
 
 self.addEventListener("install", (event) => {
@@ -39,10 +44,10 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("/us?view=overview")));
+    event.respondWith(fetch(request).catch(() => caches.match("/us?view=home")));
     return;
   }
-  if (url.pathname.startsWith("/assets/nasdaq/") || url.pathname.startsWith("/us-gateway/assets/nasdaq/")) {
+  if (url.pathname === "/dashboard-app-v170.js" || url.pathname.startsWith("/assets/dashboard/") || url.pathname.startsWith("/assets/staging/")) {
     event.respondWith(
       caches.match(request).then((cached) => cached || fetch(request).then((response) => {
         const copy = response.clone();
@@ -60,14 +65,14 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = { title: "미국증시 새 알림", body: event.data?.text() || "미국 시장의 중요한 변화가 있어요." };
   }
-  const requestedUrl = new URL(payload.url || "/us?view=watchlist", self.location.origin);
+  const requestedUrl = new URL(payload.url || "/us?view=portfolio&market_scope=us", self.location.origin);
   const targetUrl = requestedUrl.origin === self.location.origin && requestedUrl.pathname.startsWith("/us")
     ? requestedUrl.href
-    : new URL("/us?view=watchlist", self.location.origin).href;
+    : new URL("/us?view=portfolio&market_scope=us", self.location.origin).href;
   event.waitUntil(self.registration.showNotification(payload.title || "미국증시 새 알림", {
     body: payload.body || "미국 시장의 중요한 변화가 있어요.",
-    icon: `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/icon-192.png?v=20260620bq`,
-    badge: `${US_GATEWAY_PREFIX}/assets/nasdaq/icons/icon-192.png?v=20260620bq`,
+    icon: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
+    badge: "/assets/dashboard/icons/icon-192.png?v=20260620bq",
     tag: payload.tag || "secret-note-us-push",
     renotify: true,
     data: { url: targetUrl, kind: payload.kind || "general", market_scope: "us" },
@@ -77,12 +82,12 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const requestedUrl = new URL(
-    event.notification.data?.url || "/us?view=watchlist",
+    event.notification.data?.url || "/us?view=portfolio&market_scope=us",
     self.location.origin,
   );
   const targetUrl = requestedUrl.origin === self.location.origin && requestedUrl.pathname.startsWith("/us")
     ? requestedUrl.href
-    : new URL("/us?view=watchlist", self.location.origin).href;
+    : new URL("/us?view=portfolio&market_scope=us", self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {

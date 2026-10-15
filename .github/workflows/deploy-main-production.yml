@@ -294,6 +294,22 @@ jobs:
           --surface us
           --base-url "$US_PRODUCTION_BASE_URL"
           --output artifacts/qa-data-signal/us-production-live.json
+      - name: Install Chromium for canonical US screen verification
+        run: playwright install --with-deps chromium
+      - id: us_ui_e2e
+        name: Verify current US screen through the canonical gateway
+        continue-on-error: true
+        env:
+          QA_DASHBOARD_INVITE_CODE: ${{ secrets.DASHBOARD_INVITE_CODE }}
+          QA_DASHBOARD_SHARE_ID: qa-automation
+        run: >-
+          analyst qa data-signal
+          --mode e2e
+          --surface us-gateway
+          --base-url "$PRODUCTION_BASE_URL"
+          --timeout 45
+          --output artifacts/qa-data-signal/us-production-ui-e2e.json
+          --artifact-dir artifacts/qa-data-signal/us-production-ui-screenshots
       - name: Install Railway CLI for failed US readiness diagnostics
         if: always() && steps.us_readiness.outcome == 'failure'
         run: npm install --global @railway/cli@5.45.7
@@ -323,6 +339,7 @@ jobs:
           test "${{ steps.us_parity.outcome }}" = "success"
           test "${{ steps.dashboard_readiness.outcome }}" = "success"
           test "${{ steps.us_readiness.outcome }}" = "success"
+          test "${{ steps.us_ui_e2e.outcome }}" = "success"
           if test "${{ steps.dashboard_live.outcome }}" != "success"; then
             echo "::warning::Domestic read-only live QA reported a post-deploy operational P0; evidence is retained."
           fi
