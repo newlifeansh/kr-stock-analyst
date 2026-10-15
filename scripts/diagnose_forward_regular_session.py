@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 import json
+import sys
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -24,8 +25,19 @@ from app.services.regular_signal_transition import (
     _load,
 )
 
+KNOWN_UNVERIFIED = (
+    ("007660", "2026-10-15"),
+    ("122630", "2026-10-15"),
+    ("310970", "2026-10-15"),
+    ("310970", "2026-10-14"),
+    ("039030", "2026-10-13"),
+    ("278470", "2026-10-13"),
+    ("310970", "2026-10-13"),
+)
+
 
 def main() -> None:
+    source_shapes_only = "--source-shapes-only" in sys.argv[1:]
     now = datetime.now(ZoneInfo("Asia/Seoul"))
     completed = qs.latest_completed_korea_market_session_date(now)
     if (
@@ -65,16 +77,24 @@ def main() -> None:
             codes.extend(cohort["codes"])
         selected = sorted(set(codes))
         provider = KisRestBriefingProvider(get_settings())
-        report = collect_regular_session_prices(
-            db,
-            provider,
-            codes=selected,
-            start=REGULAR_FORWARD_START,
-            end=completed,
-            observed_at=now,
-            persist=False,
-            max_pairs=250,
-        )
+        if source_shapes_only:
+            report = {
+                "unverified": [
+                    {"code": code, "trade_date": trade_date}
+                    for code, trade_date in KNOWN_UNVERIFIED
+                ]
+            }
+        else:
+            report = collect_regular_session_prices(
+                db,
+                provider,
+                codes=selected,
+                start=REGULAR_FORWARD_START,
+                end=completed,
+                observed_at=now,
+                persist=False,
+                max_pairs=250,
+            )
 
         source_shapes = []
         for failure in report["unverified"]:
@@ -147,6 +167,7 @@ def main() -> None:
                 "cohort_size": len(selected),
                 "report": report,
                 "source_shapes": source_shapes,
+                "source_shapes_only": source_shapes_only,
             },
             ensure_ascii=False,
             indent=2,
