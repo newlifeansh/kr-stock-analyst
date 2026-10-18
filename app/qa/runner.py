@@ -599,6 +599,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-UI-031": (
         "tests.test_data_signal_qa.test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display",
+        "tests.test_data_signal_qa.test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agree",
         "tests.test_domestic_market_scope.test_us_spinout_shell_is_separate_from_the_domestic_product",
         "tests.test_app.test_us_and_dashboard_paths_serve_independently_versioned_products",
         "tests.test_app.test_legacy_nasdaq_routes_redirect_to_canonical_us_paths_with_query_preserved",
@@ -5537,6 +5538,13 @@ def _live_us_checks(
 ) -> tuple[str | None, dict[str, Any]]:
     api = ReadOnlyApi(base_url, timeout)
     context: dict[str, Any] = {}
+    us_ui_case = next(
+        (case for case in catalog["cases"] if case.get("id") == "SIG-UI-031"),
+        {},
+    )
+    expected_us_dashboard_version = str(
+        us_ui_case.get("inputs", {}).get("client_version") or ""
+    ).strip()
     try:
 
         def health_contract() -> dict[str, Any]:
@@ -5575,6 +5583,7 @@ def _live_us_checks(
                 ready_version=ready.get("us_dashboard_version"),
             )
             context["health"] = health
+            context["readyz"] = ready
             return {
                 "health": health_meta,
                 "readyz": ready_meta,
@@ -5597,6 +5606,28 @@ def _live_us_checks(
             version, version_meta = api.get("/us-version")
             assets, assets_meta = api.get("/market/global-assets", limit=30)
             search, search_meta = api.get("/us/stocks/search", query="AAPL", limit=5)
+            _assert(
+                bool(expected_us_dashboard_version)
+                and version.get("version") == expected_us_dashboard_version
+                and (context.get("health") or {}).get("us_dashboard_version")
+                == expected_us_dashboard_version
+                and (context.get("readyz") or {}).get("us_dashboard_version")
+                == expected_us_dashboard_version
+                and f'href="/assets/dashboard/styles.css?v={expected_us_dashboard_version}'
+                in shell
+                and f'src="/dashboard-app-v170.js?v={expected_us_dashboard_version}'
+                in shell,
+                "미국증시 UIUX 번들 버전이 현재 소스와 일치하지 않습니다.",
+                expected_client_version=expected_us_dashboard_version,
+                health_client_version=(context.get("health") or {}).get(
+                    "us_dashboard_version"
+                ),
+                readyz_client_version=(context.get("readyz") or {}).get(
+                    "us_dashboard_version"
+                ),
+                endpoint_client_version=version.get("version"),
+                shell=shell_meta,
+            )
             _assert(
                 '<html lang="ko" data-market-universe="us">' in shell
                 and '<meta name="secret-note-market-universe" content="us" />'

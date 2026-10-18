@@ -887,6 +887,10 @@ def _run_us_e2e_checks(
     gateway_expected: bool = False,
 ) -> list[dict[str, Any]]:
     catalog_by_id = {case["id"]: case for case in catalog["cases"]}
+    expected_us_client_version = str(
+        catalog_by_id["SIG-UI-031"].get("inputs", {}).get("client_version")
+        or ""
+    ).strip()
     output_dir = Path(artifact_dir or "artifacts/qa-data-signal/e2e-us")
     required_case_ids = US_E2E_CASE_IDS + (("DATA-COM-006",) if gateway_expected else ())
     try:
@@ -976,7 +980,7 @@ def _run_us_e2e_checks(
                     state="visible",
                 )
                 shell = page.evaluate(
-                    """(countryToggleSelector) => ({
+                    """({ countryToggleSelector, expectedClientVersion }) => ({
                       htmlUniverse: document.documentElement.dataset.marketUniverse,
                       metaUniverse: document.querySelector('meta[name="secret-note-market-universe"]')?.content,
                       marketScope: document.body.dataset.marketScope,
@@ -989,6 +993,7 @@ def _run_us_e2e_checks(
                       loginHidden: document.querySelector('#login-gate')?.hidden === true,
                       commonCss: document.querySelector('link[href*="/assets/dashboard/styles.css?"]')?.getAttribute('href'),
                       commonScript: document.querySelector('script[src*="/dashboard-app-v170.js?"]')?.getAttribute('src'),
+                      expectedClientVersion,
                       gateway: window.__US_PUBLIC_GATEWAY__ || '',
                       nav: Array.from(document.querySelectorAll('#bottom-nav [data-app-view]')).map(node => ({
                         view: node.dataset.appView,
@@ -1005,7 +1010,10 @@ def _run_us_e2e_checks(
                       hasHomeAiResponseCopy: document.body.innerText.includes('미국 관심종목 대응'),
                       hasHomeAiResponseTimer: Boolean(state.homeAiResponseRefreshTimer),
                     })""",
-                    US_HOME_COUNTRY_TOGGLE_SELECTOR,
+                    {
+                        "countryToggleSelector": US_HOME_COUNTRY_TOGGLE_SELECTOR,
+                        "expectedClientVersion": expected_us_client_version,
+                    },
                 )
                 expected_nav = [
                     {"view": "home", "label": "증권"},
@@ -1024,6 +1032,9 @@ def _run_us_e2e_checks(
                         not shell["loginHidden"],
                         not shell["commonCss"],
                         not shell["commonScript"],
+                        not shell["expectedClientVersion"],
+                        f'?v={shell["expectedClientVersion"]}' not in shell["commonCss"],
+                        f'?v={shell["expectedClientVersion"]}' not in shell["commonScript"],
                         shell["nav"] != expected_nav,
                         not shell["hasUsTop50"],
                         shell["hasDomesticTop50"],
