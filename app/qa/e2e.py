@@ -888,6 +888,13 @@ def _browser_auth_state(
         context.close()
 
 
+def _us_current_shell_assets(shell: dict[str, Any], version: str, *, gateway_expected: bool) -> bool:
+    prefix = "/us-gateway" if gateway_expected else ""
+    return current_asset_version(shell.get("commonCss"), f"{prefix}/assets/dashboard/styles.css", version) and current_asset_version(
+        shell.get("commonScript"), f"{prefix}/dashboard-app-v170.js", version
+    )
+
+
 def _run_us_e2e_checks(
     *,
     catalog: dict[str, Any],
@@ -1043,8 +1050,7 @@ def _run_us_e2e_checks(
                         not shell["commonCss"],
                         not shell["commonScript"],
                         not shell["expectedClientVersion"],
-                        not current_asset_version(shell["commonCss"], "/assets/dashboard/styles.css", expected_us_client_version),
-                        not current_asset_version(shell["commonScript"], "/dashboard-app-v170.js", expected_us_client_version),
+                        not _us_current_shell_assets(shell, expected_us_client_version, gateway_expected=gateway_expected),
                         shell["nav"] != expected_nav,
                         not shell["hasUsTop50"],
                         shell["hasDomesticTop50"],

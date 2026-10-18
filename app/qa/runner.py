@@ -57,7 +57,7 @@ def current_asset_version(value: Any, path: str, version: str) -> bool:
     if not isinstance(value, str) or not version:
         return False
     parsed = urlparse(html_lib.unescape(value))
-    return parsed.path == path and parse_qs(parsed.query).get("v") == [version]
+    return not parsed.scheme and not parsed.netloc and parsed.path == path and parse_qs(parsed.query).get("v") == [version]
 
 
 def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> bool:
@@ -612,6 +612,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-UI-031": (
+        "tests.test_data_signal_qa.test_us_ui_e2e_version_check_honors_only_the_expected_gateway_prefix",
         "tests.test_data_signal_qa.test_us_ui_asset_version_requires_exact_unambiguous_value",
         "tests.test_data_signal_qa.test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display",
         "tests.test_data_signal_qa.test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agree",
