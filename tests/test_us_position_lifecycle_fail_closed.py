@@ -39,6 +39,8 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0001551182", "Technology", "XLI"),  # Eaton
         ("0001022837", "Technology", "XLF"),  # Sumitomo Mitsui Financial
         ("0001119639", "Energy", "XLE"),  # Petrobras
+        ("0001668717", "Technology", "XLP"),  # AB InBev / BUD
+        ("0000109198", "Consumer Staples", "XLY"),  # TJX
     ]
     for cik, misleading_display_sector, expected in cases:
         assert (
@@ -206,6 +208,30 @@ def test_gapped_short_history_still_blocks_all_new_entries():
     assert payload["data_coverage_count"] == 99
     assert payload["insufficient_history_count"] == 0
     assert payload["entry_pending_count"] == 0
+
+
+def test_reviewed_bud_tjx_top100_boundary_restores_complete_coverage():
+    universe = _universe()
+    for item, code, cik in zip(
+        universe["items"][-2:], ("BUD", "TJX"), ("0001668717", "0000109198")
+    ):
+        item.update(code=code, cik=cik, sector="misleading display metadata")
+    stock = _bars(0.0017)
+    histories = {
+        "SPY": _bars(0.0007), "QQQ": _bars(0.0009),
+        "XLK": _bars(0.0010), "XLP": _bars(0.0010), "XLY": _bars(0.0010),
+        **{str(item["code"]): stock for item in universe["items"]},
+    }
+    payload = build_us_position_lifecycle_feed(
+        limit=100, now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_payload=universe, history_loader=lambda symbol: histories.get(symbol, []),
+    )
+    assert payload["status"] == "ready"
+    assert payload["data_coverage_count"] == 100
+    assert payload["sector_classification_errors"] == {}
+    assert payload["new_entries_allowed"] is True
+    assert payload["sector_classification_version"] == "us-sector-etf-cik-v9"
+    assert len(payload["hybrid_setups"]) == 100
 
 
 def test_one_unreviewed_issuer_sector_blocks_every_new_entry():
