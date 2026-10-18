@@ -729,6 +729,86 @@ console.log(JSON.stringify(fixtures.map((item) => {{
     ]
 
 
+def test_completed_trade_ledger_keeps_repeat_exits_for_the_same_stock() -> None:
+    source = app_source()
+    view_start = source.index("function isPreliminaryAiSignal(")
+    view_end = source.index("function aiSignalTransitionKey(", view_start)
+    market_start = source.index("function marketAiSignalItems(")
+    market_end = source.index("function payloadIncludesCanonicalUsSnapshot(", market_start)
+    function_source = source[view_start:view_end] + source[market_start:market_end]
+    script = f"""
+const state = {{ aiSignalPerformanceSummary: {{
+  as_of: "2026-10-16T18:00:00+09:00",
+  completed_trade_items: [
+    {{ code: "005930", name: "삼성전자", side: "sell", event_side: "sell",
+       status: "confirmed", state_after: "exited", signal_date: "2026-10-15",
+       execution_date: "2026-10-16", price: 102000, return_rate: 2,
+       display_return_rate: 2, display_return_kind: "closed_trade" }},
+    {{ code: "005930", name: "삼성전자", side: "sell", event_side: "sell",
+       status: "confirmed", state_after: "exited", signal_date: "2026-09-29",
+       execution_date: "2026-10-01", price: 99000, return_rate: -1,
+       display_return_rate: -1, display_return_kind: "closed_trade" }},
+  ],
+}} }};
+{function_source}
+const items = aiSignalCompletedTradeItems();
+console.log(JSON.stringify(items.map((item) => ({{
+  code: item.code,
+  executionDate: item.execution_date,
+  stage: homeAiSignalView(item).key,
+  returnRate: item.display_return_rate,
+}}))));
+"""
+
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == [
+        {
+            "code": "005930",
+            "executionDate": "2026-10-16",
+            "stage": "recent-sell",
+            "returnRate": 2,
+        },
+        {
+            "code": "005930",
+            "executionDate": "2026-10-01",
+            "stage": "recent-sell",
+            "returnRate": -1,
+        },
+    ]
+
+
+def test_completed_trade_ledger_changes_snapshot_signature_without_current_item_changes() -> None:
+    source = app_source()
+    start = source.index("function aiSignalSnapshotSignature(")
+    end = source.index("function createMarketBadge(", start)
+    script = f"""
+function aiSignalRevisionFromPayload(payload) {{ return payload.revision || 1; }}
+function marketScopeForItem(item) {{ return item.market_scope || 'kr'; }}
+{source[start:end]}
+const payload = {{ revision: 1, performance_summary: {{ completed_trade_items: [] }} }};
+const items = [{{ code: '005930', status: 'confirmed' }}];
+const empty = aiSignalSnapshotSignature(items, payload);
+payload.performance_summary.completed_trade_items.push({{
+  code: '005930', execution_date: '2026-10-16', return_rate: 2,
+}});
+const added = aiSignalSnapshotSignature(items, payload);
+payload.performance_summary.completed_trade_items[0].return_rate = 3;
+const corrected = aiSignalSnapshotSignature(items, payload);
+console.log(JSON.stringify([empty !== added, added !== corrected,
+  corrected === aiSignalSnapshotSignature(items, payload)]));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script], check=True, capture_output=True, text=True,
+    )
+    assert json.loads(completed.stdout) == [True, True, True]
+
+
 def test_pending_state_uses_last_completed_trade_date_during_weekend_refresh() -> None:
     source = app_source()
     start = source.index("function isPreliminaryAiSignal(")

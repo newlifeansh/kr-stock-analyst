@@ -5030,6 +5030,92 @@ def _benchmark_value_on_or_before(
     return matches[-1] if matches else None
 
 
+def _market_completed_exit_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return unique, reproducible full exits without collapsing repeat trades."""
+
+    selected: list[dict[str, Any]] = []
+    seen: set[tuple[str, date, str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        execution_date = _date_value(item.get("execution_date"))
+        if (
+            item.get("status") != "confirmed"
+            or item.get("event_side") != "sell"
+            or item.get("state_after") != "exited"
+            or execution_date is None
+        ):
+            continue
+        try:
+            return_rate = Decimal(str(item.get("return_rate")))
+        except Exception:
+            continue
+        if not return_rate.is_finite():
+            continue
+        identity = (
+            str(item.get("code") or item.get("name") or "").strip(),
+            execution_date,
+            str(item.get("signal_date") or "")[:10],
+            str(item.get("entry_date") or "")[:10],
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        selected.append({**item, "return_rate": return_rate})
+    return selected
+
+
+def _market_completed_trade_ledger_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Expose only the stable fields needed by the 30-day completed-trade list."""
+
+    return {
+        "code": item.get("code"),
+        "name": item.get("name") or item.get("code"),
+        "market": item.get("market"),
+        "market_scope": "kr",
+        "currency": "KRW",
+        "signal": item.get("signal") or "전량 매도",
+        "side": "sell",
+        "event_side": "sell",
+        "signal_date": item.get("signal_date"),
+        "execution_date": item.get("execution_date"),
+        "entry_date": item.get("entry_date"),
+        "price": item.get("price"),
+        "entry_price": item.get("entry_price"),
+        "return_rate": _decimal(item.get("return_rate")),
+        "display_return_rate": _decimal(item.get("return_rate")),
+        "display_return_kind": "closed_trade",
+        "display_return_event_date": item.get("execution_date"),
+        "display_return_event_side": "sell",
+        "holding_days": item.get("holding_days"),
+        "state_after": "exited",
+        "status": "confirmed",
+        "is_preliminary": False,
+    }
+
+
+def _market_completed_trade_ledger(
+    items: list[dict[str, Any]], *, period_start: date, period_end: date,
+) -> list[dict[str, Any]]:
+    return [
+        _market_completed_trade_ledger_item(item)
+        for item in sorted(
+            (
+                item for item in _market_completed_exit_items(items)
+                if period_start
+                <= (_date_value(item.get("execution_date")) or date.min)
+                <= period_end
+            ),
+            key=lambda item: (
+                _date_value(item.get("execution_date")) or date.min,
+                str(item.get("signal_date") or ""),
+                str(item.get("code") or ""),
+            ),
+            reverse=True,
+        )
+    ]
+
+
 def build_market_signal_performance_summary(
     db: Session,
     items: list[dict[str, Any]],
@@ -5039,16 +5125,7 @@ def build_market_signal_performance_summary(
 ) -> dict[str, Any]:
     """Summarize realized exits and same-holding-period market benchmarks."""
 
-    closed = [
-        item
-        for item in items
-        if isinstance(item, dict)
-        and item.get("status") == "confirmed"
-        and item.get("event_side") == "sell"
-        and item.get("state_after") == "exited"
-        and item.get("return_rate") is not None
-        and _date_value(item.get("execution_date")) is not None
-    ]
+    closed = _market_completed_exit_items(items)
     entry_dates = [
         value
         for value in (_date_value(item.get("entry_date")) for item in closed)
@@ -5120,11 +5197,18 @@ def build_market_signal_performance_summary(
             ),
             "minimum_required_trades": MIN_COMPLETED_TRADES_FOR_SAMPLE,
         }
+    ledger_days = 30
+    ledger_cutoff = as_of.date() - timedelta(days=ledger_days)
+    completed_trade_items = _market_completed_trade_ledger(
+        closed, period_start=ledger_cutoff, period_end=as_of.date(),
+    )
     return {
         "version": MARKET_SIGNAL_PERFORMANCE_VERSION,
         "as_of": as_of,
         "return_basis": "completed_trade_net_of_costs",
         "benchmark_basis": "same_market_same_holding_period",
+        "completed_trade_window_days": ledger_days,
+        "completed_trade_items": completed_trade_items,
         "windows": result_windows,
     }
 
@@ -6800,6 +6884,24 @@ def load_market_quant_signal_snapshot(
         return None
     if payload.get("strategy_version") != STRATEGY_VERSION:
         return None
+    summary = payload.get("performance_summary")
+    if isinstance(summary, dict) and "completed_trade_items" not in summary:
+        # Closed-market snapshots can remain valid throughout the weekend.
+        # Derive the display-only ledger from their frozen events and period;
+        # never replay strategy decisions or rewrite the stored publication.
+        window = (summary.get("windows") or {}).get("30d") or {}
+        period_start = _date_value(window.get("period_start"))
+        period_end = _date_value(window.get("period_end"))
+        if period_start is not None and period_end is not None:
+            ledger = _market_completed_trade_ledger(
+                payload.get("items") or [],
+                period_start=period_start, period_end=period_end,
+            )
+            # Limited feeds may not retain every event behind the aggregate.
+            # Do not present an incomplete ledger as the full 30-day sample.
+            if len(ledger) == window.get("completed_trades"):
+                summary["completed_trade_window_days"] = 30
+                summary["completed_trade_items"] = ledger
     payload["status"] = "ready"
     generated_at = snapshot.generated_at
     if generated_at.tzinfo is None:
