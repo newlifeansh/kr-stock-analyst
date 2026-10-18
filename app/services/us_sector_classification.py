@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v8"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v9"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -25,6 +25,14 @@ def _cik_map(etf: str, values: str) -> dict[str, str]:
 # Street Select Sector ETF. Foreign issuers use the equivalent sector proxy.
 # An issuer absent from this immutable allowlist is deliberately unclassified;
 # it must not inherit Nasdaq's display label or a broad-market fallback.
+# v9 adds only the reviewed October 16 Top100 entrants BUD and TJX.
+# BUD: SEC CIK 1668717 / SIC 2082 (malt beverages); XLP is the equivalent
+# beverages-sector proxy, not a claim that this foreign issuer is an XLP holding.
+# https://www.sec.gov/Archives/edgar/data/1668717/000119312526088105/0001193125-26-088105-index.htm
+# https://www.ssga.com/mainfund/XLP
+# TJX: SEC CIK 109198; the XLY fund lists TJX among its holdings.
+# https://www.sec.gov/Archives/edgar/data/109198/000010919826000008/0000109198-26-000008-index.html
+# https://www.ssga.com/mainfund/XLY
 US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
     **_cik_map(
         "XLK",
@@ -48,12 +56,14 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         "XLY",
         """
         0001018724 0001318605 0000354950 0001577552 0001094517 0000063908
+        0000109198
         """,
     ),
     **_cik_map(
         "XLP",
         """
         0000104169 0000909832 0000021344 0000080424 0001413329 0000077476
+        0001668717
         """,
     ),
     **_cik_map(

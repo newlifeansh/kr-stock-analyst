@@ -2962,6 +2962,68 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
     assert report["deployment_blocked"] is False
 
 
+def test_us_ui_asset_version_requires_exact_unambiguous_value():
+    from app.qa.runner import current_asset_version, shell_asset_version
+
+    for value, expected in [
+        (None, False),
+        ("", False),
+        ("/dashboard-app-v170.js?v=current", True),
+        ("/dashboard-app-v170.js?build=current&v=current", True),
+        ("/dashboard-app-v170.js?v=current-old", False),
+        ("/dashboard-app-v170.js?v=current&v=stale", False),
+        ("/dashboard-app-v170.js?v=stale", False),
+        ("/assets/nasdaq/app.js?v=current", False),
+    ]:
+        assert current_asset_version(value, "/dashboard-app-v170.js", "current") is expected
+        if value is not None:
+            shell = f'<script src="{value}"></script>'
+            assert shell_asset_version(shell, "src", "/dashboard-app-v170.js", "current") is expected
+            assert shell_asset_version(shell * 2, "src", "/dashboard-app-v170.js", "current") is False
+
+
+@pytest.mark.qa_live
+def test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agree(
+    monkeypatch,
+) -> None:
+    from app.qa import runner
+    from app.main import US_DASHBOARD_CLIENT_VERSION
+
+    stale_version = "20261014us148"
+
+    class StaleUsUiApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path in {"/health", "/readyz"}:
+                return {**payload, "us_dashboard_version": stale_version}, meta
+            if path == "/us-version":
+                return {"version": stale_version}, meta
+            return payload, meta
+
+        def get_text(self, path: str, **params: object):
+            payload, meta = super().get_text(path, **params)
+            if path == "/us":
+                return payload.replace(US_DASHBOARD_CLIENT_VERSION, stale_version), meta
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", StaleUsUiApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+
+    report = run_data_signal_qa(
+        mode="live",
+        surface="us",
+        base_url="https://fixture-staging.test",
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["DATA-COM-002"]["status"] == "pass"
+    assert by_id["SIG-UI-031"]["status"] == "fail"
+    assert "UIUX 번들 버전" in by_id["SIG-UI-031"]["message"]
+    assert by_id["SIG-UI-031"]["evidence"]["expected_client_version"] == US_DASHBOARD_CLIENT_VERSION
+    assert by_id["SIG-UI-031"]["evidence"]["endpoint_client_version"] == stale_version
+    assert report["deployment_blocked"] is True
+
+
 @pytest.mark.qa_live
 def test_us_gateway_live_requires_dedicated_shell_assets_and_api(monkeypatch) -> None:
     from app.qa import runner
@@ -4346,6 +4408,7 @@ def test_e2e_url_builder_keeps_theme_and_view() -> None:
 @pytest.mark.parametrize("surface,gateway", [("us", False), ("us-gateway", True)])
 def test_us_e2e_uses_current_shared_product_contract(monkeypatch, surface, gateway):
     from app.qa import e2e
+    from app.main import US_DASHBOARD_CLIENT_VERSION
 
     observed = {}
     def current_product(**kwargs):
@@ -4363,6 +4426,11 @@ def test_us_e2e_uses_current_shared_product_contract(monkeypatch, surface, gatew
     for case_id in e2e.US_E2E_CASE_IDS:
         assert "e2e" in cases[case_id]["modes"]
     assert cases["SIG-UI-031"]["inputs"]["route"] == "/us?view=home"
+    assert cases["SIG-UI-031"]["inputs"]["client_version"] == US_DASHBOARD_CLIENT_VERSION
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    assert "expected_us_client_version" in source
+    assert 'current_asset_version(shell["commonCss"]' in source
+    assert 'current_asset_version(shell["commonScript"]' in source
 
 
 def test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display():

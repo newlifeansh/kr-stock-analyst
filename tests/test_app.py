@@ -232,6 +232,9 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     response = client.get("/us", follow_redirects=False)
     dashboard = client.get("/dashboard?view=home", follow_redirects=False)
     source = client.get("/dashboard-app-v170.js").text
+    us_version = client.get("/us-version")
+    health = client.get("/health")
+    readyz = client.get("/readyz")
 
     assert root.status_code == 307
     assert root.headers["location"] == "/dashboard?view=home"
@@ -245,8 +248,14 @@ def test_us_and_dashboard_paths_serve_independently_versioned_products():
     assert 'id="home-view" class="app-page app-home"' in response.text
     assert 'id="search-view" class="app-page app-search"' in response.text
     assert 'id="bottom-nav" aria-label="주요 메뉴"' in response.text
-    assert 'src="/dashboard-app-v170.js?v=20261016us150"' in response.text
-    assert 'href="/assets/dashboard/styles.css?v=20261016us150&amp;build=20261016us150"' in response.text
+    assert us_version.json() == {"version": US_DASHBOARD_CLIENT_VERSION}
+    assert health.json()["us_dashboard_version"] == US_DASHBOARD_CLIENT_VERSION
+    assert readyz.json()["us_dashboard_version"] == US_DASHBOARD_CLIENT_VERSION
+    assert f'src="/dashboard-app-v170.js?v={US_DASHBOARD_CLIENT_VERSION}"' in response.text
+    assert (
+        f'href="/assets/dashboard/styles.css?v={US_DASHBOARD_CLIENT_VERSION}'
+        f'&amp;build={US_DASHBOARD_CLIENT_VERSION}"'
+    ) in response.text
     assert 'setCopy("home-market-signal-title", "미국 시그널 감시 후보")' in source
     assert 'setCopy("home-ai-signals-title", "시그널 감시 후보")' in source
     assert 'signalPageTitle.textContent = "시그널 감시 후보"' in source
