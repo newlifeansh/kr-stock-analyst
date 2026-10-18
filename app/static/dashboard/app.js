@@ -1308,6 +1308,7 @@ const state = {
   watchMarketMapTimelineLatestMinutes: null,
   watchMarketMapTimelineRenderFrame: null,
   watchMarketMapTimelineAnnouncePending: false,
+  watchMarketMapQuoteRenderTimer: null,
   homeWatchMarketMapLoading: false,
   watchlistContentTab: "strategy",
   aiSignalMode: "current",
@@ -8780,6 +8781,7 @@ function updateQuoteStrip(quote, payload = null, options = {}) {
 const QUOTE_STREAM_SCOPE_PRIORITIES = {
   detail: 1000,
   "ai-signals": 900,
+  "home-watch-map": 850,
   "home-ranking": 800,
   watchlist: 700,
   recommendation: 500,
@@ -12331,6 +12333,7 @@ async function logoutWatchlistIdentity() {
   resetHomeAiSignalsForIdentity();
   closeQuoteStream();
   closeWatchlistQuoteStreams();
+  closeHomeWatchMarketMapQuoteStreams();
   if (elements.watchlistIdInput) {
     elements.watchlistIdInput.value = "";
   }
@@ -14827,6 +14830,7 @@ function setView(requestedViewName, options = {}) {
   }
   if (view !== "home") {
     closeHomeRankingQuoteStreams();
+    closeHomeWatchMarketMapQuoteStreams();
   }
   if (!["home", "ai-signals"].includes(view)) {
     closeAiSignalQuoteStreams();
@@ -21560,6 +21564,7 @@ function watchMarketMapEntries(
 function syncWatchMarketMapResults(results = []) {
   state.watchMarketMapResults = (Array.isArray(results) ? results : [])
     .filter((result) => result?.item && result?.dashboard);
+  connectHomeWatchMarketMapQuoteStreams();
   if (state.view === "home") renderWatchMarketMap(state.watchMarketMapResults, { empty: true });
   return state.watchMarketMapResults;
 }
@@ -21582,6 +21587,7 @@ function setWatchMarketMapMarketScope(marketScope) {
   const changed = state.watchMarketMapMarketScope !== marketScope;
   state.watchMarketMapMarketScope = marketScope;
   syncWatchMarketMapMarketToggle();
+  connectHomeWatchMarketMapQuoteStreams();
   if (!changed && elements.watchMarketMapStage?.childElementCount) return;
   state.watchMarketMapTimelineMinutes = null;
   closeWatchMarketMapSheet();
@@ -21600,6 +21606,44 @@ function watchMarketMapEntryKey(entry = {}) {
   const item = entry.item || entry;
   const code = String(item?.code || item?.symbol || "").trim().toUpperCase();
   return code ? `${marketScopeForItem(item)}:${code}` : "";
+}
+
+function closeHomeWatchMarketMapQuoteStreams() {
+  clearQuoteStreamScope("home-watch-map");
+  window.clearTimeout(state.watchMarketMapQuoteRenderTimer);
+  state.watchMarketMapQuoteRenderTimer = null;
+}
+
+function updateHomeWatchMarketMapQuote(payload) {
+  if (state.view !== "home" || document.hidden || !stockQuotePayloadIsDisplayReady(payload)) return;
+  const result = state.watchMarketMapResults.find((entry) => (
+    String(entry.item?.code) === String(payload.code)
+    && marketScopeForItem(entry.item) === "kr"
+  ));
+  if (!result?.dashboard || !applyLiveQuoteToDashboard(result.dashboard, payload.quote, payload)) return;
+  // Coalesce the whole watch group so high-frequency ticks do not continuously
+  // restart bubble physics. Historical selection is resolved by the renderer.
+  if (state.watchMarketMapQuoteRenderTimer !== null) return;
+  state.watchMarketMapQuoteRenderTimer = window.setTimeout(() => {
+    state.watchMarketMapQuoteRenderTimer = null;
+    if (state.view === "home" && !document.hidden) scheduleWatchMarketMapTimelineRender();
+  }, 1000);
+}
+
+function connectHomeWatchMarketMapQuoteStreams() {
+  if (state.view !== "home" || document.hidden || state.watchMarketMapMarketScope !== "kr") {
+    closeHomeWatchMarketMapQuoteStreams();
+    return;
+  }
+  const entries = watchMarketMapEntries(state.watchMarketMapResults, "kr");
+  replaceQuoteStreamScope("home-watch-map", entries.map((entry) => ({
+    code: entry.item.code,
+    handlers: { onQuote: updateHomeWatchMarketMapQuote },
+  })));
+  for (const entry of entries) {
+    const latest = state.quoteStreamLatestByCode.get(String(entry.item.code));
+    if (latest?.payload) updateHomeWatchMarketMapQuote(latest.payload);
+  }
 }
 
 function watchMarketMapIntradayEndpoint(entry = {}) {
@@ -22042,7 +22086,9 @@ function watchMarketMapTimelineRange(
       .map((point) => point.dateKey))
     .sort()
     .at(-1) || "";
-  const dataDateKey = latestSeriesDateKey || quoteSnapshot.dateKey;
+  const dataDateKey = quoteSnapshot.sessionState === "regular" && quoteSnapshot.isToday
+    ? quoteSnapshot.dateKey
+    : latestSeriesDateKey || quoteSnapshot.dateKey;
   const [dataYear, dataMonth, dataDay] = dataDateKey.split("-");
   const timelineSnapshot = {
     ...quoteSnapshot,
@@ -22051,7 +22097,7 @@ function watchMarketMapTimelineRange(
     day: dataDay || quoteSnapshot.day,
     dateKey: dataDateKey,
     isToday: dataDateKey === currentDateKey,
-    usesPreviousSession: Boolean(latestSeriesDateKey && latestSeriesDateKey !== currentDateKey),
+    usesPreviousSession: Boolean(latestSeriesDateKey && dataDateKey !== currentDateKey),
   };
   const pointsForDate = series.flatMap((item) => (
     item.points.filter((point) => (
@@ -22261,11 +22307,13 @@ function handleWatchMarketMapTimelineInput(event, options = {}) {
     Number(state.watchMarketMapTimelineLatestMinutes) || session.openMinutes,
   );
   const requestedMinutes = Math.round(Number(event?.currentTarget?.value) || 0);
-  state.watchMarketMapTimelineMinutes = Math.max(
+  const selectedMinutes = Math.max(
     session.openMinutes,
     Math.min(latestMinutes, requestedMinutes),
   );
-  if (event?.currentTarget) event.currentTarget.value = String(state.watchMarketMapTimelineMinutes);
+  // The right edge means follow live, including the next minute's quote.
+  state.watchMarketMapTimelineMinutes = selectedMinutes >= latestMinutes ? null : selectedMinutes;
+  if (event?.currentTarget) event.currentTarget.value = String(selectedMinutes);
   scheduleWatchMarketMapTimelineRender({ announce: options.announce === true });
 }
 
@@ -23060,6 +23108,7 @@ async function loadWatchMarketMapIntraday(entries, options = {}) {
 }
 
 async function loadHomeWatchMarketMap(options = {}) {
+  closeHomeWatchMarketMapQuoteStreams();
   const loadSequence = ++state.homeWatchMarketMapLoadSequence;
   const intradayLoadSequence = ++state.watchMarketMapIntradayLoadSequence;
   const force = options.force === true;
@@ -23114,6 +23163,7 @@ async function loadHomeWatchMarketMap(options = {}) {
   if (loadSequence !== state.homeWatchMarketMapLoadSequence) return [];
   state.watchMarketMapResults = results.filter((result) => result.dashboard);
   state.homeWatchMarketMapLoading = false;
+  connectHomeWatchMarketMapQuoteStreams();
   if (state.view === "home") {
     const selectedItems = watchMarketMapItemsForScope(items);
     const selectedResults = watchMarketMapEntries(state.watchMarketMapResults);
@@ -32896,6 +32946,7 @@ document.addEventListener("visibilitychange", () => {
     closeMarketQuoteStreams();
     closeHomeRankingQuoteStreams();
     closeAiSignalQuoteStreams();
+    closeHomeWatchMarketMapQuoteStreams();
     stopAiSignalReconcileTimer();
     closeRecommendationQuoteStreams();
     closeUsSectorStream();

@@ -338,6 +338,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_briefing_runtime.test_short_cadence_research_uses_canonical_when_direct_source_is_empty",
     ),
     "SIG-UI-025": (
+        "tests.test_watch_market_map_realtime.test_home_bubbles_subscribe_update_and_preserve_scrubbed_history",
+        "tests.test_watch_market_map_realtime.test_home_bubble_stream_lifecycle_hooks",
         "tests.test_data_signal_qa."
         "test_live_intraday_transient_unavailable_recovers_with_bounded_retry",
         "tests.test_data_signal_qa."
