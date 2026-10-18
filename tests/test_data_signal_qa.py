@@ -2962,6 +2962,23 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
     assert report["deployment_blocked"] is False
 
 
+def test_us_ui_e2e_version_check_honors_only_the_expected_gateway_prefix():
+    from app.qa.e2e import _us_current_shell_assets
+
+    for gateway in (False, True):
+        prefix = "/us-gateway" if gateway else ""
+        shell = {
+            "commonCss": f"{prefix}/assets/dashboard/styles.css?v=current&build=current",
+            "commonScript": f"{prefix}/dashboard-app-v170.js?v=current",
+        }
+        assert _us_current_shell_assets(shell, "current", gateway_expected=gateway)
+        assert not _us_current_shell_assets(shell, "current", gateway_expected=not gateway)
+        assert not _us_current_shell_assets(shell, "next", gateway_expected=gateway)
+        for key in shell:
+            for invalid in (None, shell[key].replace("v=current", "v=current-old"), shell[key] + "&v=stale"):
+                assert not _us_current_shell_assets({**shell, key: invalid}, "current", gateway_expected=gateway)
+
+
 def test_us_ui_asset_version_requires_exact_unambiguous_value():
     from app.qa.runner import current_asset_version, shell_asset_version
 
@@ -2974,6 +2991,7 @@ def test_us_ui_asset_version_requires_exact_unambiguous_value():
         ("/dashboard-app-v170.js?v=current&v=stale", False),
         ("/dashboard-app-v170.js?v=stale", False),
         ("/assets/nasdaq/app.js?v=current", False),
+        ("https://other.test/dashboard-app-v170.js?v=current", False),
     ]:
         assert current_asset_version(value, "/dashboard-app-v170.js", "current") is expected
         if value is not None:
@@ -4445,8 +4463,7 @@ def test_us_e2e_uses_current_shared_product_contract(monkeypatch, surface, gatew
     assert cases["SIG-UI-031"]["inputs"]["client_version"] == US_DASHBOARD_CLIENT_VERSION
     source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
     assert "expected_us_client_version" in source
-    assert 'current_asset_version(shell["commonCss"]' in source
-    assert 'current_asset_version(shell["commonScript"]' in source
+    assert '_us_current_shell_assets(shell, expected_us_client_version, gateway_expected=gateway_expected)' in source
 
 
 def test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display():
