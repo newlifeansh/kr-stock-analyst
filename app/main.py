@@ -4281,7 +4281,14 @@ def get_market_quant_signals(
         ):
             payload["status"] = "refreshing"
             payload = _suppress_stale_preliminary_market_signals(payload)
-        if freshness["snapshot_state"] == "stale" or execution_evidence_incomplete:
+        if freshness["snapshot_state"] == "stale" or (
+            execution_evidence_incomplete and not isolated_unverified
+        ):
+            # A fresh isolated snapshot is already a valid publication for its
+            # healthy codes.  The five-minute collector owns retries for those
+            # failed codes; enqueuing another full scan on every read lets the
+            # canonical Top150 request continuously take the process lock and
+            # starve secondary scopes such as the Top100 release check.
             background_tasks.add_task(
                 _refresh_market_quant_signal_snapshot,
                 universe_limit,

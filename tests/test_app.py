@@ -2660,7 +2660,9 @@ def test_fresh_market_signal_snapshot_retries_incomplete_forward_evidence(monkey
         main_module.market_quant_signal_cache.clear()
 
 
-def test_fresh_market_signal_snapshot_keeps_isolated_healthy_candidates(monkeypatch):
+def test_fresh_market_signal_snapshot_keeps_isolated_healthy_candidates_without_read_retry(
+    monkeypatch,
+):
     from app import main as main_module
 
     refresh_calls = []
@@ -2714,7 +2716,7 @@ def test_fresh_market_signal_snapshot_keeps_isolated_healthy_candidates(monkeypa
         assert body["snapshot_state"] == "fresh"
         assert body["preliminary_count"] == 1
         assert body["items"][0]["code"] == "035420"
-        assert refresh_calls
+        assert refresh_calls == []
     finally:
         main_module.market_quant_signal_cache.clear()
 
