@@ -3190,13 +3190,15 @@ def test_live_us_contract_accepts_confirmed_model_lifecycle_items(monkeypatch) -
     ]
 
     class ModelLifecycleUsApi(FakeReadOnlyApi):
+        confirmed_count = 3
+
         def get(self, path: str, **params: object):
             payload, meta = super().get(path, **params)
             if path != "/us/market/quant-signals":
                 return payload, meta
             return {
                 **payload,
-                "confirmed_count": 2,
+                "confirmed_count": self.confirmed_count,
                 "preliminary_count": 1,
                 "entry_pending_count": 0,
                 "items": [
@@ -3239,6 +3241,13 @@ def test_live_us_contract_accepts_confirmed_model_lifecycle_items(monkeypatch) -
                             "model_exposure_percent": "0.00",
                         },
                     },
+                    {
+                        "code": "BUD", "currency": "USD", "status": "confirmed",
+                        "is_preliminary": False, "market_cap_rank": 4,
+                        "public_reasons": reasons,
+                        "current": {"action": "partially_exited", "position_open": True,
+                                    "model_exposure_percent": "50.00"},
+                    },
                 ],
             }, meta
 
@@ -3257,9 +3266,16 @@ def test_live_us_contract_accepts_confirmed_model_lifecycle_items(monkeypatch) -
     assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
     evidence = by_id["SIG-US-CONTRACT-001"]["evidence"]
     assert evidence["preliminary_count"] == 1
-    assert evidence["confirmed_count"] == 2
-    assert evidence["visible_item_count"] == 3
+    assert evidence["confirmed_count"] == 3
+    assert evidence["visible_item_count"] == 4
     assert report["deployment_blocked"] is False
+
+    ModelLifecycleUsApi.confirmed_count = 2
+    blocked = run_data_signal_qa(mode="live", surface="us", base_url="https://fixture-staging.test")
+    by_id = {item["id"]: item for item in blocked["checks"]}
+    assert by_id["SIG-US-VERSION-001"]["status"] == "fail"
+    assert by_id["SIG-US-VERSION-001"]["evidence"]["confirmed_position_count"] == 3
+    assert blocked["deployment_blocked"] is True
 
 
 @pytest.mark.qa_live

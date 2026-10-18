@@ -2783,7 +2783,7 @@ def _live_checks(
                 if current_signal.get("action") == "entry_pending":
                     entry_pending_count += 1
                 action = str(current_signal.get("action") or "")
-                position_open = action in {"entered", "holding", "full_exit_pending"}
+                position_open = action in {"entered", "holding", "partially_exited", "full_exit_pending"}
                 if position_open:
                     confirmed_position_count += 1
                 if not _valid_us_public_lifecycle_item(item):
@@ -6243,6 +6243,7 @@ def _live_us_checks(
                 position_open = action in {
                     "entered",
                     "holding",
+                    "partially_exited",
                     "full_exit_pending",
                 }
                 if preliminary:
