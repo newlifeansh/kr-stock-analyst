@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from math import ceil
@@ -68,6 +69,27 @@ RECOMMENDATION_ENTERED_TODAY_LABEL = "보유 유지"
 universe_cache = TTLCache(maxsize=16)
 recommendation_signal_snapshot_refresh_lock = RLock()
 settings = get_settings()
+
+
+@dataclass(frozen=True, slots=True)
+class _RecommendationPrice:
+    """Immutable chart inputs, without SQLAlchemy session/instrumentation state."""
+
+    code: str
+    trade_date: date
+    open: Optional[int]
+    high: Optional[int]
+    low: Optional[int]
+    close: Optional[int]
+    volume: Optional[int]
+    trading_value: Optional[int]
+    market_cap: Optional[int]
+    listed_shares: Optional[int]
+
+    def __deepcopy__(self, memo):
+        # Every field is an immutable scalar. Mutable containers around these
+        # rows still pass through TTLCache's normal defensive deep copy.
+        return self
 
 
 METHODOLOGY = [
@@ -1076,7 +1098,7 @@ def _top_market_cap_universe(db: Session, refresh_live: bool = False) -> dict[st
             return {"universe_count": 0, "base_items": [], "price_groups": {}}
 
         from_date = latest_date - timedelta(days=150)
-        price_groups: dict[str, list[DailyPrice]] = {code: [] for code in selected_codes}
+        price_groups: dict[str, list[_RecommendationPrice]] = {code: [] for code in selected_codes}
         for code, price in db.execute(
             select(DailyPrice.code, DailyPrice)
             .where(DailyPrice.code.in_(selected_codes))
@@ -1084,7 +1106,9 @@ def _top_market_cap_universe(db: Session, refresh_live: bool = False) -> dict[st
             .where(DailyPrice.trade_date <= latest_date)
             .order_by(DailyPrice.code, DailyPrice.trade_date)
         ):
-            price_groups[str(code)].append(price)
+            price_groups[str(code)].append(_RecommendationPrice(
+                **{field: getattr(price, field) for field in _RecommendationPrice.__dataclass_fields__}
+            ))
 
         base_items = []
         for code in selected_codes:
@@ -1198,39 +1222,48 @@ def build_recommendations(
         live_quote = item.pop("_quant_live_quote", None)
         live_quotes[code] = live_quote if isinstance(live_quote, dict) else None
     signals_by_code: dict[str, Optional[dict[str, object]]] = {}
-    if _uses_runtime_database(db) and len(selection_pool) > 1:
-        with ThreadPoolExecutor(max_workers=min(8, len(selection_pool))) as executor:
-            futures = {
-                executor.submit(
-                    _load_recommendation_signal,
-                    str(item["code"]),
-                    live_quote=live_quotes.get(str(item["code"])),
+    # The reserve pool only matters when a selected candidate has fully exited.
+    # Replaying every reserve stock doubled the work for a 20-card response.
+    # Re-select from the same ordered pool after each exclusion, preserving the
+    # existing family/sector ranking while checking every card before return.
+    while True:
+        selected = _select_diverse_recommendations(
+            [item for item in selection_pool
+             if not _terminal_exit_signal(signals_by_code.get(str(item["code"])))],
+            limit,
+        )
+        pending = [str(item["code"]) for item in selected
+                   if str(item["code"]) not in signals_by_code]
+        if not pending:
+            break
+        threaded = _uses_runtime_database(db)
+        if threaded and signals_by_code and len(pending) < 8:
+            # A string of terminal exits must not turn a parallel request into
+            # one serial replay per replacement. After an actual exclusion,
+            # use at most one worker-sized reserve batch, never the whole pool.
+            pending += [str(item["code"]) for item in selection_pool
+                        if str(item["code"]) not in signals_by_code
+                        and str(item["code"]) not in pending][:8 - len(pending)]
+        if threaded and len(pending) > 1:
+            with ThreadPoolExecutor(max_workers=min(8, len(pending))) as executor:
+                futures = {
+                    executor.submit(
+                        _load_recommendation_signal, code,
+                        live_quote=live_quotes.get(code),
+                        ensure_signal_history=ensure_signal_history,
+                    ): code for code in pending
+                }
+                for future in as_completed(futures):
+                    signals_by_code[futures[future]] = future.result()
+        else:
+            for code in pending:
+                signals_by_code[code] = _load_recommendation_signal_in_session(
+                    db, code, live_quote=live_quotes.get(code),
                     ensure_signal_history=ensure_signal_history,
-                ): str(item["code"])
-                for item in selection_pool
-            }
-            for future in as_completed(futures):
-                signals_by_code[futures[future]] = future.result()
-    else:
-        for item in selection_pool:
-            code = str(item["code"])
-            signals_by_code[code] = _load_recommendation_signal_in_session(
-                db,
-                code,
-                live_quote=live_quotes.get(code),
-                ensure_signal_history=ensure_signal_history,
-            )
+                )
 
     terminal_exit_excluded_count = sum(
-        1 for item in selection_pool
-        if _terminal_exit_signal(signals_by_code.get(str(item.get("code") or "")))
-    )
-    selected = _select_diverse_recommendations(
-        [
-            item for item in selection_pool
-            if not _terminal_exit_signal(signals_by_code.get(str(item.get("code") or "")))
-        ],
-        limit,
+        _terminal_exit_signal(signal) for signal in signals_by_code.values()
     )
 
     for idx, item in enumerate(selected, start=1):

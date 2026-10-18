@@ -70,6 +70,20 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-CONTRACT-002": (
+        "tests.test_recommendations.test_recommendations_replay_only_returned_candidates_without_exits",
+        "tests.test_recommendations.test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates",
+        "tests.test_recommendations.test_recommendations_batch_consecutive_exit_replacements",
+        "tests.test_recommendations.test_recommendation_universe_cache_uses_immutable_prices_and_detached_containers",
+        "tests.test_recommendations.test_recommendations_rank_candidates_independently_of_signal_state",
+        "tests.test_recommendations.test_recommendations_keep_confirmed_entry_and_current_holding_visible",
+        "tests.test_recommendations.test_recommendations_exclude_completed_exit_and_backfill_next_candidate",
+        "tests.test_recommendations.test_recommendations_keep_verified_candidates_when_live_enrichment_is_unavailable",
+        "tests.test_recommendations.test_recommendations_diversify_same_family_names_on_first_pass",
+        "tests.test_recommendations.test_recommendations_limit_same_investment_sector_when_alternatives_exist",
+        "tests.test_app.test_market_recommendations_do_not_serve_non_empty_in_process_cache",
+        "tests.test_app.test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window",
+    ),
     "SIG-UI-035": (
         "tests.test_home_signal_loading.test_home_market_signals_do_not_wait_for_personal_signals",
         "tests.test_home_signal_loading.test_home_late_personal_response_cannot_overwrite_new_identity_or_request",
