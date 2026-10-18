@@ -1977,6 +1977,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-US-CONTRACT-001",
         "SIG-US-MCP-001",
         "SIG-US-MIGRATION-001",
+        "SIG-CONTRACT-002",
         "SIG-CONTRACT-007",
         "SIG-PUSH-INTRADAY-001",
         "SIG-PUSH-COMMUNITY-001",

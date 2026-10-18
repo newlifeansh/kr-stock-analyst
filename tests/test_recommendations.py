@@ -1,5 +1,9 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from copy import deepcopy
+from dataclasses import FrozenInstanceError
+
+import pytest
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,6 +18,98 @@ from app.services.recommendations import (
     build_recommendations,
     universe_cache,
 )
+
+
+def _install_ranked_pool(monkeypatch, count=100):
+    items = [{
+        "code": str(100000 + index), "name": f"후보{index}", "market": "KOSPI",
+        "investment_sector": f"sector-{index % 7}", "score": Decimal(100 - index),
+        "action": "관찰", "decision_reason": "점수 순위", "price": 10_000,
+    } for index in range(count)]
+    monkeypatch.setattr(recommendations, "_top_market_cap_universe", lambda *_a, **_k: {
+        "universe_count": count, "base_items": deepcopy(items), "price_groups": {},
+    })
+    monkeypatch.setattr(recommendations, "_candidate_sort_key", lambda item: item["score"])
+    monkeypatch.setattr(recommendations, "_score_fast_candidate", lambda item, _prices: item)
+    monkeypatch.setattr(recommendations, "_latest_preliminary_states", lambda *_a, **_k: {})
+    return items
+
+
+def test_recommendations_replay_only_returned_candidates_without_exits(monkeypatch):
+    items = _install_ranked_pool(monkeypatch)
+    calls = []
+    def signal(code, **kwargs):
+        calls.append(code)
+        return _confirmed_entry_signal(code)
+    monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: True)
+    monkeypatch.setattr(recommendations, "_load_recommendation_signal", signal)
+    result = build_recommendations(None, limit=20, candidate_limit=100)
+    expected_pool = recommendations._select_diverse_recommendations(items, 40)
+    expected = recommendations._select_diverse_recommendations(expected_pool, 20)
+    assert [item["code"] for item in result["items"]] == [item["code"] for item in expected]
+    assert len(calls) == 20
+    assert set(calls) == {item["code"] for item in result["items"]}
+    assert result["terminal_exit_excluded_count"] == 0
+    assert result["candidate_count"] == result["qualified_count"] == 100
+
+
+def test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates(monkeypatch):
+    items = _install_ranked_pool(monkeypatch, count=30)
+    # Repeated families and sectors force all diversity passes to participate.
+    for index, item in enumerate(items):
+        item["name"] = ("삼성" if index % 3 == 0 else "현대" if index % 3 == 1 else "기타") + str(index)
+    pool = recommendations._select_diverse_recommendations(items, 10)
+    for threaded in (False, True):
+        monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: threaded)
+        for exited in ({}, {pool[0]["code"]}, {p["code"] for p in pool[:7]}, {p["code"] for p in pool}):
+            calls = []
+            def signal(code, **kwargs):
+                calls.append(code)
+                if code == pool[-1]["code"] and code not in exited:
+                    return None  # unavailable context is evaluated once, not excluded
+                payload = _confirmed_entry_signal(code)
+                if code in exited:
+                    payload["current"].update(action="exited", position_open=False)
+                return payload
+            monkeypatch.setattr(recommendations, "_load_recommendation_signal", signal)
+            monkeypatch.setattr(recommendations, "_load_recommendation_signal_in_session",
+                                lambda _db, code, **kw: signal(code, **kw))
+            result = build_recommendations(None, limit=2, candidate_limit=30, ensure_signal_history=False)
+            expected = recommendations._select_diverse_recommendations(
+                [p for p in pool if p["code"] not in exited], 2)
+            assert [p["code"] for p in result["items"]] == [p["code"] for p in expected]
+            assert len(calls) == len(set(calls)) <= len(pool)
+            assert set(p["code"] for p in result["items"]) <= set(calls)
+            assert result["terminal_exit_excluded_count"] == len(set(calls) & set(exited))
+            assert [p["rank"] for p in result["items"]] == list(range(1, len(expected) + 1))
+            assert all(p["action"] == p["score_action"] for p in result["items"])
+
+
+def test_recommendation_universe_cache_uses_immutable_prices_and_detached_containers(monkeypatch):
+    with _session() as db:
+        _seed_prices(db, "005930", "삼성전자", 80_000, 1_000_000)
+        db.commit()
+        universe_cache.clear()
+        cold = recommendations._top_market_cap_universe(db)
+        warm = recommendations._top_market_cap_universe(db)
+        code = "005930"
+        price = warm["price_groups"][code][-1]
+        assert not hasattr(price, "_sa_instance_state")
+        assert deepcopy(price) is price
+        with pytest.raises(FrozenInstanceError):
+            price.close = 1
+        original_rows = [DailyPrice(**{field: getattr(row, field)
+                         for field in recommendations._RecommendationPrice.__dataclass_fields__})
+                         for row in cold["price_groups"][code]]
+        assert recommendations._score_fast_candidate(deepcopy(cold["base_items"][0]), original_rows) == (
+            recommendations._score_fast_candidate(deepcopy(warm["base_items"][0]), warm["price_groups"][code]))
+        warm["base_items"][0]["name"] = "modified"
+        warm["price_groups"][code].clear()
+        cold["base_items"].clear()
+        again = recommendations._top_market_cap_universe(db)
+        assert again["base_items"][0]["name"] == "삼성전자"
+        assert again["price_groups"][code][-1] == price
+        universe_cache.clear()
 
 
 def test_high_recommendation_score_produces_an_actionable_but_measured_decision():
