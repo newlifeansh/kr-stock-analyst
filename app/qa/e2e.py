@@ -522,11 +522,21 @@ def _wait_for_ai_signal_list_ready(page: Any, *, timeout_ms: int) -> None:
         && Number.isSafeInteger(state.aiSignalRevision)
         && state.aiSignalRevision >= 0
         && Array.isArray(state.aiSignalItems);
+      if (!snapshotReady) return false;
+      const scopedItems = normalizedAiSignalItems(state.aiSignalItems).filter(
+        item => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope)
+      );
+      const expected = aiSignalStageCounts(aiSignalItemsForMode(scopedItems, 'current'));
+      if (Array.isArray(state.aiSignalPerformanceSummary?.completed_trade_items)) {
+        expected['recent-sell'] = aiSignalCompletedTradeItems().filter(
+          item => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope)
+        ).length;
+      }
       return snapshotReady
         && tabs.length === 5
         && !loading
         && count(tabs[0]) === current
-        && tabs.slice(1).reduce((sum, tab) => sum + count(tab), 0) === current;
+        && tabs.every(tab => count(tab) === expected[tab.dataset.aiSignalStage]);
     }"""
     try:
         page.wait_for_function(readiness, timeout=timeout_ms)
