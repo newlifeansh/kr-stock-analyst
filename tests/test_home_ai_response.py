@@ -783,6 +783,32 @@ console.log(JSON.stringify(items.map((item) => ({{
     ]
 
 
+def test_completed_trade_ledger_changes_snapshot_signature_without_current_item_changes() -> None:
+    source = app_source()
+    start = source.index("function aiSignalSnapshotSignature(")
+    end = source.index("function createMarketBadge(", start)
+    script = f"""
+function aiSignalRevisionFromPayload(payload) {{ return payload.revision || 1; }}
+function marketScopeForItem(item) {{ return item.market_scope || 'kr'; }}
+{source[start:end]}
+const payload = {{ revision: 1, performance_summary: {{ completed_trade_items: [] }} }};
+const items = [{{ code: '005930', status: 'confirmed' }}];
+const empty = aiSignalSnapshotSignature(items, payload);
+payload.performance_summary.completed_trade_items.push({{
+  code: '005930', execution_date: '2026-10-16', return_rate: 2,
+}});
+const added = aiSignalSnapshotSignature(items, payload);
+payload.performance_summary.completed_trade_items[0].return_rate = 3;
+const corrected = aiSignalSnapshotSignature(items, payload);
+console.log(JSON.stringify([empty !== added, added !== corrected,
+  corrected === aiSignalSnapshotSignature(items, payload)]));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script], check=True, capture_output=True, text=True,
+    )
+    assert json.loads(completed.stdout) == [True, True, True]
+
+
 def test_pending_state_uses_last_completed_trade_date_during_weekend_refresh() -> None:
     source = app_source()
     start = source.index("function isPreliminaryAiSignal(")

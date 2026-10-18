@@ -1718,6 +1718,9 @@ def test_ai_signal_e2e_compares_one_live_revision_instead_of_stale_counts() -> N
     assert "itemMatchesMarketScope(item, state.marketScope)" in case_source
     assert "domModeCounts" in case_source
     assert "stageCounts" in case_source
+    assert "expectedStageCounts" in case_source
+    assert "expectedStageCounts['recent-sell'] = aiSignalCompletedTradeItems()" in case_source
+    assert 'stage_counts != ui_signal_snapshot["expectedStageCounts"]' in case_source
     assert "Number.isSafeInteger(state.aiSignalRevision)" in case_source
     assert '"ui_snapshot": ui_signal_snapshot' in case_source
     assert 'arg=market_signals["current_count"]' not in case_source

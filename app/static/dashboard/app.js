@@ -1844,6 +1844,7 @@ function aiSignalSnapshotSignature(items = [], payload = {}) {
     scopes,
     revisions,
     revision,
+    completedTradeItems: payload.performance_summary?.completed_trade_items ?? null,
     items: (Array.isArray(items) ? items : []).map((item) => [
       marketScopeForItem(item),
       String(item.code || item.name || ""),

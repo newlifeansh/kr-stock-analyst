@@ -5094,6 +5094,28 @@ def _market_completed_trade_ledger_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _market_completed_trade_ledger(
+    items: list[dict[str, Any]], *, period_start: date, period_end: date,
+) -> list[dict[str, Any]]:
+    return [
+        _market_completed_trade_ledger_item(item)
+        for item in sorted(
+            (
+                item for item in _market_completed_exit_items(items)
+                if period_start
+                <= (_date_value(item.get("execution_date")) or date.min)
+                <= period_end
+            ),
+            key=lambda item: (
+                _date_value(item.get("execution_date")) or date.min,
+                str(item.get("signal_date") or ""),
+                str(item.get("code") or ""),
+            ),
+            reverse=True,
+        )
+    ]
+
+
 def build_market_signal_performance_summary(
     db: Session,
     items: list[dict[str, Any]],
@@ -5177,24 +5199,9 @@ def build_market_signal_performance_summary(
         }
     ledger_days = 30
     ledger_cutoff = as_of.date() - timedelta(days=ledger_days)
-    completed_trade_items = [
-        _market_completed_trade_ledger_item(item)
-        for item in sorted(
-            (
-                item
-                for item in closed
-                if ledger_cutoff
-                <= (_date_value(item.get("execution_date")) or date.min)
-                <= as_of.date()
-            ),
-            key=lambda item: (
-                _date_value(item.get("execution_date")) or date.min,
-                str(item.get("signal_date") or ""),
-                str(item.get("code") or ""),
-            ),
-            reverse=True,
-        )
-    ]
+    completed_trade_items = _market_completed_trade_ledger(
+        closed, period_start=ledger_cutoff, period_end=as_of.date(),
+    )
     return {
         "version": MARKET_SIGNAL_PERFORMANCE_VERSION,
         "as_of": as_of,
@@ -6877,6 +6884,24 @@ def load_market_quant_signal_snapshot(
         return None
     if payload.get("strategy_version") != STRATEGY_VERSION:
         return None
+    summary = payload.get("performance_summary")
+    if isinstance(summary, dict) and "completed_trade_items" not in summary:
+        # Closed-market snapshots can remain valid throughout the weekend.
+        # Derive the display-only ledger from their frozen events and period;
+        # never replay strategy decisions or rewrite the stored publication.
+        window = (summary.get("windows") or {}).get("30d") or {}
+        period_start = _date_value(window.get("period_start"))
+        period_end = _date_value(window.get("period_end"))
+        if period_start is not None and period_end is not None:
+            ledger = _market_completed_trade_ledger(
+                payload.get("items") or [],
+                period_start=period_start, period_end=period_end,
+            )
+            # Limited feeds may not retain every event behind the aggregate.
+            # Do not present an incomplete ledger as the full 30-day sample.
+            if len(ledger) == window.get("completed_trades"):
+                summary["completed_trade_window_days"] = 30
+                summary["completed_trade_items"] = ledger
     payload["status"] = "ready"
     generated_at = snapshot.generated_at
     if generated_at.tzinfo is None:

@@ -115,6 +115,48 @@ def test_market_signal_snapshot_normalizes_aware_generated_at_to_utc():
     assert loaded["snapshot_generated_at"] == expected
 
 
+@pytest.mark.parametrize("completed_count,ledger_expected", [(2, True), (3, False)])
+def test_legacy_market_snapshot_adds_complete_ledger_without_rewriting_publication(
+    completed_count, ledger_expected,
+):
+    items = [
+        {"code": "005930", "name": "삼성전자", "status": "confirmed",
+         "event_side": "sell", "state_after": "exited", "return_rate": "2.00",
+         "signal_date": "2026-10-15", "execution_date": "2026-10-16"},
+        {"code": "005930", "name": "삼성전자", "status": "confirmed",
+         "event_side": "sell", "state_after": "exited", "return_rate": "-1.00",
+         "signal_date": "2026-09-30", "execution_date": "2026-10-01"},
+    ]
+    summary = {
+        "as_of": "2026-10-16T18:00:00+09:00", "return_basis": "completed_trade_net_of_costs",
+        "windows": {"30d": {"period_start": "2026-09-16", "period_end": "2026-10-16",
+                            "completed_trades": completed_count, "average_return": "0.50"}},
+    }
+    for item in items:
+        item.update(signal_at=item["signal_date"], entry_price="100000", target_sell_price=None)
+    payload = {"strategy_version": STRATEGY_VERSION, "items": items, "performance_summary": summary}
+    with _session() as db:
+        quant_signals.save_market_quant_signal_snapshot(db, payload, limit=0, recent_days=30)
+        stored = db.get(MarketQuantSignalSnapshot, quant_signals.market_quant_signal_snapshot_key(
+            quant_signals.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 30,
+        ))
+        original = stored.payload
+        loaded = quant_signals.load_market_quant_signal_snapshot(db, limit=0, recent_days=30)
+        assert stored.payload == original
+        assert not db.dirty
+    assert loaded is not None
+    result = loaded["performance_summary"]
+    assert {key: result[key] for key in summary} == summary
+    assert loaded["items"] == items
+    if ledger_expected:
+        assert result["completed_trade_window_days"] == 30
+        assert [item["execution_date"] for item in result["completed_trade_items"]] == [
+            "2026-10-16", "2026-10-01",
+        ]
+    else:
+        assert "completed_trade_items" not in result
+
+
 def _session() -> Session:
     engine = create_engine(
         "sqlite:///:memory:",

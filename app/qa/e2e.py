@@ -2524,6 +2524,17 @@ def run_e2e_checks(
                         [...document.querySelectorAll('[data-ai-signal-stage]')]
                           .map(button => [button.dataset.aiSignalStage, buttonCount(button)])
                       );
+                      const scopedItems = normalizedAiSignalItems(state.aiSignalItems).filter(
+                        item => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope)
+                      );
+                      const expectedStageCounts = aiSignalStageCounts(
+                        aiSignalItemsForMode(scopedItems, state.aiSignalMode)
+                      );
+                      if (Array.isArray(state.aiSignalPerformanceSummary?.completed_trade_items)) {
+                        expectedStageCounts['recent-sell'] = aiSignalCompletedTradeItems().filter(
+                          item => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope)
+                        ).length;
+                      }
                       return {
                         revision: Number.isSafeInteger(state.aiSignalRevision)
                           && state.aiSignalRevision >= 0
@@ -2541,6 +2552,7 @@ def run_e2e_checks(
                           history: buttonCount(document.querySelector('[data-ai-signal-mode="history"]')),
                         },
                         stageCounts,
+                        expectedStageCounts,
                       };
                     }"""
                 )
@@ -2581,11 +2593,10 @@ def run_e2e_checks(
                             "api_precondition": market_signals,
                         },
                     )
-                if stage_counts["all"] != sum(
-                    count for stage, count in stage_counts.items() if stage != "all"
-                ):
+                if stage_counts != ui_signal_snapshot["expectedStageCounts"]:
                     raise QaFailure(
-                        "단계별 건수 합계가 전체 건수와 다릅니다.", stage_counts
+                        "단계별 현재 종목·30일 완료 거래 건수가 원본과 다릅니다.",
+                        ui_signal_snapshot,
                     )
                 for index in range(stage_tabs.count()):
                     tab = stage_tabs.nth(index)
