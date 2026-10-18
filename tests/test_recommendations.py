@@ -112,6 +112,34 @@ def test_recommendation_universe_cache_uses_immutable_prices_and_detached_contai
         universe_cache.clear()
 
 
+def test_recommendations_batch_consecutive_exit_replacements(monkeypatch):
+    items = _install_ranked_pool(monkeypatch)
+    pool = recommendations._select_diverse_recommendations(items, 40)
+    first = recommendations._select_diverse_recommendations(pool, 20)
+    retained = {item["code"] for item in first[1:]}
+    batches = []
+    original_executor = recommendations.ThreadPoolExecutor
+    class RecordingExecutor(original_executor):
+        def __enter__(self):
+            batches.append([])
+            return super().__enter__()
+        def submit(self, fn, code, **kwargs):
+            batches[-1].append(code)
+            return super().submit(fn, code, **kwargs)
+    def signal(code, **kwargs):
+        payload = _confirmed_entry_signal(code)
+        if code not in retained:
+            payload["current"].update(action="exited", position_open=False)
+        return payload
+    monkeypatch.setattr(recommendations, "ThreadPoolExecutor", RecordingExecutor)
+    monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: True)
+    monkeypatch.setattr(recommendations, "_load_recommendation_signal", signal)
+    result = build_recommendations(None, limit=20, candidate_limit=100)
+    assert [len(batch) for batch in batches] == [20, 8, 8, 4]
+    assert {item["code"] for item in result["items"]} == retained
+    assert result["terminal_exit_excluded_count"] == 21
+
+
 def test_high_recommendation_score_produces_an_actionable_but_measured_decision():
     action = _action(Decimal("82.12"), Decimal("80"))
 

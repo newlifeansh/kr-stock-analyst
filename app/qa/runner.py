@@ -73,6 +73,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-CONTRACT-002": (
         "tests.test_recommendations.test_recommendations_replay_only_returned_candidates_without_exits",
         "tests.test_recommendations.test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates",
+        "tests.test_recommendations.test_recommendations_batch_consecutive_exit_replacements",
         "tests.test_recommendations.test_recommendation_universe_cache_uses_immutable_prices_and_detached_containers",
         "tests.test_recommendations.test_recommendations_rank_candidates_independently_of_signal_state",
         "tests.test_recommendations.test_recommendations_keep_confirmed_entry_and_current_holding_visible",

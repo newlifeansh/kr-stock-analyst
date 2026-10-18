@@ -1236,7 +1236,15 @@ def build_recommendations(
                    if str(item["code"]) not in signals_by_code]
         if not pending:
             break
-        if _uses_runtime_database(db) and len(pending) > 1:
+        threaded = _uses_runtime_database(db)
+        if threaded and signals_by_code and len(pending) < 8:
+            # A string of terminal exits must not turn a parallel request into
+            # one serial replay per replacement. After an actual exclusion,
+            # use at most one worker-sized reserve batch, never the whole pool.
+            pending += [str(item["code"]) for item in selection_pool
+                        if str(item["code"]) not in signals_by_code
+                        and str(item["code"]) not in pending][:8 - len(pending)]
+        if threaded and len(pending) > 1:
             with ThreadPoolExecutor(max_workers=min(8, len(pending))) as executor:
                 futures = {
                     executor.submit(
