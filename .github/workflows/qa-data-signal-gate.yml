@@ -3,12 +3,18 @@ name: QA data-signal gate
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      staging_diagnostics:
+        type: boolean
+        default: false
+        description: Read-only domestic staging runtime diagnostics
 
 permissions:
   contents: read
 
 jobs:
   gate:
+    if: ${{ !inputs.staging_diagnostics }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -44,3 +50,27 @@ jobs:
         run: |
           test "${{ steps.pytest.outcome }}" = "success"
           test "${{ steps.qa.outcome }}" = "success"
+
+  staging_diagnostics:
+    if: ${{ inputs.staging_diagnostics }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: staging
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
+      RAILWAY_WEB_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
+      RAILWAY_COLLECTOR_SERVICE: ${{ vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: npm install --global @railway/cli@5.45.7
+      - run: python scripts/qa_staging_diagnostics.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staging-runtime-diagnostics-${{ github.run_id }}
+          path: artifacts/qa-data-signal/staging-runtime-diagnostics.json
+          if-no-files-found: error
