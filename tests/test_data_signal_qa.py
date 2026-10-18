@@ -521,6 +521,41 @@ def test_signal_filter_e2e_waits_for_a_ready_revision_before_comparing_counts() 
     assert "return snapshotReady" in readiness_helper
 
 
+def test_signal_list_readiness_accepts_trade_count_without_weakening_current_counts() -> None:
+    source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
+    helper = source.split("def _wait_for_ai_signal_list_ready", 1)[1]
+    predicate = helper.split('readiness = """', 1)[1].split('"""', 1)[0]
+    script = f"""
+const rawCounts = {{ all: 7, 'buy-holding': 0, 'recent-sell': 3,
+  'preliminary-buy': 4, 'preliminary-sell': 0 }};
+const tabs = Object.entries(rawCounts).map(([stage, value]) => ({{
+  dataset: {{aiSignalStage: stage}}, value,
+  querySelector() {{ return {{textContent: String(this.value)}}; }},
+}}));
+tabs[2].value = 4;
+const document = {{ querySelectorAll: () => tabs, querySelector: selector =>
+  selector.includes('mode-current') ? {{textContent: '7'}} : {{textContent: ''}} }};
+const state = {{aiSignalMarketStatus: 'ready', aiSignalRevision: 1, aiSignalItems: [],
+  aiSignalPerformanceSummary: {{completed_trade_items: [1,2,3,4]}}}};
+const isUsHubContext = false;
+const normalizedAiSignalItems = items => items;
+const aiSignalItemsForMode = items => items;
+const aiSignalStageCounts = () => ({{...rawCounts}});
+const aiSignalCompletedTradeItems = () => state.aiSignalPerformanceSummary.completed_trade_items;
+const ready = {predicate};
+const results = [ready()];
+state.aiSignalPerformanceSummary = null;
+results.push(ready());
+tabs[2].value = 3;
+results.push(ready());
+tabs[0].value = 8;
+results.push(ready());
+console.log(JSON.stringify(results));
+"""
+    result = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == [True, False, True, False]
+
+
 def test_recommendation_renderer_defensively_hides_completed_exit_cards() -> None:
     source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
     renderer = source.split("function recommendationIsTerminalExit", 1)[1].split(
