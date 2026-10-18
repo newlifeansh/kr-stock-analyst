@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from app.qa.runner import QaFailure, QaWarning, redact
+from app.qa.runner import QaFailure, QaWarning, current_asset_version, redact
 
 KST = ZoneInfo("Asia/Seoul")
 MOBILE_VIEWPORT = {"width": 458, "height": 872}
@@ -1033,8 +1033,8 @@ def _run_us_e2e_checks(
                         not shell["commonCss"],
                         not shell["commonScript"],
                         not shell["expectedClientVersion"],
-                        f'?v={shell["expectedClientVersion"]}' not in shell["commonCss"],
-                        f'?v={shell["expectedClientVersion"]}' not in shell["commonScript"],
+                        not current_asset_version(shell["commonCss"], "/assets/dashboard/styles.css", expected_us_client_version),
+                        not current_asset_version(shell["commonScript"], "/dashboard-app-v170.js", expected_us_client_version),
                         shell["nav"] != expected_nav,
                         not shell["hasUsTop50"],
                         shell["hasDomesticTop50"],

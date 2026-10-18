@@ -2927,11 +2927,32 @@ def test_live_us_surface_runs_full_data_contract_and_product_boundary(
     assert report["deployment_blocked"] is False
 
 
+def test_us_ui_asset_version_requires_exact_unambiguous_value():
+    from app.qa.runner import current_asset_version, shell_asset_version
+
+    for value, expected in [
+        (None, False),
+        ("", False),
+        ("/dashboard-app-v170.js?v=current", True),
+        ("/dashboard-app-v170.js?build=current&v=current", True),
+        ("/dashboard-app-v170.js?v=current-old", False),
+        ("/dashboard-app-v170.js?v=current&v=stale", False),
+        ("/dashboard-app-v170.js?v=stale", False),
+        ("/assets/nasdaq/app.js?v=current", False),
+    ]:
+        assert current_asset_version(value, "/dashboard-app-v170.js", "current") is expected
+        if value is not None:
+            shell = f'<script src="{value}"></script>'
+            assert shell_asset_version(shell, "src", "/dashboard-app-v170.js", "current") is expected
+            assert shell_asset_version(shell * 2, "src", "/dashboard-app-v170.js", "current") is False
+
+
 @pytest.mark.qa_live
 def test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agree(
     monkeypatch,
 ) -> None:
     from app.qa import runner
+    from app.main import US_DASHBOARD_CLIENT_VERSION
 
     stale_version = "20261014us148"
 
@@ -2947,7 +2968,7 @@ def test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agre
         def get_text(self, path: str, **params: object):
             payload, meta = super().get_text(path, **params)
             if path == "/us":
-                return payload.replace("20261015us149", stale_version), meta
+                return payload.replace(US_DASHBOARD_CLIENT_VERSION, stale_version), meta
             return payload, meta
 
     monkeypatch.setattr(runner, "ReadOnlyApi", StaleUsUiApi)
@@ -2963,7 +2984,7 @@ def test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agre
     assert by_id["DATA-COM-002"]["status"] == "pass"
     assert by_id["SIG-UI-031"]["status"] == "fail"
     assert "UIUX 번들 버전" in by_id["SIG-UI-031"]["message"]
-    assert by_id["SIG-UI-031"]["evidence"]["expected_client_version"] == "20261015us149"
+    assert by_id["SIG-UI-031"]["evidence"]["expected_client_version"] == US_DASHBOARD_CLIENT_VERSION
     assert by_id["SIG-UI-031"]["evidence"]["endpoint_client_version"] == stale_version
     assert report["deployment_blocked"] is True
 
@@ -4373,7 +4394,8 @@ def test_us_e2e_uses_current_shared_product_contract(monkeypatch, surface, gatew
     assert cases["SIG-UI-031"]["inputs"]["client_version"] == US_DASHBOARD_CLIENT_VERSION
     source = Path("app/qa/e2e.py").read_text(encoding="utf-8")
     assert "expected_us_client_version" in source
-    assert 'f\'?v={shell["expectedClientVersion"]}\'' in source
+    assert 'current_asset_version(shell["commonCss"]' in source
+    assert 'current_asset_version(shell["commonScript"]' in source
 
 
 def test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display():

@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Literal
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 from uuid import uuid4
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
@@ -50,6 +50,20 @@ MOBILE_BROWSER_USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
     "AppleWebKit/605.1.15 Mobile/15E148"
 )
+
+
+def current_asset_version(value: Any, path: str, version: str) -> bool:
+    """Require an exact version, not a prefix or a second ambiguous v value."""
+    if not isinstance(value, str) or not version:
+        return False
+    parsed = urlparse(html_lib.unescape(value))
+    return parsed.path == path and parse_qs(parsed.query).get("v") == [version]
+
+
+def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> bool:
+    values = re.findall(rf'\b{attribute}=[\"\x27]([^\"\x27]+)[\"\x27]', shell)
+    matches = [value for value in values if urlparse(html_lib.unescape(value)).path == path]
+    return len(matches) == 1 and current_asset_version(matches[0], path, version)
 
 # Gate evidence is intentionally traceable at the pytest testcase level. New
 # cases must be added here with every deterministic test that is required to
@@ -598,6 +612,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-UI-031": (
+        "tests.test_data_signal_qa.test_us_ui_asset_version_requires_exact_unambiguous_value",
         "tests.test_data_signal_qa.test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display",
         "tests.test_data_signal_qa.test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agree",
         "tests.test_domestic_market_scope.test_us_spinout_shell_is_separate_from_the_domestic_product",
@@ -5613,10 +5628,8 @@ def _live_us_checks(
                 == expected_us_dashboard_version
                 and (context.get("readyz") or {}).get("us_dashboard_version")
                 == expected_us_dashboard_version
-                and f'href="/assets/dashboard/styles.css?v={expected_us_dashboard_version}'
-                in shell
-                and f'src="/dashboard-app-v170.js?v={expected_us_dashboard_version}'
-                in shell,
+                and shell_asset_version(shell, "href", "/assets/dashboard/styles.css", expected_us_dashboard_version)
+                and shell_asset_version(shell, "src", "/dashboard-app-v170.js", expected_us_dashboard_version),
                 "미국증시 UIUX 번들 버전이 현재 소스와 일치하지 않습니다.",
                 expected_client_version=expected_us_dashboard_version,
                 health_client_version=(context.get("health") or {}).get(
