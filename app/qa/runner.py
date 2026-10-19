@@ -497,6 +497,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_stock_news_has_separate_domestic_and_yahoo_overseas_tabs",
     ),
     "REC-US-INDEPENDENT-001": (
+        "tests.test_us_market.test_fresh_quotes_do_not_readmit_closed_hybrid_positions_to_recommendations",
         "tests.test_data_signal_qa."
         "test_us_country_toggle_check_ignores_community_market_scope_metadata",
         "tests.test_data_signal_qa."
