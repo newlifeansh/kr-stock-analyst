@@ -63,6 +63,7 @@ from app.repository import (
     upsert_many,
 )
 from app.services.company_briefs import build_company_briefs
+from app.services.maintenance_jobs import maintenance_status, run_maintenance_job
 from app.services.market_calendar import (
     is_korea_market_session_date,
     latest_completed_korea_market_session_date,
@@ -336,11 +337,14 @@ class BriefingRuntime:
         with SessionLocal() as db:
             if self.settings.stock_universe_enabled and self._stock_universe_due():
                 try:
-                    loaded = collect_stocks(
-                        db,
-                        datetime.now(KST).strftime("%Y%m%d"),
-                        self.settings.stock_universe_markets,
-                    )
+                    if self.settings.maintenance_subprocess_enabled:
+                        loaded = run_maintenance_job("stock_universe", self.settings)["rows_loaded"]
+                    else:
+                        loaded = collect_stocks(
+                            db,
+                            datetime.now(KST).strftime("%Y%m%d"),
+                            self.settings.stock_universe_markets,
+                        )
                     self.last_stock_universe_at = datetime.utcnow()
                     self.last_stock_universe_message = f"active_rows={loaded}"
                     refreshed_any = refreshed_any or loaded > 0
@@ -404,14 +408,17 @@ class BriefingRuntime:
             # first so the signal-quality contract recovers without waiting.
             if self.settings.research_enabled and self._research_backfill_due():
                 try:
-                    collect_research_reports(
-                        db,
-                        settings=self.settings,
-                        categories=["company"],
-                        max_pages=self.settings.research_backfill_max_pages,
-                        days_back=self.settings.research_backfill_days_back,
-                        include_detail=False,
-                    )
+                    if self.settings.maintenance_subprocess_enabled:
+                        run_maintenance_job("research_backfill", self.settings)
+                    else:
+                        collect_research_reports(
+                            db,
+                            settings=self.settings,
+                            categories=["company"],
+                            max_pages=self.settings.research_backfill_max_pages,
+                            days_back=self.settings.research_backfill_days_back,
+                            include_detail=False,
+                        )
                     self.last_research_backfill_at = datetime.utcnow()
                     self.source_errors.pop("research_backfill", None)
                     refreshed_any = True
@@ -419,7 +426,11 @@ class BriefingRuntime:
                     self.source_errors["research_backfill"] = str(exc)
             if self.settings.financials_enabled and self._financials_due():
                 try:
-                    financials_result = self._collect_financials(db)
+                    financials_result = (
+                        run_maintenance_job("financials", self.settings)
+                        if self.settings.maintenance_subprocess_enabled
+                        else self._collect_financials(db)
+                    )
                     if financials_result["rows_loaded"]:
                         refreshed_any = True
                     self.last_financials_source = str(financials_result["source"])
@@ -435,11 +446,14 @@ class BriefingRuntime:
                         "message": "priority_only_canonical_mirror",
                     }
                     if not self.settings.canonical_domestic_sync_enabled:
-                        snapshot_result = collect_stock_fundamental_snapshots(
-                            db,
-                            max_workers=self.settings.fundamental_snapshot_max_workers,
-                            refresh_days=self.settings.fundamental_snapshot_refresh_days,
-                        )
+                        if self.settings.maintenance_subprocess_enabled:
+                            snapshot_result = run_maintenance_job("fundamentals", self.settings)
+                        else:
+                            snapshot_result = collect_stock_fundamental_snapshots(
+                                db,
+                                max_workers=self.settings.fundamental_snapshot_max_workers,
+                                refresh_days=self.settings.fundamental_snapshot_refresh_days,
+                            )
                     if priority_snapshot_result["rows_loaded"] or snapshot_result["rows_loaded"]:
                         refreshed_any = True
                     self.last_fundamental_snapshot_message = (
@@ -517,11 +531,14 @@ class BriefingRuntime:
                     self.source_errors["stock_news_snapshot"] = str(exc)
             if self.settings.stock_company_snapshot_enabled and self._stock_company_snapshot_due():
                 try:
-                    company_snapshot_result = collect_stock_company_snapshots(
-                        db,
-                        max_workers=self.settings.stock_company_snapshot_max_workers,
-                        refresh_days=self.settings.stock_company_snapshot_refresh_days,
-                    )
+                    if self.settings.maintenance_subprocess_enabled:
+                        company_snapshot_result = run_maintenance_job("company_snapshots", self.settings)
+                    else:
+                        company_snapshot_result = collect_stock_company_snapshots(
+                            db,
+                            max_workers=self.settings.stock_company_snapshot_max_workers,
+                            refresh_days=self.settings.stock_company_snapshot_refresh_days,
+                        )
                     if company_snapshot_result["rows_loaded"]:
                         refreshed_any = True
                     self.last_stock_company_snapshot_message = str(company_snapshot_result["message"])
@@ -1349,6 +1366,8 @@ class BriefingRuntime:
     def status(self) -> dict[str, object]:
         return {
             "enabled": self.settings.briefing_realtime_enabled,
+            "maintenance_subprocess_enabled": self.settings.maintenance_subprocess_enabled,
+            "maintenance_jobs": maintenance_status(),
             "research_enabled": self.settings.research_enabled,
             "disclosure_enabled": self.settings.disclosure_enabled,
             "news_enabled": self.settings.news_enabled,

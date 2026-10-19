@@ -320,7 +320,16 @@ jobs:
           railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
             --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$US_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_WEB_SERVICE"
           railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "MAINTENANCE_SUBPROCESS_ENABLED=true" --skip-deploys --json \
             --project="$US_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$US_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
@@ -335,10 +344,19 @@ jobs:
           railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
           railway variable set "US_PUBLIC_BACKEND_URL=$US_STAGING_BASE_URL" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_WEB_SERVICE"
           railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "MAINTENANCE_SUBPROCESS_ENABLED=true" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
@@ -613,7 +631,16 @@ jobs:
           railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
             --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"
           railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "MAINTENANCE_SUBPROCESS_ENABLED=true" --skip-deploys --json \
             --project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           if [[ "$PRODUCT_SURFACE" == "us" ]]; then

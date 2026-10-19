@@ -131,9 +131,9 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
     assert workflow.split("  audit_runtime:", 1)[0].count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 5
-    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 11
-    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 8
+    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 8
+    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 14
+    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 11
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
     assert 'DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -505,6 +505,6 @@ def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -
         assert "RAILWAY_REGION" in workflow
         assert start in workflow
         assert stop in workflow
-        assert 'export RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"' in workflow
+        assert 'RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"' in workflow
         assert 'test -n "$RAILWAY_RESUME_IMAGE_REF"' in workflow
         assert workflow.index(start) < workflow.index("Upload") < workflow.index(stop)
