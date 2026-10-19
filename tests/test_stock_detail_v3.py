@@ -470,7 +470,8 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-opposite-moves-section"',
         'id="stock-opposite-moves-title"',
         'id="stock-opposite-moves-list"',
-        "최근 완료된 종가와 지금 시세를 함께 확인해요.",
+        "시총 상위 100개 중 다르게 움직인 종목",
+        "큰 기업 중 선택 종목과 다른 방향으로 움직인 경우가 많았던 종목이에요.",
         "최근 7일 수급",
         'id="stock-home-disclosures"',
         'id="stock-home-disclosures-summary"',
@@ -870,7 +871,7 @@ def test_stock_detail_opposite_moves_show_plain_language_live_quote_rows():
     styles = client.get("/assets/dashboard/styles.css").text
 
     assert "함께 볼 종목" in shell
-    assert "다르게 움직인 종목" in shell
+    assert "시총 상위 100개 중 다르게 움직인 종목" in shell
     assert "과거에 다르게 움직였다는 뜻" in shell
     assert 'aria-busy="true"' in shell
     assert "/opposite-moves?limit=3" in source
@@ -879,6 +880,7 @@ def test_stock_detail_opposite_moves_show_plain_language_live_quote_rows():
     assert 'status: "실시간"' in source
     assert 'status: "마지막 종가"' in source
     assert "가 내린 ${formatNumber(downDays)}일 중" in source
+    assert "시총 ${formatNumber(marketCapRank)}위" in source
     assert "navigateToStock(item.code)" in source
     assert ".stock-opposite-move-row:focus-visible" in styles
     assert "min-height: 92px;" in styles

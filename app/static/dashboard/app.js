@@ -8268,9 +8268,9 @@ function resetStockOppositeMoves(data = null) {
   elements.stockOppositeMovesList.innerHTML = visible
     ? '<p class="stock-opposite-moves-state">다르게 움직인 종목을 찾는 중입니다.</p>'
     : "";
-  setText(elements.stockOppositeMovesTitle, "다르게 움직인 종목");
+  setText(elements.stockOppositeMovesTitle, "시총 상위 100개 중 다르게 움직인 종목");
   setText(elements.stockOppositeMovesPeriod, "최근 6개월");
-  setText(elements.stockOppositeMovesDescription, "최근 완료된 종가와 지금 시세를 함께 확인해요.");
+  setText(elements.stockOppositeMovesDescription, "큰 기업 중 선택 종목과 다른 방향으로 움직인 경우가 많았던 종목이에요.");
   if (elements.stockOppositeMovesNote) elements.stockOppositeMovesNote.hidden = !visible;
 }
 
@@ -8279,11 +8279,11 @@ function renderStockOppositeMoves(payload = state.stockOppositeMoves) {
   const targetName = String(payload?.name || state.currentStock?.name || "선택 종목");
   const items = Array.isArray(payload?.items) ? payload.items : [];
   elements.stockOppositeMovesSection.hidden = stockDashboardIsUs() || !state.currentStock?.code;
-  setText(elements.stockOppositeMovesTitle, `${targetName}와 다르게 움직인 종목`);
+  setText(elements.stockOppositeMovesTitle, "시총 상위 100개 중 다르게 움직인 종목");
   setText(elements.stockOppositeMovesPeriod, "최근 6개월");
   setText(
     elements.stockOppositeMovesDescription,
-    `${targetName}가 내린 날 오르는 경우가 많았던 종목이에요. 지금 시세도 함께 보여드려요.`,
+    `시총 상위 100개 종목 중 ${targetName}가 내린 날 오른 경우가 많았어요. 지금 시세도 함께 보여드려요.`,
   );
   elements.stockOppositeMovesList.replaceChildren();
   elements.stockOppositeMovesList.setAttribute("aria-busy", "false");
@@ -8324,12 +8324,13 @@ function renderStockOppositeMoves(payload = state.stockOppositeMoves) {
 
     const downDays = Math.max(0, Number(item.target_down_days) || 0);
     const upDays = Math.max(0, Number(item.candidate_up_on_target_down_days) || 0);
+    const marketCapRank = Math.max(1, Number(item.market_cap_rank) || 0);
     const explanation = el(
       "span",
       "stock-opposite-move-explanation",
       downDays
-        ? `${targetName}가 내린 ${formatNumber(downDays)}일 중 ${formatNumber(upDays)}일 올랐어요.`
-        : "최근 완료된 종가의 움직임을 비교했어요.",
+        ? `시총 ${formatNumber(marketCapRank)}위 · ${targetName}가 내린 ${formatNumber(downDays)}일 중 ${formatNumber(upDays)}일 올랐어요.`
+        : `시총 ${formatNumber(marketCapRank)}위 · 최근 완료된 종가의 움직임을 비교했어요.`,
     );
     const action = el("span", "stock-opposite-move-action", "종목 보기");
     action.setAttribute("aria-hidden", "true");
