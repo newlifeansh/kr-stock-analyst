@@ -11,6 +11,7 @@ on:
           - build
           - stage
           - stop-staging
+          - audit-runtime
           - promote-production
         default: build
       candidate_version:
@@ -674,3 +675,27 @@ jobs:
           path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 90
+
+  audit_runtime:
+    if: inputs.action == 'audit-runtime'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Read runtime topology without credentials
+        run: |
+          mkdir -p artifacts/runtime-audit
+          python3 scripts/railway_runtime_audit.py --project "$US_STAGING_RAILWAY_PROJECT_ID" --environment staging > artifacts/runtime-audit/us-staging.json
+          python3 scripts/railway_runtime_audit.py --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production > artifacts/runtime-audit/kr-production.json
+          python3 scripts/railway_runtime_audit.py --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production > artifacts/runtime-audit/us-production.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-audit
+          path: artifacts/runtime-audit
+          retention-days: 30
