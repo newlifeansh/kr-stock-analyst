@@ -1113,6 +1113,11 @@ def test_prior_session_bridge_fails_closed_when_any_candidate_quote_is_missing(
         "fetch_us_quote_batch",
         lambda symbols, **_kwargs: quotes,
     )
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("missing")),
+    )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
 
     payload = universe.build_us_signal_universe(
@@ -1157,6 +1162,76 @@ def test_prior_session_bridge_retries_only_transiently_invalid_quotes(monkeypatc
 
     assert payload["status"] == "ready"
     assert calls == [[str(item["code"]) for item in candidates], [transient_code]]
+
+
+def test_prior_session_bridge_repairs_isolated_batch_omission_with_quote_price(
+    monkeypatch,
+):
+    candidates = _candidates(101)
+    for item in candidates:
+        item["screen_as_of"] = "2026-09-04"
+    quotes = {
+        str(item["code"]): _quote(
+            str(item["code"]),
+            2_000_000_000 - index,
+        )
+        for index, item in enumerate(candidates)
+    }
+    missing_code = str(candidates[50]["code"])
+    batch_quotes = {code: quote for code, quote in quotes.items() if code != missing_code}
+    detail_calls: list[str] = []
+
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda symbols, **_kwargs: {
+            code: batch_quotes[code]
+            for code in symbols
+            if code in batch_quotes
+        },
+    )
+
+    def fetch_quote_price(symbol, **_kwargs):
+        detail_calls.append(symbol)
+        return quotes[symbol]
+
+    monkeypatch.setattr(us_market, "fetch_us_quote_price", fetch_quote_price)
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["universe_as_of"].isoformat() == "2026-09-08"
+    assert detail_calls == [missing_code]
+
+
+def test_prior_session_bridge_does_not_expand_detail_retry_beyond_bound(monkeypatch):
+    completed_date = datetime(2026, 9, 8, tzinfo=UTC).date()
+    symbols = [f"MISS{index:02d}" for index in range(13)]
+    detail_calls: list[str] = []
+
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_batch",
+        lambda requested, **_kwargs: {},
+    )
+
+    def fetch_quote_price(symbol, **_kwargs):
+        detail_calls.append(symbol)
+        return _quote(symbol, 1_000_000_000)
+
+    monkeypatch.setattr(us_market, "fetch_us_quote_price", fetch_quote_price)
+
+    quotes = universe._retry_completed_session_bridge_quotes(
+        symbols,
+        completed_date,
+    )
+
+    assert quotes == {}
+    assert detail_calls == []
 
 
 def test_prior_session_bridge_excludes_explicitly_delisted_stale_quote(

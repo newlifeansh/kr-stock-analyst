@@ -763,6 +763,14 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_screener_as_of_must_match_quotes_and_completed_session[stale]",
         "tests.test_us_signal_universe."
         "test_screener_as_of_must_match_quotes_and_completed_session[mixed_exchange_dates]",
+        "tests.test_us_market."
+        "test_quote_summary_price_normalizes_independent_single_symbol_quote",
+        "tests.test_us_market."
+        "test_quote_summary_price_uses_yahoo_alias_when_dotted_symbol_is_incomplete",
+        "tests.test_us_signal_universe."
+        "test_prior_session_bridge_repairs_isolated_batch_omission_with_quote_price",
+        "tests.test_us_signal_universe."
+        "test_prior_session_bridge_does_not_expand_detail_retry_beyond_bound",
         "tests.test_us_signal_universe."
         "test_prior_session_bridge_excludes_explicitly_delisted_stale_quote",
         "tests.test_us_signal_universe."

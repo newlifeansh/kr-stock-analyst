@@ -8,6 +8,7 @@ back to a hand-picked ticker list when a source is incomplete.
 """
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -37,6 +38,8 @@ SIGNAL_EXCHANGES = ("nasdaq", "nyse")
 VALID_YAHOO_EXCHANGES = {"NMS", "NGM", "NCM", "NYQ", "NASDAQ", "NYSE"}
 US_SIGNAL_UNIVERSE_SOURCE_CACHE = TTLCache(maxsize=4)
 US_SIGNAL_UNIVERSE_SOURCE_TTL_SECONDS = 300
+US_SIGNAL_UNIVERSE_QUOTE_DETAIL_RETRY_LIMIT = 12
+US_SIGNAL_UNIVERSE_QUOTE_DETAIL_RETRY_WORKERS = 4
 EXCLUDED_NAME_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -653,6 +656,46 @@ def _completed_session_bridge_quote_is_valid(
         and currency == "USD"
         and quote_symbol.replace("-", ".") == code.replace("-", ".")
     )
+
+
+def _retry_completed_session_bridge_quotes(
+    symbols: list[str],
+    completed_date: date,
+) -> dict[str, dict[str, Any]]:
+    """Retry a bounded set of invalid batch quotes through an independent endpoint."""
+
+    from app.services import us_market
+
+    requested = list(dict.fromkeys(str(symbol) for symbol in symbols))
+    quotes = us_market.fetch_us_quote_batch(requested, refresh=True)
+    invalid = [
+        symbol
+        for symbol in requested
+        if not _completed_session_bridge_quote_is_valid(
+            symbol,
+            quotes.get(symbol) or {},
+            completed_date,
+        )
+        and not _has_explicit_delisting_action(quotes.get(symbol) or {})
+    ]
+    if not invalid or len(invalid) > US_SIGNAL_UNIVERSE_QUOTE_DETAIL_RETRY_LIMIT:
+        return quotes
+
+    workers = min(US_SIGNAL_UNIVERSE_QUOTE_DETAIL_RETRY_WORKERS, len(invalid))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(us_market.fetch_us_quote_price, symbol, refresh=True): symbol
+            for symbol in invalid
+        }
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                quote = future.result()
+            except Exception:
+                continue
+            if isinstance(quote, dict):
+                quotes[symbol] = quote
+    return quotes
 
 
 def _screen_candidates(
@@ -1864,9 +1907,9 @@ def build_us_signal_universe(
                 candidates,
                 quotes,
                 completed_date,
-                quote_retry_loader=lambda symbols: us_market.fetch_us_quote_batch(
+                quote_retry_loader=lambda symbols: _retry_completed_session_bridge_quotes(
                     symbols,
-                    refresh=True,
+                    completed_date,
                 ),
             )
         )
