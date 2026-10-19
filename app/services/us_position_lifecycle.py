@@ -1485,6 +1485,7 @@ def build_us_position_lifecycle_feed(
         "sector_classification_version": US_SECTOR_ETF_CLASSIFICATION_VERSION,
         "universe_checksum": universe.get("checksum"),
         "universe_data_state": universe.get("data_state"),
+        "source_error": universe.get("source_error"),
         "recent_days": max(1, min(90, int(recent_days))),
         "confirmed_count": 0,
         "preliminary_history": [],

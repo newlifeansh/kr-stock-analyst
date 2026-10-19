@@ -890,6 +890,80 @@ def _fetch_yahoo_quote_batch_once(
     return ((response.json().get("quoteResponse") or {}).get("result") or [])
 
 
+def _fetch_yahoo_quote_price_once(
+    symbol: str,
+    refresh_auth: bool = False,
+) -> dict[str, object]:
+    """Fetch one quote through Yahoo's independent quote-summary price module."""
+
+    auth = _yahoo_auth(refresh=refresh_auth)
+    response = requests.get(
+        YAHOO_QUOTE_SUMMARY_URL.format(symbol=symbol),
+        params={"modules": "price", "crumb": auth.get("crumb")},
+        headers=US_HEADERS,
+        cookies=auth.get("cookies") if isinstance(auth.get("cookies"), dict) else None,
+        timeout=15,
+    )
+    if response.status_code == 401 and not refresh_auth:
+        return _fetch_yahoo_quote_price_once(symbol, refresh_auth=True)
+    response.raise_for_status()
+    payload = response.json()
+    quote_summary = payload.get("quoteSummary") or {}
+    if quote_summary.get("error"):
+        raise ValueError(str(quote_summary.get("error")))
+    result = quote_summary.get("result") or []
+    if not result or not isinstance(result[0].get("price"), dict):
+        raise ValueError("Yahoo quote-summary price not found")
+    return {
+        key: value.get("raw")
+        if isinstance(value, dict) and "raw" in value
+        else value
+        for key, value in result[0]["price"].items()
+    }
+
+
+def _quote_price_payload_is_usable(quote: dict[str, object]) -> bool:
+    required = (
+        "symbol",
+        "quoteType",
+        "exchange",
+        "currency",
+        "regularMarketTime",
+        "regularMarketPrice",
+        "marketCap",
+    )
+    return all(quote.get(key) not in (None, "", {}) for key in required)
+
+
+def fetch_us_quote_price(
+    symbol: str,
+    refresh: bool = False,
+) -> dict[str, object]:
+    """Fetch one normalized quote independently from the large batch endpoint."""
+
+    code = _symbol(symbol)
+    if not code:
+        raise ValueError("US quote symbol is empty")
+    key = ("us_quote_price", code)
+    if not refresh:
+        return US_CACHE.get_or_set(
+            key,
+            US_TTL_SECONDS,
+            lambda: fetch_us_quote_price(code, refresh=True),
+        )
+    last_error: Optional[Exception] = None
+    for candidate in _chart_symbol_candidates(code):
+        try:
+            quote = _fetch_yahoo_quote_price_once(candidate)
+            if not _quote_price_payload_is_usable(quote):
+                raise ValueError("Yahoo quote-summary price is incomplete")
+            US_CACHE.set(key, quote, US_TTL_SECONDS)
+            return quote
+        except Exception as exc:
+            last_error = exc
+    raise ValueError(f"US quote price not found for {symbol}") from last_error
+
+
 def fetch_us_quote_batch(
     symbols: list[str],
     refresh: bool = False,

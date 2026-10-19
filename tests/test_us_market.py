@@ -25,6 +25,89 @@ def test_sec_request_identity_contains_configured_contact(monkeypatch):
         us_market._sec_request_headers()
 
 
+def test_quote_summary_price_normalizes_independent_single_symbol_quote(monkeypatch):
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "quoteSummary": {
+                    "result": [
+                        {
+                            "price": {
+                                "symbol": "NVDA",
+                                "quoteType": "EQUITY",
+                                "exchange": "NMS",
+                                "currency": "USD",
+                                "regularMarketTime": 1792440001,
+                                "regularMarketPrice": {"raw": 217.09, "fmt": "217.09"},
+                                "marketCap": {
+                                    "raw": 5_242_072_072_192,
+                                    "fmt": "5.24T",
+                                },
+                            }
+                        }
+                    ],
+                    "error": None,
+                }
+            }
+
+    monkeypatch.setattr(
+        us_market,
+        "_yahoo_auth",
+        lambda refresh=False: {"crumb": "fixture", "cookies": {}},
+    )
+    monkeypatch.setattr(us_market.requests, "get", lambda *_args, **_kwargs: Response())
+
+    quote = us_market.fetch_us_quote_price("nvda", refresh=True)
+
+    assert quote == {
+        "symbol": "NVDA",
+        "quoteType": "EQUITY",
+        "exchange": "NMS",
+        "currency": "USD",
+        "regularMarketTime": 1792440001,
+        "regularMarketPrice": 217.09,
+        "marketCap": 5_242_072_072_192,
+    }
+
+
+def test_quote_summary_price_uses_yahoo_alias_when_dotted_symbol_is_incomplete(
+    monkeypatch,
+):
+    calls: list[str] = []
+
+    def fetch_once(symbol, refresh_auth=False):
+        calls.append(symbol)
+        if symbol == "BRK.B":
+            return {
+                "symbol": "BRK.B",
+                "quoteType": "EQUITY",
+                "regularMarketPrice": {},
+                "marketCap": {},
+            }
+        return {
+            "symbol": "BRK-B",
+            "quoteType": "EQUITY",
+            "exchange": "NYQ",
+            "currency": "USD",
+            "regularMarketTime": 1792440038,
+            "regularMarketPrice": 532.23,
+            "marketCap": 1_139_349_913_600,
+        }
+
+    monkeypatch.setattr(us_market, "_fetch_yahoo_quote_price_once", fetch_once)
+
+    quote = us_market.fetch_us_quote_price("BRK.B", refresh=True)
+
+    assert calls == ["BRK.B", "BRK-B"]
+    assert quote["symbol"] == "BRK-B"
+    assert quote["marketCap"] == 1_139_349_913_600
+
+
 class _FakeNewsResponse:
     content = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
     <rss><channel><item><title>엔비디아 실적 전망</title><link>https://example.test/nvda</link>
