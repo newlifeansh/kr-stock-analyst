@@ -85,7 +85,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window",
     ),
     "SIG-UI-036": (
-        "tests.test_opposite_moves.test_opposite_moves_only_returns_liquid_stable_inverse_candidate",
+        "tests.test_opposite_moves.test_opposite_moves_only_returns_stable_top_market_cap_inverse_candidate",
+        "tests.test_opposite_moves.test_opposite_moves_excludes_inverse_candidate_outside_top_100_ordinary_shares",
+        "tests.test_opposite_moves.test_opposite_moves_top_100_excludes_funds_spacs_and_preferred_shares",
         "tests.test_opposite_moves.test_opposite_moves_fail_closed_when_history_is_short",
         "tests.test_opposite_moves.test_opposite_moves_excludes_unfinished_daily_row",
         "tests.test_opposite_moves.test_opposite_moves_api_returns_completed_close_relationship_contract",

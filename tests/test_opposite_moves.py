@@ -30,6 +30,8 @@ def _add_price_series(
     returns: list[float],
     *,
     start: date = date(2026, 1, 2),
+    trading_value: int = 10_000_000_000,
+    market_cap: int = 1_000_000_000_000,
 ) -> None:
     close = 100_000.0
     closes = [round(close)]
@@ -46,37 +48,39 @@ def _add_price_series(
                 low=value,
                 close=value,
                 volume=100_000,
-                trading_value=10_000_000_000,
-                market_cap=1_000_000_000_000,
+                trading_value=trading_value,
+                market_cap=market_cap,
             )
         )
 
 
 def _seed_relationships(db: Session) -> None:
     target_returns = [
-        0.018 if index % 4 == 0 else -0.014 if index % 4 == 1 else 0.011 if index % 4 == 2 else -0.019
+        0.018
+        if index % 4 == 0
+        else -0.014
+        if index % 4 == 1
+        else 0.011
+        if index % 4 == 2
+        else -0.019
         for index in range(80)
     ]
     db.add_all(
         [
             StockMaster(code="000001", name="기준종목", market="KOSPI", is_active=True),
-            StockMaster(code="000002", name="반대종목", market="KOSDAQ", is_active=True),
+            StockMaster(
+                code="000002", name="반대종목", market="KOSDAQ", is_active=True
+            ),
             StockMaster(code="000003", name="같은종목", market="KOSPI", is_active=True),
-            StockMaster(code="000004", name="저유동성", market="KOSPI", is_active=True),
         ]
     )
     _add_price_series(db, "000001", target_returns)
     _add_price_series(db, "000002", [-rate for rate in target_returns])
     _add_price_series(db, "000003", target_returns)
-    _add_price_series(db, "000004", [-rate for rate in target_returns])
-    db.flush()
-    for row in db.query(DailyPrice).filter(DailyPrice.code == "000004"):
-        row.trading_value = 1_000
-        row.market_cap = 1_000_000
     db.commit()
 
 
-def test_opposite_moves_only_returns_liquid_stable_inverse_candidate():
+def test_opposite_moves_only_returns_stable_top_market_cap_inverse_candidate():
     db = _session()
     try:
         _seed_relationships(db)
@@ -89,10 +93,83 @@ def test_opposite_moves_only_returns_liquid_stable_inverse_candidate():
         assert [item["code"] for item in payload["items"]] == ["000002"]
         candidate = payload["items"][0]
         assert candidate["relationship_label"] == "자주 반대로 움직임"
+        assert candidate["market_cap_rank"] == 2
         assert candidate["correlation"] < -0.99
         assert candidate["recent_correlation"] < -0.99
-        assert candidate["candidate_up_on_target_down_days"] == candidate["target_down_days"]
+        assert (
+            candidate["candidate_up_on_target_down_days"]
+            == candidate["target_down_days"]
+        )
         assert candidate["down_day_opposite_rate"] == 1.0
+    finally:
+        db.close()
+
+
+def test_opposite_moves_excludes_inverse_candidate_outside_top_100_ordinary_shares():
+    db = _session()
+    try:
+        _seed_relationships(db)
+        latest_date = date(2026, 3, 23)
+        for index in range(100):
+            code = str(100_000 + index)
+            db.add(
+                StockMaster(
+                    code=code,
+                    name=f"상위종목{index + 1}",
+                    market="KOSPI",
+                    is_active=True,
+                )
+            )
+            db.add(
+                DailyPrice(
+                    code=code,
+                    trade_date=latest_date,
+                    close=100_000,
+                    trading_value=20_000_000_000,
+                    market_cap=2_000_000_000_000 - index,
+                )
+            )
+        db.commit()
+
+        payload = build_opposite_moves(db, "000001", limit=3)
+
+        assert payload["status"] == "no_stable_opposite"
+        assert payload["items"] == []
+        assert "시총 상위 100개" in payload["message"]
+    finally:
+        db.close()
+
+
+def test_opposite_moves_top_100_excludes_funds_spacs_and_preferred_shares():
+    db = _session()
+    try:
+        target_returns = [0.018 if index % 2 == 0 else -0.014 for index in range(80)]
+        candidates = [
+            ("010001", "KODEX 인버스"),
+            ("010002", "삼성 인버스 2X WTI원유 선물 ETN"),
+            ("010003", "테스트제1호스팩"),
+            ("010004", "삼성전자우"),
+            ("010005", "일반대형주"),
+        ]
+        db.add(
+            StockMaster(code="010000", name="기준종목", market="KOSPI", is_active=True)
+        )
+        _add_price_series(db, "010000", target_returns, market_cap=10_000_000_000_000)
+        for offset, (code, name) in enumerate(candidates):
+            db.add(StockMaster(code=code, name=name, market="KOSPI", is_active=True))
+            _add_price_series(
+                db,
+                code,
+                [-rate for rate in target_returns],
+                market_cap=9_000_000_000_000 - offset,
+            )
+        db.commit()
+
+        payload = build_opposite_moves(db, "010000", limit=3)
+
+        assert payload["status"] == "ready"
+        assert [item["code"] for item in payload["items"]] == ["010005"]
+        assert payload["items"][0]["market_cap_rank"] == 2
     finally:
         db.close()
 
@@ -100,7 +177,9 @@ def test_opposite_moves_only_returns_liquid_stable_inverse_candidate():
 def test_opposite_moves_fail_closed_when_history_is_short():
     db = _session()
     try:
-        db.add(StockMaster(code="000010", name="신규종목", market="KOSPI", is_active=True))
+        db.add(
+            StockMaster(code="000010", name="신규종목", market="KOSPI", is_active=True)
+        )
         _add_price_series(db, "000010", [0.01, -0.01] * 10)
         db.commit()
 
@@ -163,6 +242,7 @@ def test_opposite_moves_api_returns_completed_close_relationship_contract():
         assert payload["name"] == "기준종목"
         assert payload["status"] == "ready"
         assert payload["items"][0]["code"] == "000002"
+        assert payload["items"][0]["market_cap_rank"] == 2
         assert payload["items"][0]["comparison_end"] == "2026-03-23"
         assert payload["items"][0]["logo_url"] == "/stock-logos/000002.png"
     finally:
