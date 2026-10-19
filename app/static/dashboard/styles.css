@@ -18957,6 +18957,162 @@ body :is(
   line-height: 1.5;
 }
 
+#stock-view.stock-detail-v3 .stock-opposite-moves-list {
+  display: grid;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-row {
+  width: 100%;
+  min-height: 92px;
+  display: grid;
+  grid-template-areas:
+    "identity quote"
+    "explanation action";
+  grid-template-columns: minmax(0, 1fr) minmax(116px, auto);
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--stock-v3-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--stock-v3-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-row:last-child {
+  border-bottom: 0;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-row:is(:hover, :focus-visible) {
+  background: var(--stock-v3-blue-soft);
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-row:focus-visible,
+#stock-view.stock-detail-v3 .stock-opposite-moves-retry:focus-visible {
+  outline: 3px solid var(--stock-v3-blue);
+  outline-offset: 2px;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-identity {
+  grid-area: identity;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-logo {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-naming {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-naming > strong {
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-badge {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--stock-v3-blue-soft);
+  color: var(--stock-v3-blue);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-quote {
+  grid-area: quote;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  text-align: right;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-quote > strong {
+  color: var(--stock-v3-text);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-quote > span:not(.stock-opposite-move-quote-status) {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-quote-status {
+  color: var(--stock-v3-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-explanation {
+  grid-area: explanation;
+  min-width: 0;
+  color: var(--stock-v3-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-move-action {
+  grid-area: action;
+  justify-self: end;
+  color: var(--stock-v3-blue);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-moves-state {
+  margin: 0;
+  padding: 18px 4px;
+  color: var(--stock-v3-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-moves-note {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--stock-v3-line);
+  color: var(--stock-v3-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+#stock-view.stock-detail-v3 .stock-opposite-moves-retry {
+  min-height: 44px;
+  justify-self: center;
+  padding: 0 16px;
+  border: 1px solid var(--stock-v3-line-strong);
+  border-radius: 7px;
+  background: var(--stock-v3-panel);
+  color: var(--stock-v3-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 #stock-view.stock-detail-v3 .stock-v3-keywords,
 #stock-view.stock-detail-v3 .stock-v3-topic-tabs {
   display: flex;
@@ -20693,6 +20849,29 @@ body :is(
   #stock-view.stock-detail-v3 .stock-v3-section-description {
     font-size: 13px;
     font-weight: 600;
+  }
+
+  #stock-view.stock-detail-v3 .stock-opposite-move-row {
+    grid-template-columns: minmax(0, 1fr) minmax(104px, auto);
+    gap: 9px 12px;
+    min-height: 100px;
+    padding: 15px 0;
+    border-radius: 0;
+  }
+
+  #stock-view.stock-detail-v3 .stock-opposite-move-logo {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-opposite-move-naming > strong,
+  #stock-view.stock-detail-v3 .stock-opposite-move-quote > strong {
+    font-size: 14px;
+  }
+
+  #stock-view.stock-detail-v3 .stock-opposite-move-explanation {
+    font-size: 12px;
   }
 
   #stock-view.stock-detail-v3 .stock-v3-update-kind {

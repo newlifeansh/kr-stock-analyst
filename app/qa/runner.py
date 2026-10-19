@@ -84,6 +84,14 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_market_recommendations_do_not_serve_non_empty_in_process_cache",
         "tests.test_app.test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window",
     ),
+    "SIG-UI-036": (
+        "tests.test_opposite_moves.test_opposite_moves_only_returns_liquid_stable_inverse_candidate",
+        "tests.test_opposite_moves.test_opposite_moves_fail_closed_when_history_is_short",
+        "tests.test_opposite_moves.test_opposite_moves_excludes_unfinished_daily_row",
+        "tests.test_opposite_moves.test_opposite_moves_api_returns_completed_close_relationship_contract",
+        "tests.test_stock_detail_v3.test_stock_detail_opposite_moves_show_plain_language_live_quote_rows",
+        "tests.test_stock_detail_v3.test_opposite_move_quote_labels_realtime_and_completed_close_without_confusing_them",
+    ),
     "SIG-UI-035": (
         "tests.test_home_signal_loading.test_home_market_signals_do_not_wait_for_personal_signals",
         "tests.test_home_signal_loading.test_home_late_personal_response_cannot_overwrite_new_identity_or_request",
