@@ -1547,8 +1547,6 @@ def build_us_position_lifecycle_feed(
         symbol: us_price_bars(rows, now=current, market_session=market_session)
         for symbol, rows in histories.items()
     }
-    spy_bars = bars_by_symbol.get("SPY", [])
-    qqq_bars = bars_by_symbol.get("QQQ", [])
     universe_date_value = universe.get("universe_as_of")
     if isinstance(universe_date_value, datetime):
         universe_date = universe_date_value.date()
@@ -1586,6 +1584,8 @@ def build_us_position_lifecycle_feed(
                     for symbol, rows in refreshed_histories.items()
                 }
             )
+    spy_bars = bars_by_symbol.get("SPY", [])
+    qqq_bars = bars_by_symbol.get("QQQ", [])
     covered_codes: set[str] = set()
     signal_eligible_codes: set[str] = set()
     insufficient_history_codes: set[str] = set()
