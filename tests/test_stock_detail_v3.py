@@ -470,8 +470,8 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-opposite-moves-section"',
         'id="stock-opposite-moves-title"',
         'id="stock-opposite-moves-list"',
-        "시총 상위 100개 중 다르게 움직인 종목",
-        "큰 기업 중 선택 종목과 다른 방향으로 움직인 경우가 많았던 종목이에요.",
+        "시총 상위 종목 중 다르게 움직인 종목",
+        "시총 100위 안에서 먼저 찾고, 부족하면 200위까지 확인해요.",
         "최근 7일 수급",
         'id="stock-home-disclosures"',
         'id="stock-home-disclosures-summary"',
@@ -871,7 +871,8 @@ def test_stock_detail_opposite_moves_show_plain_language_live_quote_rows():
     styles = client.get("/assets/dashboard/styles.css").text
 
     assert "함께 볼 종목" in shell
-    assert "시총 상위 100개 중 다르게 움직인 종목" in shell
+    assert "시총 상위 종목 중 다르게 움직인 종목" in shell
+    assert "시총 100위 안에서 먼저 찾고, 부족하면 200위까지 확인해요." in shell
     assert "과거에 다르게 움직였다는 뜻" in shell
     assert 'aria-busy="true"' in shell
     assert "/opposite-moves?limit=3" in source

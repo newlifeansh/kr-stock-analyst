@@ -8268,9 +8268,9 @@ function resetStockOppositeMoves(data = null) {
   elements.stockOppositeMovesList.innerHTML = visible
     ? '<p class="stock-opposite-moves-state">다르게 움직인 종목을 찾는 중입니다.</p>'
     : "";
-  setText(elements.stockOppositeMovesTitle, "시총 상위 100개 중 다르게 움직인 종목");
+  setText(elements.stockOppositeMovesTitle, "시총 상위 종목 중 다르게 움직인 종목");
   setText(elements.stockOppositeMovesPeriod, "최근 6개월");
-  setText(elements.stockOppositeMovesDescription, "큰 기업 중 선택 종목과 다른 방향으로 움직인 경우가 많았던 종목이에요.");
+  setText(elements.stockOppositeMovesDescription, "시총 100위 안에서 먼저 찾고, 부족하면 200위까지 확인해요.");
   if (elements.stockOppositeMovesNote) elements.stockOppositeMovesNote.hidden = !visible;
 }
 
@@ -8279,11 +8279,11 @@ function renderStockOppositeMoves(payload = state.stockOppositeMoves) {
   const targetName = String(payload?.name || state.currentStock?.name || "선택 종목");
   const items = Array.isArray(payload?.items) ? payload.items : [];
   elements.stockOppositeMovesSection.hidden = stockDashboardIsUs() || !state.currentStock?.code;
-  setText(elements.stockOppositeMovesTitle, "시총 상위 100개 중 다르게 움직인 종목");
+  setText(elements.stockOppositeMovesTitle, "시총 상위 종목 중 다르게 움직인 종목");
   setText(elements.stockOppositeMovesPeriod, "최근 6개월");
   setText(
     elements.stockOppositeMovesDescription,
-    `시총 상위 100개 종목 중 ${targetName}가 내린 날 오른 경우가 많았어요. 지금 시세도 함께 보여드려요.`,
+    `시총 100위 안에서 먼저 찾고, 부족하면 200위까지 넓혀 ${targetName}와 비교했어요. 지금 시세도 함께 보여드려요.`,
   );
   elements.stockOppositeMovesList.replaceChildren();
   elements.stockOppositeMovesList.setAttribute("aria-busy", "false");
