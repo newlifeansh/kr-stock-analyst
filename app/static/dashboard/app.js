@@ -237,6 +237,12 @@ const elements = {
   stockHomeTodayDate: $("stock-home-today-date"),
   stockHomeSummaryList: $("stock-home-summary-list"),
   stockHomeChartAnalysis: $("stock-home-chart-analysis"),
+  stockOppositeMovesSection: $("stock-opposite-moves-section"),
+  stockOppositeMovesTitle: $("stock-opposite-moves-title"),
+  stockOppositeMovesPeriod: $("stock-opposite-moves-period"),
+  stockOppositeMovesDescription: $("stock-opposite-moves-description"),
+  stockOppositeMovesList: $("stock-opposite-moves-list"),
+  stockOppositeMovesNote: $("stock-opposite-moves-note"),
   stockHomeUpdates: $("stock-home-updates"),
   stockHomeDisclosures: $("stock-home-disclosures"),
   stockHomeDisclosuresSummary: $("stock-home-disclosures-summary"),
@@ -1498,6 +1504,8 @@ const state = {
   stockReportMode: "target",
   stockHomeDetailsRequestId: 0,
   stockHomeDetailsRetryTimer: null,
+  stockOppositeMoves: null,
+  stockOppositeMovesRequestId: 0,
   stockIssueKeyword: "",
   stockAIAnalysis: null,
   stockAIRequestedCode: "",
@@ -8177,6 +8185,201 @@ function renderStockHomeChartAnalysis(horizon = state.stockHomeChartHorizon || 1
   }
 }
 
+function oppositeMoveQuoteView(payload = {}) {
+  const quote = payload.quote || {};
+  const openingAuction = String(quote.market_session || "") === "krx_opening_auction"
+    && toNumber(quote.pre_market_price) !== null;
+  const price = openingAuction ? toNumber(quote.pre_market_price) : toNumber(quote.price);
+  const changeRate = openingAuction
+    ? toNumber(quote.pre_market_change_rate)
+    : toNumber(quote.change_rate);
+  const source = String(payload.source || "").toLowerCase();
+  const time = formatAiSignalLiveTime(
+    openingAuction
+      ? quote.pre_market_as_of
+      : payload.observed_at || payload.as_of || payload.published_at || quote.source_as_of,
+  );
+  if (navigator.onLine === false) {
+    return { price, changeRate, status: "연결 끊김", time };
+  }
+  if (openingAuction) {
+    return { price, changeRate, status: "장전 예상가", time };
+  }
+  if (source === "kis_realtime") {
+    return { price, changeRate, status: "실시간", time };
+  }
+  if (source === "stored_daily_price" || quote.is_live === false) {
+    return { price, changeRate, status: "마지막 종가", time };
+  }
+  return { price, changeRate, status: "현재 시세", time };
+}
+
+function updateStockOppositeMoveQuote(payload = {}) {
+  const code = String(payload.code || "");
+  if (!code || !elements.stockOppositeMovesList) return;
+  const row = elements.stockOppositeMovesList.querySelector(`[data-opposite-code="${code}"]`);
+  if (!row) return;
+  const priceNode = row.querySelector('[data-field="opposite-price"]');
+  const changeNode = row.querySelector('[data-field="opposite-change"]');
+  const statusNode = row.querySelector('[data-field="opposite-status"]');
+  const view = oppositeMoveQuoteView(payload);
+  if (priceNode) {
+    priceNode.textContent = view.price === null ? "현재가 확인 중" : `${formatNumber(Math.round(view.price))}원`;
+  }
+  if (changeNode) {
+    changeNode.textContent = view.changeRate === null ? "등락률 확인 중" : formatPercent(view.changeRate);
+    setTone(changeNode, view.changeRate);
+  }
+  if (statusNode) {
+    statusNode.textContent = view.time ? `${view.status} · ${view.time} 기준` : view.status;
+    statusNode.dataset.quoteState = view.status;
+  }
+  row.setAttribute(
+    "aria-label",
+    `${row.dataset.name || code}, ${priceNode?.textContent || "현재가 확인 중"}, ${changeNode?.textContent || "등락률 확인 중"}, ${statusNode?.textContent || "시세 확인 중"}`,
+  );
+}
+
+function connectStockOppositeMoveQuotes(items = [], targetCode = state.currentStock?.code) {
+  const expectedTarget = String(targetCode || "");
+  replaceQuoteStreamScope("opposite-moves", items.map((item) => ({
+    code: String(item.code || ""),
+    handlers: {
+      onQuote: (payload) => {
+        if (state.currentStock?.code !== expectedTarget) return;
+        updateStockOppositeMoveQuote(payload);
+      },
+    },
+  })));
+  items.forEach((item) => {
+    const latest = state.quoteStreamLatestByCode.get(String(item.code || ""))?.payload;
+    if (latest) updateStockOppositeMoveQuote(latest);
+  });
+}
+
+function resetStockOppositeMoves(data = null) {
+  state.stockOppositeMovesRequestId += 1;
+  state.stockOppositeMoves = null;
+  clearQuoteStreamScope("opposite-moves");
+  if (!elements.stockOppositeMovesSection || !elements.stockOppositeMovesList) return;
+  const visible = Boolean(data?.code) && !stockDashboardIsUs(data);
+  elements.stockOppositeMovesSection.hidden = !visible;
+  elements.stockOppositeMovesList.setAttribute("aria-busy", String(visible));
+  elements.stockOppositeMovesList.innerHTML = visible
+    ? '<p class="stock-opposite-moves-state">다르게 움직인 종목을 찾는 중입니다.</p>'
+    : "";
+  setText(elements.stockOppositeMovesTitle, "다르게 움직인 종목");
+  setText(elements.stockOppositeMovesPeriod, "최근 6개월");
+  setText(elements.stockOppositeMovesDescription, "최근 완료된 종가와 지금 시세를 함께 확인해요.");
+  if (elements.stockOppositeMovesNote) elements.stockOppositeMovesNote.hidden = !visible;
+}
+
+function renderStockOppositeMoves(payload = state.stockOppositeMoves) {
+  if (!elements.stockOppositeMovesSection || !elements.stockOppositeMovesList) return;
+  const targetName = String(payload?.name || state.currentStock?.name || "선택 종목");
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  elements.stockOppositeMovesSection.hidden = stockDashboardIsUs() || !state.currentStock?.code;
+  setText(elements.stockOppositeMovesTitle, `${targetName}와 다르게 움직인 종목`);
+  setText(elements.stockOppositeMovesPeriod, "최근 6개월");
+  setText(
+    elements.stockOppositeMovesDescription,
+    `${targetName}가 내린 날 오르는 경우가 많았던 종목이에요. 지금 시세도 함께 보여드려요.`,
+  );
+  elements.stockOppositeMovesList.replaceChildren();
+  elements.stockOppositeMovesList.setAttribute("aria-busy", "false");
+
+  if (!items.length) {
+    clearQuoteStreamScope("opposite-moves");
+    elements.stockOppositeMovesList.appendChild(el(
+      "p",
+      "stock-opposite-moves-state",
+      payload?.message || "최근에는 꾸준히 다른 방향으로 움직인 종목을 찾지 못했어요.",
+    ));
+    return;
+  }
+
+  items.forEach((item) => {
+    const row = el("button", "stock-opposite-move-row");
+    row.type = "button";
+    row.dataset.oppositeCode = String(item.code || "");
+    row.dataset.name = String(item.name || item.code || "종목");
+
+    const identity = el("span", "stock-opposite-move-identity");
+    identity.appendChild(createStockListLogo(item.code, "stock-opposite-move-logo"));
+    const naming = el("span", "stock-opposite-move-naming");
+    naming.append(
+      el("strong", "", item.name || item.code || "종목"),
+      el("span", "stock-opposite-move-badge", item.relationship_label || "가끔 반대로 움직임"),
+    );
+    identity.appendChild(naming);
+
+    const quote = el("span", "stock-opposite-move-quote");
+    const price = el("strong", "", "현재가 확인 중");
+    price.dataset.field = "opposite-price";
+    const change = el("span", "muted", "등락률 확인 중");
+    change.dataset.field = "opposite-change";
+    const quoteStatus = el("span", "stock-opposite-move-quote-status", "시세 연결 중");
+    quoteStatus.dataset.field = "opposite-status";
+    quote.append(price, change, quoteStatus);
+
+    const downDays = Math.max(0, Number(item.target_down_days) || 0);
+    const upDays = Math.max(0, Number(item.candidate_up_on_target_down_days) || 0);
+    const explanation = el(
+      "span",
+      "stock-opposite-move-explanation",
+      downDays
+        ? `${targetName}가 내린 ${formatNumber(downDays)}일 중 ${formatNumber(upDays)}일 올랐어요.`
+        : "최근 완료된 종가의 움직임을 비교했어요.",
+    );
+    const action = el("span", "stock-opposite-move-action", "종목 보기");
+    action.setAttribute("aria-hidden", "true");
+    row.append(identity, quote, explanation, action);
+    row.addEventListener("click", () => navigateToStock(item.code));
+    elements.stockOppositeMovesList.appendChild(row);
+  });
+  connectStockOppositeMoveQuotes(items, payload.code);
+}
+
+function renderStockOppositeMovesError(data) {
+  clearQuoteStreamScope("opposite-moves");
+  if (!elements.stockOppositeMovesList) return;
+  elements.stockOppositeMovesList.replaceChildren();
+  elements.stockOppositeMovesList.setAttribute("aria-busy", "false");
+  const stateCopy = el("p", "stock-opposite-moves-state", "종목 관계를 불러오지 못했어요.");
+  const retry = el("button", "stock-opposite-moves-retry", "다시 확인");
+  retry.type = "button";
+  retry.addEventListener("click", () => void loadStockOppositeMoves(data, { force: true }));
+  elements.stockOppositeMovesList.append(stateCopy, retry);
+}
+
+async function loadStockOppositeMoves(data, options = {}) {
+  const code = String(data?.code || "");
+  if (!code || stockDashboardIsUs(data)) {
+    resetStockOppositeMoves(null);
+    return;
+  }
+  const requestId = ++state.stockOppositeMovesRequestId;
+  if (elements.stockOppositeMovesSection) elements.stockOppositeMovesSection.hidden = false;
+  if (elements.stockOppositeMovesList) {
+    elements.stockOppositeMovesList.setAttribute("aria-busy", "true");
+    elements.stockOppositeMovesList.innerHTML = '<p class="stock-opposite-moves-state">다르게 움직인 종목을 찾는 중입니다.</p>';
+  }
+  try {
+    const endpoint = `/stocks/${encodeURIComponent(code)}/opposite-moves?limit=3`;
+    const payload = await fetchJsonCached(endpoint, {
+      force: options.force === true,
+      ttlMs: 30 * PAGE_ENTRY_MINUTE_MS,
+      timeoutMs: 15_000,
+    });
+    if (requestId !== state.stockOppositeMovesRequestId || state.currentStock?.code !== code) return;
+    state.stockOppositeMoves = payload;
+    renderStockOppositeMoves(payload);
+  } catch {
+    if (requestId !== state.stockOppositeMovesRequestId || state.currentStock?.code !== code) return;
+    renderStockOppositeMovesError(data);
+  }
+}
+
 function resetStockHomeDetails() {
   dismissStockBarTooltip();
   window.clearTimeout(state.stockHomeDetailsRetryTimer);
@@ -8780,6 +8983,7 @@ function updateQuoteStrip(quote, payload = null, options = {}) {
 
 const QUOTE_STREAM_SCOPE_PRIORITIES = {
   detail: 1000,
+  "opposite-moves": 950,
   "ai-signals": 900,
   "home-watch-map": 850,
   "home-ranking": 800,
@@ -9199,7 +9403,9 @@ function setQuoteStreamSignalControlActive(active) {
 }
 
 function closeQuoteStream() {
-  clearQuoteStreamScope("detail");
+  state.quoteStreamScopes.delete("detail");
+  state.quoteStreamScopes.delete("opposite-moves");
+  syncQuoteStreamSubscriptions();
 }
 
 function connectQuoteStream(stock) {
@@ -14805,6 +15011,7 @@ function setView(requestedViewName, options = {}) {
     state.stockQuantRequestSequence += 1;
     state.stockQuantLoading = false;
     state.stockQuantLoadingCode = "";
+    resetStockOppositeMoves();
     setAIAnalysisButtonsLoading(false);
   }
   state.view = view;
@@ -31127,6 +31334,7 @@ function setLoading(code) {
   resetQuantSignals();
   resetStockPriceSummary();
   resetStockHomeChartAnalysis();
+  resetStockOppositeMoves();
   resetStockHomeDetails();
   resetStockEtfProfile();
   resetStockCompanyProfile();
@@ -31257,6 +31465,12 @@ function render(data, options = {}) {
   state.currentStock = { code: data.code, name: data.name, market: data.market, currency: data.currency };
   state.currentDashboard = data;
   configureStockMarketExperience(data);
+  if (state.stockOppositeMoves?.code === data.code) {
+    renderStockOppositeMoves(state.stockOppositeMoves);
+  } else {
+    resetStockOppositeMoves(data);
+    void loadStockOppositeMoves(data);
+  }
   resetStockEtfProfile(data);
   state.stockAIRequestSequence += 1;
   state.stockAILoading = false;

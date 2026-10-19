@@ -467,6 +467,10 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-flow-history-chart"',
         'id="stock-home-checkpoints"',
         'id="stock-home-chart-analysis"',
+        'id="stock-opposite-moves-section"',
+        'id="stock-opposite-moves-title"',
+        'id="stock-opposite-moves-list"',
+        "최근 완료된 종가와 지금 시세를 함께 확인해요.",
         "최근 7일 수급",
         'id="stock-home-disclosures"',
         'id="stock-home-disclosures-summary"',
@@ -506,6 +510,9 @@ def test_stock_detail_v3_shell_and_controls():
     finance_section_index = shell.text.index('id="stock-finance-section"')
     strategy_panel_index = shell.text.index('id="stock-strategy-section"')
     assert home_panel_index < company_panel_index < finance_section_index < strategy_panel_index
+    opposite_section_index = shell.text.index('id="stock-opposite-moves-section"')
+    assert shell.text.index('id="stock-home-chart-analysis"') < opposite_section_index
+    assert opposite_section_index < shell.text.index('id="stock-home-updates"')
 
     source = client.get("/assets/dashboard/app.js").text
     assert 'state.stockPricePeriod = button.dataset.pricePeriod || "1D"' in source
@@ -854,6 +861,69 @@ def test_stock_detail_v3_shell_and_controls():
     assert 'id="login-gate" data-phase="loading"' in shell.text
     assert 'id="login-loading"' in shell.text
     assert 'id="login-splash"' not in shell.text
+
+
+def test_stock_detail_opposite_moves_show_plain_language_live_quote_rows():
+    client = TestClient(app)
+    shell = client.get("/dashboard/SK하이닉스").text
+    source = client.get("/assets/dashboard/app.js").text
+    styles = client.get("/assets/dashboard/styles.css").text
+
+    assert "함께 볼 종목" in shell
+    assert "다르게 움직인 종목" in shell
+    assert "과거에 다르게 움직였다는 뜻" in shell
+    assert 'aria-busy="true"' in shell
+    assert "/opposite-moves?limit=3" in source
+    assert 'replaceQuoteStreamScope("opposite-moves"' in source
+    assert 'source === "kis_realtime"' in source
+    assert 'status: "실시간"' in source
+    assert 'status: "마지막 종가"' in source
+    assert "가 내린 ${formatNumber(downDays)}일 중" in source
+    assert "navigateToStock(item.code)" in source
+    assert ".stock-opposite-move-row:focus-visible" in styles
+    assert "min-height: 92px;" in styles
+    assert "min-height: 100px;" in styles
+    assert "grid-template-columns: minmax(0, 1fr) minmax(104px, auto);" in styles
+
+
+def test_opposite_move_quote_labels_realtime_and_completed_close_without_confusing_them():
+    source = TestClient(app).get("/assets/dashboard/app.js").text
+    start = source.index("function oppositeMoveQuoteView(")
+    function_source = source[start : source.index("function updateStockOppositeMoveQuote(", start)]
+    script = f"""
+const navigator = {{onLine: true}};
+function toNumber(value) {{
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}}
+function formatAiSignalLiveTime() {{ return "10:31"; }}
+{function_source}
+console.log(JSON.stringify([
+  oppositeMoveQuoteView({{source: "kis_realtime", observed_at: "2026-10-19T10:31:00+09:00", quote: {{price: 201000, change_rate: 2.1, is_live: true}}}}),
+  oppositeMoveQuoteView({{source: "stored_daily_price", as_of: "2026-10-16T15:30:00+09:00", quote: {{price: 198000, change_rate: -1.2, is_live: false}}}}),
+]));
+"""
+    result = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    realtime, completed = json.loads(result.stdout)
+
+    assert realtime == {
+        "price": 201000,
+        "changeRate": 2.1,
+        "status": "실시간",
+        "time": "10:31",
+    }
+    assert completed == {
+        "price": 198000,
+        "changeRate": -1.2,
+        "status": "마지막 종가",
+        "time": "10:31",
+    }
 
 
 def test_stock_detail_commandbar_reveals_quote_after_mobile_scroll_without_interrupting_search():

@@ -103,6 +103,7 @@ from app.schemas import (
     StockCommunityFeedOut,
     StockEtfProfileOut,
     StockHomeContextOut,
+    StockOppositeMovesOut,
     StockQuantSignalsOut,
     StockSgaAnalysisOut,
     StockSectorOperatingMarginComparisonOut,
@@ -172,6 +173,7 @@ from app.services.morning_money_briefing import (
     build_morning_money_briefing_history,
     money_briefing_edition,
 )
+from app.services.opposite_moves import build_opposite_moves, opposite_moves_completed_through
 from app.services.recommendations import build_recommendations
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
@@ -305,7 +307,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261019v579"
+DASHBOARD_CLIENT_VERSION = "20261019v580"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -313,7 +315,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261019us151"
+US_DASHBOARD_CLIENT_VERSION = "20261019us152"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -324,6 +326,7 @@ live_quote_cache = TTLCache(maxsize=1024)
 morning_money_briefing_cache = TTLCache(maxsize=32)
 MORNING_MONEY_BRIEFING_CACHE_SECONDS = 30
 MORNING_MONEY_HISTORY_CACHE_SECONDS = 120
+OPPOSITE_MOVES_CACHE_SECONDS = 6 * 60 * 60
 complete_snapshot_runtime: Optional[SnapshotRuntime] = None
 market_quant_signal_refresh_lock = RLock()
 us_position_lifecycle_refresh_lock = Lock()
@@ -5802,6 +5805,33 @@ def stock_detail(code: str, db: Session = Depends(get_db)):
     if not item:
         raise HTTPException(status_code=404, detail="Stock not found")
     return item
+
+
+@app.get("/stocks/{code}/opposite-moves", response_model=StockOppositeMovesOut)
+def stock_opposite_moves(
+    code: str,
+    response: Response,
+    limit: int = Query(default=3, ge=1, le=5),
+    db: Session = Depends(get_db),
+):
+    normalized = _normalize_stock_code(code)
+    completed_through = opposite_moves_completed_through()
+    cache_key = ("stock_opposite_moves", normalized, limit, completed_through.isoformat())
+    try:
+        payload = api_cache.get_or_set(
+            cache_key,
+            OPPOSITE_MOVES_CACHE_SECONDS,
+            lambda: build_opposite_moves(
+                db,
+                normalized,
+                limit=limit,
+                completed_through=completed_through,
+            ),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Stock not found") from exc
+    response.headers["Cache-Control"] = "public, max-age=900"
+    return payload
 
 
 def _parse_decimal_value(value: Any) -> Optional[Decimal]:

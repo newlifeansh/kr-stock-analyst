@@ -27,6 +27,36 @@ class StockOut(BaseModel):
     logo_url: Optional[str] = None
 
 
+class StockOppositeMoveItemOut(BaseModel):
+    code: str
+    name: str
+    market: str
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    relationship_label: Literal["자주 반대로 움직임", "가끔 반대로 움직임"]
+    correlation: float
+    recent_correlation: float
+    observations: int
+    target_down_days: int
+    candidate_up_on_target_down_days: int
+    down_day_opposite_rate: float
+    opposite_direction_rate: float
+    comparison_start: date
+    comparison_end: date
+    logo_url: Optional[str] = None
+
+
+class StockOppositeMovesOut(BaseModel):
+    code: str
+    name: str
+    status: Literal["ready", "insufficient_history", "no_stable_opposite"]
+    message: str
+    as_of: Optional[date] = None
+    lookback_sessions: int
+    observations: int
+    items: list[StockOppositeMoveItemOut] = Field(default_factory=list)
+
+
 class WatchlistItemIn(BaseModel):
     code: str = Field(..., min_length=1, max_length=12)
     name: str = Field(..., min_length=1, max_length=120)
