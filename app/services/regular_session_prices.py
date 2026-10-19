@@ -107,13 +107,14 @@ def _verified_naver_closing_auction(
     if not regular or not "090000" <= regular[0]["trade_time"] <= "090900":
         raise ValueError("cross-source coverage requires a first-bucket trade anchor")
     delayed_opening_trade = regular[0]["trade_time"] != "090000"
-    candles = (payload.get("priceInfos") or {}).get(day.strftime("%Y%m%d"))
+    day_key = day.strftime("%Y%m%d")
+    candles = (payload.get("priceInfos") or {}).get(day_key)
     if not isinstance(candles, list):
         raise ValueError("missing dated closing-auction evidence")
     buckets = {}
     for row in candles:
         stamp = str(row.get("localDateTime") or "")
-        if not stamp.startswith(day.strftime("%Y%m%d")) or stamp in buckets:
+        if not stamp.startswith(day_key) or stamp in buckets:
             raise ValueError("wrong date or duplicate closing-auction bucket")
         buckets[stamp] = row
     cumulative = 0
@@ -123,7 +124,12 @@ def _verified_naver_closing_auction(
     for index in range(0, 380, 10):
         expected_start = datetime.combine(day, time(9)) + timedelta(minutes=index)
         expected_end = expected_start + timedelta(minutes=10)
-        minutes = [row for row in regular if expected_start.strftime("%H%M%S") <= row["trade_time"] < expected_end.strftime("%H%M%S")]
+        # These bounds are identical for every minute in the bucket. Formatting
+        # them inside the predicate multiplies strftime work by ~380 per stock
+        # and session during recommendation evidence replay.
+        start_time = expected_start.strftime("%H%M%S")
+        end_time = expected_end.strftime("%H%M%S")
+        minutes = [row for row in regular if start_time <= row["trade_time"] < end_time]
         bucket_key = expected_start.strftime("%Y%m%d%H%M%S")
         bucket = buckets.get(bucket_key)
         if not minutes:
@@ -162,10 +168,10 @@ def _verified_naver_closing_auction(
         pending_empty_buckets = 0
     if pending_empty_buckets:
         raise ValueError("unverified trailing empty pre-auction bucket")
-    indicative = buckets.get(day.strftime("%Y%m%d") + "152000")
+    indicative = buckets.get(day_key + "152000")
     if indicative is not None and _integer(indicative.get("accumulatedTradingVolume")) != last_cumulative:
         raise ValueError("unverified positive-volume closing auction interval")
-    close = buckets.get(day.strftime("%Y%m%d") + "153000")
+    close = buckets.get(day_key + "153000")
     if close is None:
         # Both dated sources omit a positive closing-auction execution. The
         # regular close is therefore the last independently matched trade;
@@ -177,7 +183,7 @@ def _verified_naver_closing_auction(
     volume = _integer(close.get("accumulatedTradingVolume")) - int(last_cumulative)
     if volume <= 0:
         raise ValueError("closing auction has no actual volume")
-    return {"trade_date": day.strftime("%Y%m%d"), "trade_time": "153000",
+    return {"trade_date": day_key, "trade_time": "153000",
             "open": prices[0], "high": prices[0], "low": prices[0], "price": prices[0],
             "volume": volume, "trading_value": _integer(regular[-1]["trading_value"]) + prices[0] * volume}
 

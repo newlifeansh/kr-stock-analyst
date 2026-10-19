@@ -193,6 +193,7 @@ class BriefingRuntime:
                 self.settings.research_enabled,
                 self.settings.disclosure_enabled,
                 self.settings.news_enabled,
+                self.settings.investor_flow_enabled,
             )
         ):
             self.freshness_task = asyncio.create_task(self._freshness_loop())
@@ -234,10 +235,12 @@ class BriefingRuntime:
             intervals.append(max(1, int(self.settings.disclosure_poll_seconds)))
         if self.settings.news_enabled:
             intervals.append(max(1, int(self.settings.news_poll_seconds)))
+        if self.settings.investor_flow_enabled:
+            intervals.append(max(1, min(60, int(self.settings.investor_flow_poll_seconds))))
         return min(intervals)
 
     async def _freshness_loop(self) -> None:
-        """Refresh short-cadence sources independently of long market jobs."""
+        """Refresh freshness-critical sources independently of long market jobs."""
         while self.running:
             try:
                 await asyncio.to_thread(self.run_freshness_once)
@@ -246,7 +249,7 @@ class BriefingRuntime:
             await asyncio.sleep(self._freshness_poll_seconds())
 
     def run_freshness_once(self, *, refresh_briefing: bool = True) -> bool:
-        """Run research, disclosure, and news without overlapping another run.
+        """Run flow, research, disclosure, and news without overlapping another run.
 
         A full price or per-stock snapshot collection can take longer than the
         freshness SLA for these sources. The runtime therefore calls this from
@@ -257,6 +260,22 @@ class BriefingRuntime:
         try:
             with SessionLocal() as db:
                 refreshed_any = False
+                if self.settings.investor_flow_enabled and self._investor_flow_due():
+                    try:
+                        flow_result = self._collect_investor_flows(db)
+                        refreshed_any = bool(flow_result["rows_loaded"])
+                        self.last_investor_flow_source = str(flow_result["source"])
+                        self.last_investor_flow_message = str(flow_result["message"])
+                        if flow_result["ready"]:
+                            self.last_investor_flow_at = datetime.utcnow()
+                            self.source_errors.pop("investor_flow", None)
+                        else:
+                            # Historical rows alone do not satisfy today's
+                            # coverage. Retry on the freshness lane instead of
+                            # waiting a full 30-minute successful polling cycle.
+                            self.source_errors["investor_flow"] = self.last_investor_flow_message
+                    except Exception as exc:
+                        self.source_errors["investor_flow"] = str(exc)
                 if self.settings.research_enabled and self._research_due():
                     try:
                         research_rows = collect_research_reports(db, settings=self.settings)
@@ -341,19 +360,6 @@ class BriefingRuntime:
                         self.last_price_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["prices"] = str(exc)
-            # Flow is signal-critical P0 data. Run it immediately after price
-            # establishes the completed-session market-cap universe instead of
-            # making it wait behind full-universe fundamental/news backfills.
-            if self.settings.investor_flow_enabled and self._investor_flow_due():
-                try:
-                    flow_result = self._collect_investor_flows(db)
-                    if flow_result["rows_loaded"]:
-                        refreshed_any = True
-                    self.last_investor_flow_source = str(flow_result["source"])
-                    self.last_investor_flow_message = str(flow_result["message"])
-                    self.last_investor_flow_at = datetime.utcnow()
-                except Exception as exc:
-                    self.source_errors["investor_flow"] = str(exc)
             fundamental_snapshot_due = bool(
                 self.settings.fundamental_snapshot_enabled
                 and self._fundamental_snapshot_due()
@@ -1034,6 +1040,7 @@ class BriefingRuntime:
             return {
                 "source": "existing_investor_flows",
                 "rows_loaded": 0,
+                "ready": bool(coverage["total"] and coverage["coverage_ratio"] >= 0.95),
                 "message": (
                     f"target={coverage['target_date']} fresh={coverage['fresh']}/{coverage['total']} "
                     f"coverage={coverage['coverage_ratio']:.2%}"
@@ -1072,12 +1079,15 @@ class BriefingRuntime:
                 max_workers=self.settings.investor_flow_max_workers,
             )
             source = "canonical_investor_flow"
+        updated = self._latest_investor_flow_coverage(db)
         return {
             "source": source,
             "rows_loaded": rows,
+            "ready": bool(updated["total"] and updated["coverage_ratio"] >= 0.95),
             "message": (
                 f"pages={self.settings.investor_flow_pages} target={coverage['target_date']} "
-                f"stale={len(stale_codes) if has_exact_stale_codes else 'unknown'}"
+                f"stale={len(stale_codes) if has_exact_stale_codes else 'unknown'} "
+                f"fresh={updated['fresh']}/{updated['total']} coverage={updated['coverage_ratio']:.2%}"
             ),
         }
 
