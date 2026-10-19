@@ -241,6 +241,7 @@ from app.services.sector_margin_comparison import build_sector_margin_comparison
 from app.services.sga_analysis import build_sga_analysis
 from app.services.stock_data_coverage import stock_data_coverage
 from app.services.stock_logos import ensure_stock_logo, sync_stock_logos
+from app.services.maintenance_jobs import run_maintenance_job
 from app.services.x_feed import build_stock_x_feed
 from app.services.kis_realtime import (
     KIS_REALTIME_STOCK_TR_ID,
@@ -1798,6 +1799,8 @@ async def _run_stock_logo_sync_loop() -> None:
     while True:
         try:
             def sync_once() -> dict[str, int]:
+                if settings.maintenance_subprocess_enabled:
+                    return run_maintenance_job("stock_logos", settings)
                 with SessionLocal() as db:
                     return sync_stock_logos(
                         db,

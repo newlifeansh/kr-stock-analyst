@@ -93,7 +93,7 @@ for name in sorted(set(names) | {target}):
   if [[ "$canonical_target" != "$RAILWAY_REGION" ]]; then
     echo "Resolved configured Railway region to the single observed canonical ID" >&2
   fi
-  echo "Scaling domestic staging $role to $replicas replica(s) across all observed regions" >&2
+  echo "Scaling staging $role to $replicas replica(s) across all observed regions" >&2
   result="$(railway scale \
     -p "$RAILWAY_PROJECT_ID" \
     --environment "$RAILWAY_ENVIRONMENT" \
@@ -258,7 +258,7 @@ wait_until_ready() {
     fi
     sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
-  echo "Domestic staging failed its database-backed readiness check" >&2
+  echo "Staging failed its database-backed readiness check" >&2
   return 1
 }
 
@@ -269,12 +269,12 @@ wait_for_database_running() {
   while ((SECONDS < deadline)); do
     state="$(database_runtime_state)" || return 1
     if [[ "$state" == "running" ]]; then
-      echo "Domestic staging database is running" >&2
+      echo "Staging database is running" >&2
       return 0
     fi
     sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
-  echo "Domestic staging database did not start within ${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS}s" >&2
+  echo "Staging database did not start within ${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS}s" >&2
   return 1
 }
 
@@ -283,12 +283,12 @@ start_database() {
 
   state="$(database_runtime_state)" || return 1
   if [[ "$state" == "running" ]]; then
-    echo "Domestic staging database is already running" >&2
+    echo "Staging database is already running" >&2
     return 0
   fi
 
   if [[ "$state" == "inactive" ]]; then
-    echo "Starting domestic staging database from its configured source image" >&2
+    echo "Starting staging database from its configured source image" >&2
     railway redeploy \
       -p "$RAILWAY_PROJECT_ID" \
       --environment "$RAILWAY_ENVIRONMENT" \
@@ -312,15 +312,15 @@ stop_database() {
   done
 
   if [[ "$state" == "inactive" ]]; then
-    echo "Domestic staging database is already stopped" >&2
+    echo "Staging database is already stopped" >&2
     return 0
   fi
   if [[ "$state" != "running" ]]; then
-    echo "Domestic staging database did not reach a removable state" >&2
+    echo "Staging database did not reach a removable state" >&2
     return 1
   fi
 
-  echo "Stopping domestic staging database deployment while preserving its service and volume" >&2
+  echo "Stopping staging database deployment while preserving its service and volume" >&2
   railway down \
     -p "$RAILWAY_PROJECT_ID" \
     --environment "$RAILWAY_ENVIRONMENT" \
@@ -330,12 +330,12 @@ stop_database() {
   while ((SECONDS < deadline)); do
     state="$(database_runtime_state)" || return 1
     if [[ "$state" == "inactive" ]]; then
-      echo "Domestic staging database is stopped" >&2
+      echo "Staging database is stopped" >&2
       return 0
     fi
     sleep "$RAILWAY_STATE_POLL_SECONDS"
   done
-  echo "Domestic staging database did not stop within ${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS}s" >&2
+  echo "Staging database did not stop within ${RAILWAY_DATABASE_STATE_TIMEOUT_SECONDS}s" >&2
   return 1
 }
 
@@ -349,6 +349,13 @@ power_down() {
   # Do not remove the DB while web/collector processes are still shutting down.
   stop_application "$RAILWAY_WEB_SERVICE" || status=1
   stop_application "$RAILWAY_COLLECTOR_SERVICE" || status=1
+  # Explicitly scoped optional services stay off outside manual diagnostics.
+  # They may share the core DB, so verify their exit before stopping that DB.
+  if [[ -n "${RAILWAY_EXTRA_STOP_SERVICES:-}" ]]; then
+    for service in "${extra_stop_services[@]}"; do
+      stop_application "$service" || status=1
+    done
+  fi
   if [[ "$status" -ne 0 ]]; then
     echo "Keeping staging DB running because application shutdown is unverified" >&2
     return "$status"
@@ -358,7 +365,7 @@ power_down() {
 }
 
 rollback_after_failed_start() {
-  echo "Domestic staging start failed; stopping applications before the database" >&2
+  echo "Staging start failed; stopping applications before the database" >&2
   power_down || true
   exit 1
 }
@@ -377,6 +384,18 @@ for variable in \
   require_value "$variable"
   validate_selector "$variable"
 done
+
+extra_stop_services=()
+if [[ -n "${RAILWAY_EXTRA_STOP_SERVICES:-}" ]]; then
+  read -r -a extra_stop_services <<< "$RAILWAY_EXTRA_STOP_SERVICES"
+  for extra_service in "${extra_stop_services[@]}"; do
+    validate_selector extra_service
+    if [[ "$extra_service" == "$RAILWAY_DATABASE_SERVICE" || "$extra_service" == "$RAILWAY_WEB_SERVICE" || "$extra_service" == "$RAILWAY_COLLECTOR_SERVICE" ]]; then
+      echo "Extra stop services must be distinct from core services" >&2
+      exit 2
+    fi
+  done
+fi
 
 RAILWAY_ENVIRONMENT="${RAILWAY_ENVIRONMENT:-staging}"
 RAILWAY_DATABASE_WARMUP_SECONDS="${RAILWAY_DATABASE_WARMUP_SECONDS:-20}"

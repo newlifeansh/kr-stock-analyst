@@ -129,11 +129,11 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "--environment staging" in workflow
     assert "--environment production" in workflow
     assert workflow.count('railway service source connect --image "$IMAGE_REF"') == 6
-    assert workflow.count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
+    assert workflow.split("  audit_runtime:", 1)[0].count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
-    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 5
-    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 11
-    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 8
+    assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 8
+    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 14
+    assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 11
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
     assert 'DASHBOARD_STAGING_RAILWAY_PROJECT_ID: ${{ vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -151,10 +151,10 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert '--service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"' in workflow
     assert '--service "$TARGET_PRODUCTION_RAILWAY_WEB_SERVICE"' in workflow
     assert '--service "$TARGET_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"' in workflow
-    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 4
+    assert workflow.count('RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}') == 6
     assert workflow.count('test -n "$RAILWAY_API_TOKEN"') == 2
     assert "      RAILWAY_TOKEN:" not in workflow
-    assert workflow.count("npm install --global @railway/cli@5.45.7") == 4
+    assert workflow.count("npm install --global @railway/cli@5.45.7") == 6
     assert "railway up" not in workflow
     assert "name: production" in workflow
     assert "--production-url \"$TARGET_PRODUCTION_BASE_URL\"" in workflow
@@ -206,8 +206,8 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert "[[ \"$REQUESTED_ACTION\" == \"stage\" && \"$PRODUCT_SURFACE\" == \"dashboard\" ]]" in workflow
     assert "Start domestic staging only for deployment and QA" in workflow
     assert "Stop domestic staging after QA or explicit session observation" in workflow
-    assert "Start domestic staging for production parity" in workflow
-    assert "Stop domestic staging after production parity" in workflow
+    assert "Start selected staging for production parity" in workflow
+    assert "Stop selected staging after production parity" in workflow
     assert "DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE" in workflow
     assert "DASHBOARD_STAGING_RAILWAY_REGION" in workflow
     assert workflow.index("Start domestic staging only for deployment and QA") < workflow.index(
@@ -488,13 +488,13 @@ def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -
     for name, start, stop in (
         (
             "qa-data-signal-live.yml",
-            "Start domestic staging for live QA",
-            "Stop domestic staging after live QA",
+            "Start selected staging for live QA",
+            "Stop selected staging after live QA",
         ),
         (
             "qa-data-signal-e2e.yml",
-            "Start domestic staging for browser QA",
-            "Stop domestic staging after browser QA",
+            "Start selected staging for browser QA",
+            "Stop selected staging after browser QA",
         ),
     ):
         workflow = Path(".github/workflows", name).read_text(encoding="utf-8")
@@ -505,6 +505,6 @@ def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -
         assert "RAILWAY_REGION" in workflow
         assert start in workflow
         assert stop in workflow
-        assert 'export RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"' in workflow
+        assert 'RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"' in workflow
         assert 'test -n "$RAILWAY_RESUME_IMAGE_REF"' in workflow
         assert workflow.index(start) < workflow.index("Upload") < workflow.index(stop)

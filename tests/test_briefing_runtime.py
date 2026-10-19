@@ -1,4 +1,5 @@
 import asyncio
+import pytest
 from datetime import date, datetime, timedelta
 from threading import Event
 from types import SimpleNamespace
@@ -83,11 +84,13 @@ def test_short_cadence_lane_does_not_overlap_itself():
         runtime._freshness_lock.release()
 
 
+@pytest.mark.parametrize("isolated", [False, True])
 def test_main_collector_prioritizes_signal_data_before_long_backfills(
-    monkeypatch,
+    monkeypatch, isolated,
 ):
     runtime = briefing.BriefingRuntime(
         Settings(
+            maintenance_subprocess_enabled=isolated,
             briefing_realtime_enabled=False,
             research_enabled=True,
             disclosure_enabled=False,
@@ -141,6 +144,7 @@ def test_main_collector_prioritizes_signal_data_before_long_backfills(
         lambda *_args, **_kwargs: None,
     )
 
+    monkeypatch.setattr(briefing, "run_maintenance_job", lambda job, _settings: calls.append(job) or {"rows_loaded": 100, "failed": 0, "message": "ready"})
     runtime.last_research_at = datetime.utcnow()
     runtime.run_once()
 
@@ -1621,3 +1625,32 @@ def test_collect_macro_uses_yahoo_when_series_are_missing(monkeypatch):
     assert result["source"] == "yahoo_macro"
     assert result["rows_loaded"] == 300
     assert calls == ["6mo"]
+
+
+def test_failed_isolated_bulk_job_remains_due_until_success(monkeypatch):
+    settings = Settings(
+        maintenance_subprocess_enabled=True, briefing_realtime_enabled=False,
+        stock_universe_enabled=True, price_enabled=False, research_enabled=False,
+        financials_enabled=False, fundamental_snapshot_enabled=False,
+        stock_news_snapshot_enabled=False, stock_company_snapshot_enabled=False,
+        macro_enabled=False,
+    )
+    runtime = briefing.BriefingRuntime(settings)
+    monkeypatch.setattr(runtime, 'run_freshness_once', lambda **_: False)
+    from contextlib import nullcontext
+    monkeypatch.setattr(briefing, 'SessionLocal', lambda: nullcontext(object()))
+    calls = []
+    def batch(job, _settings):
+        calls.append(job)
+        if len(calls) == 1:
+            raise RuntimeError('batch timed out')
+        return {'rows_loaded': 0}
+    monkeypatch.setattr(briefing, 'run_maintenance_job', batch)
+    runtime.run_once()
+    assert runtime.last_stock_universe_at is None
+    assert runtime.source_errors['stock_universe'] == 'batch timed out'
+    runtime.run_once()
+    assert runtime.last_stock_universe_at is not None
+    assert 'stock_universe' not in runtime.source_errors
+    runtime.run_once()
+    assert calls == ['stock_universe', 'stock_universe']

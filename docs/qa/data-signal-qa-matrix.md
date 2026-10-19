@@ -3,10 +3,16 @@
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v8.1`
 - 미국 후보 전략: `position-lifecycle-us-v3-hybrid1`
-- QA 항목: 154개
+- QA 항목: 155개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
+
+## 운영 비용·수집 런타임
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| OPS-COST-001 | P1 | 스테이징 필요 시 기동·배치 종료 후 메모리 반환·미사용 Ollama 중지 | gate<br>pytest 런타임 종료 순서·실제 배치 프로세스·비밀값 비노출·배포 후 Ollama 중지 조건 + 운영 immutable image/readyz/live/e2e 확인 | 국내·미국 스테이징 web/collector와 실제 연결 DB를 구분하고 기존 볼륨을 유지한다.<br>운영 web/collector는 같은 검증된 이미지이며 STOCK_AI_PROVIDER=rules이다. | collector_flag=MAINTENANCE_SUBPROCESS_ENABLED=true, bulk_jobs=['stock_universe', 'research_backfill', 'financials', 'fundamentals', 'company_snapshots', 'stock_logos'], staging_environment=staging, retained_optional_services=['US staging personal MCP', 'US staging unused Postgres'] | 국내·미국 QA에서 DB→collector/web 순서로 기동하고 성공·실패 모두 앱 종료를 확인한 뒤 DB를 중지한다.<br>배치 정상 종료·실패·시간 초과를 실행하고 프로세스 종료, DB 설정 전달, 비밀값 비노출과 다음 수집 재시도를 검증한다.<br>가격·수급·Top100 펀더멘털이 긴 백필보다 먼저 처리되는지 확인한다.<br>운영의 동일 이미지·준비 상태·화면 검증 후 rules 설정과 실행 중 서비스를 확인하고 Ollama 배포만 중지한다. | QA 밖 스테이징의 실제 실행 replica가 0이고 서비스·DB 볼륨은 보존된다.<br>배치는 한 번에 하나만 별도 프로세스로 실행하고 작업이 끝나면 종료해 임시 메모리를 반환한다.<br>실패는 성공 시각으로 기록하지 않고 기존 오류·재시도 상태로 전달한다.<br>운영 신호 갱신과 rules 기반 분석은 유지되며 Ollama 호출이 없고 미사용 모델 서비스는 실행되지 않는다. | 앱 종료를 확인하지 않고 DB를 중지하거나 운영 서비스를 스테이징 제어로 건드린다.<br>실패한 배치를 성공으로 표시하거나 프로세스·자식이 남고 비밀 설정이 명령행·로그에 노출된다.<br>동일 이미지·rules 전환·운영 검증 전에 Ollama를 중지한다. |
 
 ## 종목 상세 비교 QA
 

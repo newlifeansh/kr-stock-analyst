@@ -10,6 +10,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "KR Stock Analyst Backend"
     process_role: Literal["all", "web", "collector"] = "all"
+    maintenance_subprocess_enabled: bool = False
+    maintenance_job_timeout_seconds: int = 1800
     database_url: str = "sqlite:///./data/analyst.db"
     database_pool_size: int = 10
     database_max_overflow: int = 20

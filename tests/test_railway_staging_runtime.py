@@ -464,3 +464,33 @@ def test_staging_status_rate_limit_recovers_but_persistent_failure_keeps_db(tmp_
             assert result.returncode != 0
             assert _database_stop() not in lines
             assert len(lines) <= 16
+
+
+def test_explicit_extra_services_stop_before_shared_database(tmp_path):
+    env, log_path = _runtime_env(tmp_path, database_state="running")
+    path = Path(env['RAILWAY_TEST_APP_STATE'])
+    path.write_text(json.dumps({"web-id": "running", "collector-id": "running", "mcp-id": "running", "unused-db-id": "running"}))
+    env['RAILWAY_EXTRA_STOP_SERVICES'] = 'mcp-id unused-db-id'
+    result = subprocess.run([str(SCRIPT), 'down'], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    commands = log_path.read_text().splitlines()
+    for service in ('web-id', 'collector-id', 'mcp-id', 'unused-db-id'):
+        assert commands.index(_application_stop(service)) < commands.index(_database_stop())
+    assert not any(command.startswith(('delete ', 'scale ')) for command in commands)
+
+
+def test_unverified_extra_service_preserves_shared_database(tmp_path):
+    env, log_path = _runtime_env(tmp_path, database_state='running')
+    env['RAILWAY_EXTRA_STOP_SERVICES'] = 'missing-id'
+    result = subprocess.run([str(SCRIPT), 'down'], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert _database_stop() not in log_path.read_text().splitlines()
+
+
+@pytest.mark.parametrize('selector', ['database-id', 'web-id', 'collector-id', 'invalid;selector'])
+def test_invalid_extra_service_fails_before_any_mutation(tmp_path, selector):
+    env, log_path = _runtime_env(tmp_path, database_state='running')
+    env['RAILWAY_EXTRA_STOP_SERVICES'] = selector
+    result = subprocess.run([str(SCRIPT), 'down'], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert not log_path.exists()

@@ -158,7 +158,16 @@ jobs:
           railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
             --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$US_PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_WEB_SERVICE"
           railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "MAINTENANCE_SUBPROCESS_ENABLED=true" --skip-deploys --json \
             --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=true" --skip-deploys --json \
@@ -170,7 +179,16 @@ jobs:
           railway variable set "PROCESS_ROLE=web" --skip-deploys --json \
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_WEB_SERVICE"
           railway variable set "PROCESS_ROLE=collector" --skip-deploys --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "STOCK_AI_PROVIDER=rules" --skip-deploys --json \
+            --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
+            --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          railway variable set "MAINTENANCE_SUBPROCESS_ENABLED=true" --skip-deploys --json \
             --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production \
             --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
       - name: Deploy the exact image to US production first
@@ -381,3 +399,40 @@ jobs:
           if test "${{ steps.us_live.outcome }}" != "success"; then
             echo "::warning::US read-only live QA reported a post-deploy operational P0; evidence is retained."
           fi
+
+  retire_unused_ollama:
+    if: vars.PRODUCTION_RAILWAY_OLLAMA_SERVICE != ''
+    needs: [build_image, verify_production]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      OLLAMA_SERVICE: ${{ vars.PRODUCTION_RAILWAY_OLLAMA_SERVICE }}
+      IMAGE_REF: ${{ needs.build_image.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.45.7
+      - name: Stop unused Ollama after production verification
+        run: >-
+          python3 scripts/railway_stop_unused_ollama.py
+          --project "$PRODUCTION_RAILWAY_PROJECT_ID"
+          --web "$PRODUCTION_RAILWAY_WEB_SERVICE"
+          --collector "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE"
+          --ollama "$OLLAMA_SERVICE"
+          --image "$IMAGE_REF"
+      - name: Record runtime and cost controls
+        if: always()
+        run: |
+          mkdir -p artifacts/runtime-audit
+          python3 scripts/railway_runtime_audit.py --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production > artifacts/runtime-audit/kr-production.json
+          python3 scripts/railway_runtime_audit.py --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production > artifacts/runtime-audit/us-production.json
+          python3 scripts/railway_maintenance_evidence.py --project "$PRODUCTION_RAILWAY_PROJECT_ID" --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" > artifacts/runtime-audit/kr-maintenance.json
+          python3 scripts/railway_maintenance_evidence.py --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE" > artifacts/runtime-audit/us-maintenance.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: production-runtime-cost-controls-${{ github.sha }}
+          path: artifacts/runtime-audit
+          retention-days: 90
