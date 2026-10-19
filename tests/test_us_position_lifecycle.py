@@ -96,6 +96,49 @@ def test_us_feed_retries_a_symbol_missing_the_completed_session():
     assert len(payload["public_member_signals"]) == 100
 
 
+def test_us_feed_uses_retried_benchmark_histories_for_completed_session():
+    complete = _bars(daily_return=0.001)
+    members = [
+        {
+            "code": f"A{index:03d}",
+            "name": f"Stock {index}",
+            "market": "NASDAQ",
+            "sector": "Technology",
+            "cik": "0001045810",
+            "market_cap_rank": index + 1,
+            "market_cap": 1_000_000_000 - index,
+        }
+        for index in range(100)
+    ]
+    attempts: dict[str, int] = {}
+
+    def loader(symbol: str) -> list[USLifecycleBar]:
+        attempts[symbol] = attempts.get(symbol, 0) + 1
+        if symbol in {"SPY", "QQQ"} and attempts[symbol] == 1:
+            return complete[:-1]
+        return complete
+
+    payload = build_us_position_lifecycle_feed(
+        limit=20,
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_payload={
+            "status": "ready",
+            "data_state": "ready",
+            "universe_as_of": date(2026, 9, 8),
+            "universe_count": 100,
+            "checksum": "fixture",
+            "items": members,
+        },
+        history_loader=loader,
+    )
+
+    assert attempts["SPY"] == 2
+    assert attempts["QQQ"] == 2
+    assert attempts["A000"] == 1
+    assert payload["data_state"] == "ready"
+    assert payload["data_coverage_count"] == 100
+
+
 def _bars(
     *,
     daily_return: float,
