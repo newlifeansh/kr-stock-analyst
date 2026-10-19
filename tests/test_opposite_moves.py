@@ -69,7 +69,12 @@ def _seed_relationships(db: Session) -> None:
         [
             StockMaster(code="000001", name="기준종목", market="KOSPI", is_active=True),
             StockMaster(
-                code="000002", name="반대종목", market="KOSDAQ", is_active=True
+                code="000002",
+                name="반대종목",
+                market="KOSDAQ",
+                sector="반도체·반도체장비",
+                industry="반도체 제조",
+                is_active=True,
             ),
             StockMaster(code="000003", name="같은종목", market="KOSPI", is_active=True),
         ]
@@ -93,6 +98,8 @@ def test_opposite_moves_only_returns_stable_top_market_cap_inverse_candidate():
         assert [item["code"] for item in payload["items"]] == ["000002"]
         candidate = payload["items"][0]
         assert candidate["relationship_label"] == "자주 반대로 움직임"
+        assert candidate["sector"] == "반도체·반도체장비"
+        assert candidate["industry"] == "반도체 제조"
         assert candidate["market_cap_rank"] == 2
         assert candidate["correlation"] < -0.99
         assert candidate["recent_correlation"] < -0.99
@@ -376,6 +383,8 @@ def test_opposite_moves_api_returns_completed_close_relationship_contract():
         assert payload["name"] == "기준종목"
         assert payload["status"] == "ready"
         assert payload["items"][0]["code"] == "000002"
+        assert payload["items"][0]["sector"] == "반도체·반도체장비"
+        assert payload["items"][0]["industry"] == "반도체 제조"
         assert payload["items"][0]["market_cap_rank"] == 2
         assert payload["items"][0]["comparison_end"] == "2026-03-23"
         assert payload["items"][0]["logo_url"] == "/stock-logos/000002.png"

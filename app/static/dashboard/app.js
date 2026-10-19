@@ -8236,7 +8236,7 @@ function updateStockOppositeMoveQuote(payload = {}) {
   }
   row.setAttribute(
     "aria-label",
-    `${row.dataset.name || code}, ${priceNode?.textContent || "현재가 확인 중"}, ${changeNode?.textContent || "등락률 확인 중"}, ${statusNode?.textContent || "시세 확인 중"}`,
+    `${row.dataset.name || code}, ${row.dataset.sector || "섹터 정보 없음"}, ${row.dataset.explanation || "반대 흐름"}, ${priceNode?.textContent || "현재가 확인 중"}, ${changeNode?.textContent || "등락률 확인 중"}, ${statusNode?.textContent || "시세 확인 중"}`,
   );
 }
 
@@ -8268,9 +8268,9 @@ function resetStockOppositeMoves(data = null) {
   elements.stockOppositeMovesList.innerHTML = visible
     ? '<p class="stock-opposite-moves-state">다르게 움직인 종목을 찾는 중입니다.</p>'
     : "";
-  setText(elements.stockOppositeMovesTitle, "시총 상위 종목 중 다르게 움직인 종목");
-  setText(elements.stockOppositeMovesPeriod, "최근 6개월");
-  setText(elements.stockOppositeMovesDescription, "시총 100위 안에서 먼저 찾고, 부족하면 200위까지 확인해요.");
+  setText(elements.stockOppositeMovesTitle, "다르게 움직인 종목");
+  setText(elements.stockOppositeMovesPeriod, "6개월 기준");
+  setText(elements.stockOppositeMovesDescription, "기준 종목이 내린 날 오른 종목과 현재 시세예요.");
   if (elements.stockOppositeMovesNote) elements.stockOppositeMovesNote.hidden = !visible;
 }
 
@@ -8279,11 +8279,11 @@ function renderStockOppositeMoves(payload = state.stockOppositeMoves) {
   const targetName = String(payload?.name || state.currentStock?.name || "선택 종목");
   const items = Array.isArray(payload?.items) ? payload.items : [];
   elements.stockOppositeMovesSection.hidden = stockDashboardIsUs() || !state.currentStock?.code;
-  setText(elements.stockOppositeMovesTitle, "시총 상위 종목 중 다르게 움직인 종목");
-  setText(elements.stockOppositeMovesPeriod, "최근 6개월");
+  setText(elements.stockOppositeMovesTitle, "다르게 움직인 종목");
+  setText(elements.stockOppositeMovesPeriod, "6개월 기준");
   setText(
     elements.stockOppositeMovesDescription,
-    `시총 100위 안에서 먼저 찾고, 부족하면 200위까지 넓혀 ${targetName}와 비교했어요. 지금 시세도 함께 보여드려요.`,
+    `${targetName}가 내린 날 오른 종목과 현재 시세예요.`,
   );
   elements.stockOppositeMovesList.replaceChildren();
   elements.stockOppositeMovesList.setAttribute("aria-busy", "false");
@@ -8307,10 +8307,12 @@ function renderStockOppositeMoves(payload = state.stockOppositeMoves) {
     const identity = el("span", "stock-opposite-move-identity");
     identity.appendChild(createStockListLogo(item.code, "stock-opposite-move-logo"));
     const naming = el("span", "stock-opposite-move-naming");
-    naming.append(
-      el("strong", "", item.name || item.code || "종목"),
-      el("span", "stock-opposite-move-badge", item.relationship_label || "가끔 반대로 움직임"),
-    );
+    const sectorLabel = String(item.sector || item.industry || "섹터 정보 없음");
+    const relationshipLabel = String(item.relationship_label || "가끔 반대로 움직임");
+    const compactRelationshipLabel = relationshipLabel.startsWith("자주") ? "자주 반대" : "가끔 반대";
+    const sector = el("span", "stock-opposite-move-sector", sectorLabel);
+    sector.title = sectorLabel;
+    naming.append(el("strong", "", item.name || item.code || "종목"), sector);
     identity.appendChild(naming);
 
     const quote = el("span", "stock-opposite-move-quote");
@@ -8329,12 +8331,12 @@ function renderStockOppositeMoves(payload = state.stockOppositeMoves) {
       "span",
       "stock-opposite-move-explanation",
       downDays
-        ? `시총 ${formatNumber(marketCapRank)}위 · ${targetName}가 내린 ${formatNumber(downDays)}일 중 ${formatNumber(upDays)}일 올랐어요.`
-        : `시총 ${formatNumber(marketCapRank)}위 · 최근 완료된 종가의 움직임을 비교했어요.`,
+        ? `${compactRelationshipLabel} · 하락 ${formatNumber(downDays)}일 중 ${formatNumber(upDays)}일 상승 · 시총 ${formatNumber(marketCapRank)}위`
+        : `${compactRelationshipLabel} · 최근 완료 종가 비교 · 시총 ${formatNumber(marketCapRank)}위`,
     );
-    const action = el("span", "stock-opposite-move-action", "종목 보기");
-    action.setAttribute("aria-hidden", "true");
-    row.append(identity, quote, explanation, action);
+    row.dataset.sector = sectorLabel;
+    row.dataset.explanation = explanation.textContent || "";
+    row.append(identity, quote, explanation);
     row.addEventListener("click", () => navigateToStock(item.code));
     elements.stockOppositeMovesList.appendChild(row);
   });
