@@ -470,8 +470,10 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-opposite-moves-section"',
         'id="stock-opposite-moves-title"',
         'id="stock-opposite-moves-list"',
-        "시총 상위 종목 중 다르게 움직인 종목",
-        "시총 100위 안에서 먼저 찾고, 부족하면 200위까지 확인해요.",
+        "함께 볼 종목 · 시총 100→200위",
+        "다르게 움직인 종목",
+        "기준 종목이 내린 날 오른 종목과 현재 시세예요.",
+        "6개월 기준",
         "최근 7일 수급",
         'id="stock-home-disclosures"',
         'id="stock-home-disclosures-summary"',
@@ -870,9 +872,10 @@ def test_stock_detail_opposite_moves_show_plain_language_live_quote_rows():
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
-    assert "함께 볼 종목" in shell
-    assert "시총 상위 종목 중 다르게 움직인 종목" in shell
-    assert "시총 100위 안에서 먼저 찾고, 부족하면 200위까지 확인해요." in shell
+    assert "함께 볼 종목 · 시총 100→200위" in shell
+    assert "다르게 움직인 종목" in shell
+    assert "기준 종목이 내린 날 오른 종목과 현재 시세예요." in shell
+    assert "6개월 기준" in shell
     assert "과거에 다르게 움직였다는 뜻" in shell
     assert 'aria-busy="true"' in shell
     assert "/opposite-moves?limit=3" in source
@@ -880,13 +883,31 @@ def test_stock_detail_opposite_moves_show_plain_language_live_quote_rows():
     assert 'source === "kis_realtime"' in source
     assert 'status: "실시간"' in source
     assert 'status: "마지막 종가"' in source
-    assert "가 내린 ${formatNumber(downDays)}일 중" in source
+    assert 'item.sector || item.industry || "섹터 정보 없음"' in source
+    assert '"stock-opposite-move-sector"' in source
+    assert 'relationshipLabel.startsWith("자주") ? "자주 반대" : "가끔 반대"' in source
+    assert "하락 ${formatNumber(downDays)}일 중" in source
     assert "시총 ${formatNumber(marketCapRank)}위" in source
     assert "navigateToStock(item.code)" in source
+    assert '"stock-opposite-move-action"' not in source
     assert ".stock-opposite-move-row:focus-visible" in styles
+    assert '"explanation explanation";' in styles
+    assert "min-height: 86px;" in styles
     assert "min-height: 92px;" in styles
-    assert "min-height: 100px;" in styles
     assert "grid-template-columns: minmax(0, 1fr) minmax(104px, auto);" in styles
+    heading_start = styles.index(
+        ".stock-opposite-moves-section .stock-v3-section-head h2"
+    )
+    heading_rule = styles[heading_start : styles.index("}", heading_start) + 1]
+    sector_start = styles.index(".stock-opposite-move-sector")
+    sector_rule = styles[sector_start : styles.index("}", sector_start) + 1]
+    evidence_start = styles.index(".stock-opposite-move-explanation")
+    evidence_rule = styles[evidence_start : styles.index("}", evidence_start) + 1]
+    assert "white-space: nowrap;" in heading_rule
+    assert "text-overflow: ellipsis;" in sector_rule
+    assert "white-space: nowrap;" in sector_rule
+    assert "text-overflow: ellipsis;" in evidence_rule
+    assert "white-space: nowrap;" in evidence_rule
 
 
 def test_opposite_move_quote_labels_realtime_and_completed_close_without_confusing_them():
