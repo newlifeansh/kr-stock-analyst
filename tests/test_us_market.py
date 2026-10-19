@@ -2062,3 +2062,29 @@ def test_us_market_news_rejects_invalid_naver_envelope(monkeypatch):
     monkeypatch.setattr(us_market.requests, "get", lambda *args, **kwargs:Response())
     with pytest.raises(ValueError, match="invalid envelope"):
         us_market._naver_us_market_news_items()
+
+
+def test_fresh_quotes_do_not_readmit_closed_hybrid_positions_to_recommendations(monkeypatch):
+    candidates = [
+        {'code': code, 'name': code, 'market': 'NASDAQ', 'sector': sector,
+         'recommendation_score': score, 'recommendation_reasons': ['ranked']}
+        for code, sector, score in [('TMO', 'Healthcare', 90), ('MSFT', 'Technology', 80), ('ARM', 'Technology', 70)]
+    ]
+    monkeypatch.setattr(us_market, '_us_recommendation_candidates', lambda _: candidates)
+    for live_observation in (False, True):
+        feed = {
+            'status': 'ready', 'data_state': 'ready', 'snapshot_id': 'hybrid',
+            'snapshot_checksum': 'checksum', 'rollout_mode': 'hybrid_forward',
+            'universe_members': [],
+            'items': [
+                {'code': code, 'current': {'action': action, 'position_open': opened,
+                 'live_observation': live_observation, 'model_exposure_percent': 100 if opened else 0}}
+                for code, action, opened in [('TMO', 'exited', False), ('MSFT', 'holding', True), ('ARM', 'entered', True)]
+            ],
+        }
+        result = us_market.build_us_recommendations(feed=feed, limit=2)
+        assert [item['code'] for item in result['items']] == ['MSFT', 'ARM']
+        assert [item['rank'] for item in result['items']] == [1, 2]
+        assert [item['recommendation_score'] for item in result['items']] == [80, 70]
+        assert result['terminal_exit_excluded_count'] == 1
+        assert [item['ai_trade_signal']['current']['action'] for item in result['items']] == ['holding', 'entered']

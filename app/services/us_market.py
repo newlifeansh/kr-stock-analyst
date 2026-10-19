@@ -3765,8 +3765,8 @@ def _us_terminal_exit_signal(signal: object) -> bool:
     return bool(
         isinstance(current, dict)
         and str(current.get("action") or "").strip().lower() == "exited"
+        # A fresh quote does not reopen a position closed in the hybrid ledger.
         and current.get("position_open") is not True
-        and current.get("live_observation") is not True
     )
 
 
