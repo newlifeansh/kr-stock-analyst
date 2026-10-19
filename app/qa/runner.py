@@ -86,7 +86,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-UI-036": (
         "tests.test_opposite_moves.test_opposite_moves_only_returns_stable_top_market_cap_inverse_candidate",
-        "tests.test_opposite_moves.test_opposite_moves_excludes_inverse_candidate_outside_top_100_ordinary_shares",
+        "tests.test_opposite_moves.test_opposite_moves_fills_missing_slots_from_ranks_101_to_200",
+        "tests.test_opposite_moves.test_opposite_moves_does_not_extend_when_three_top_100_candidates_are_ready",
+        "tests.test_opposite_moves.test_opposite_moves_excludes_inverse_candidate_outside_top_200_ordinary_shares",
         "tests.test_opposite_moves.test_opposite_moves_top_100_excludes_funds_spacs_and_preferred_shares",
         "tests.test_opposite_moves.test_opposite_moves_fail_closed_when_history_is_short",
         "tests.test_opposite_moves.test_opposite_moves_excludes_unfinished_daily_row",

@@ -105,7 +105,7 @@ def test_opposite_moves_only_returns_stable_top_market_cap_inverse_candidate():
         db.close()
 
 
-def test_opposite_moves_excludes_inverse_candidate_outside_top_100_ordinary_shares():
+def test_opposite_moves_fills_missing_slots_from_ranks_101_to_200():
     db = _session()
     try:
         _seed_relationships(db)
@@ -129,13 +129,147 @@ def test_opposite_moves_excludes_inverse_candidate_outside_top_100_ordinary_shar
                     market_cap=2_000_000_000_000 - index,
                 )
             )
+        inverse_returns = [
+            -rate
+            for rate in [
+                0.018
+                if index % 4 == 0
+                else -0.014
+                if index % 4 == 1
+                else 0.011
+                if index % 4 == 2
+                else -0.019
+                for index in range(80)
+            ]
+        ]
+        db.add(
+            StockMaster(
+                code="000004",
+                name="거래부족중형주",
+                market="KOSPI",
+                is_active=True,
+            )
+        )
+        _add_price_series(
+            db,
+            "000004",
+            inverse_returns,
+            trading_value=1,
+            market_cap=900_000_000_000,
+        )
+        db.commit()
+
+        payload = build_opposite_moves(db, "000001", limit=3)
+
+        assert payload["status"] == "ready"
+        assert [item["code"] for item in payload["items"]] == ["000002"]
+        assert payload["items"][0]["market_cap_rank"] == 102
+        assert "200위까지" in payload["message"]
+    finally:
+        db.close()
+
+
+def test_opposite_moves_does_not_extend_when_three_top_100_candidates_are_ready():
+    db = _session()
+    try:
+        target_returns = [0.018 if index % 2 == 0 else -0.014 for index in range(80)]
+        inverse_returns = [-rate for rate in target_returns]
+        latest_date = date(2026, 3, 23)
+        db.add(
+            StockMaster(code="020000", name="기준종목", market="KOSPI", is_active=True)
+        )
+        _add_price_series(db, "020000", target_returns, market_cap=10_000_000_000_000)
+        primary_codes = ["020001", "020002", "020003"]
+        for offset, code in enumerate(primary_codes):
+            db.add(
+                StockMaster(
+                    code=code,
+                    name=f"상위반대종목{offset + 1}",
+                    market="KOSPI",
+                    is_active=True,
+                )
+            )
+            _add_price_series(
+                db,
+                code,
+                inverse_returns,
+                market_cap=9_900_000_000_000 - offset,
+            )
+        for index in range(96):
+            code = str(200_000 + index)
+            db.add(
+                StockMaster(
+                    code=code,
+                    name=f"상위채움종목{index + 1}",
+                    market="KOSPI",
+                    is_active=True,
+                )
+            )
+            db.add(
+                DailyPrice(
+                    code=code,
+                    trade_date=latest_date,
+                    close=100_000,
+                    trading_value=20_000_000_000,
+                    market_cap=9_000_000_000_000 - index,
+                )
+            )
+        db.add(
+            StockMaster(
+                code="020004",
+                name="확장반대종목",
+                market="KOSPI",
+                is_active=True,
+            )
+        )
+        _add_price_series(
+            db,
+            "020004",
+            inverse_returns,
+            market_cap=7_000_000_000_000,
+        )
+        db.commit()
+
+        payload = build_opposite_moves(db, "020000", limit=3)
+
+        assert payload["status"] == "ready"
+        assert [item["code"] for item in payload["items"]] == primary_codes
+        assert all(item["market_cap_rank"] <= 100 for item in payload["items"])
+    finally:
+        db.close()
+
+
+def test_opposite_moves_excludes_inverse_candidate_outside_top_200_ordinary_shares():
+    db = _session()
+    try:
+        _seed_relationships(db)
+        latest_date = date(2026, 3, 23)
+        for index in range(200):
+            code = str(300_000 + index)
+            db.add(
+                StockMaster(
+                    code=code,
+                    name=f"200위채움종목{index + 1}",
+                    market="KOSPI",
+                    is_active=True,
+                )
+            )
+            db.add(
+                DailyPrice(
+                    code=code,
+                    trade_date=latest_date,
+                    close=100_000,
+                    trading_value=20_000_000_000,
+                    market_cap=2_000_000_000_000 - index,
+                )
+            )
         db.commit()
 
         payload = build_opposite_moves(db, "000001", limit=3)
 
         assert payload["status"] == "no_stable_opposite"
         assert payload["items"] == []
-        assert "시총 상위 100개" in payload["message"]
+        assert "시총 상위 200개" in payload["message"]
     finally:
         db.close()
 

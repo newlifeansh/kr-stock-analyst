@@ -33,7 +33,7 @@ class StockOppositeMoveItemOut(BaseModel):
     market: str
     sector: Optional[str] = None
     industry: Optional[str] = None
-    market_cap_rank: int = Field(..., ge=1, le=100)
+    market_cap_rank: int = Field(..., ge=1, le=200)
     relationship_label: Literal["자주 반대로 움직임", "가끔 반대로 움직임"]
     correlation: float
     recent_correlation: float

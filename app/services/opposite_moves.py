@@ -18,7 +18,9 @@ from app.services.etf_profiles import is_likely_etf_name
 OPPOSITE_MOVE_LOOKBACK_SESSIONS = 120
 OPPOSITE_MOVE_MIN_OBSERVATIONS = 60
 OPPOSITE_MOVE_RECENT_SESSIONS = 60
-OPPOSITE_MOVE_MARKET_CAP_UNIVERSE_LIMIT = 100
+OPPOSITE_MOVE_PRIMARY_MARKET_CAP_LIMIT = 100
+OPPOSITE_MOVE_EXTENDED_MARKET_CAP_LIMIT = 200
+OPPOSITE_MOVE_EXTENDED_MIN_TRADING_VALUE = 500_000_000
 OPPOSITE_MOVE_COMPLETED_CLOSE_READY_TIME = time(15, 40)
 PREFERRED_SHARE_SUFFIX = re.compile(
     r"(?:\d*우(?:B)?|우선주)(?:\([^)]*\))?$",
@@ -132,11 +134,12 @@ def build_opposite_moves(
     limit: int = 3,
     completed_through: date | None = None,
 ) -> dict[str, Any]:
-    """Find top-100 domestic ordinary shares whose completed closes moved oppositely.
+    """Find domestic ordinary shares whose completed closes moved oppositely.
 
     The relationship is descriptive rather than predictive. It is computed
     from completed daily closes and deliberately kept separate from the live
-    quote that the client overlays on each returned instrument.
+    quote that the client overlays on each returned instrument. The first 100
+    market-cap ranks are preferred; ranks 101-200 only fill missing result slots.
     """
 
     stock = db.get(StockMaster, code)
@@ -198,24 +201,28 @@ def build_opposite_moves(
         if not _is_ordinary_share_candidate(candidate.name):
             continue
         ordinary_share_rank += 1
-        if ordinary_share_rank > OPPOSITE_MOVE_MARKET_CAP_UNIVERSE_LIMIT:
+        if ordinary_share_rank > OPPOSITE_MOVE_EXTENDED_MARKET_CAP_LIMIT:
             break
         if candidate.code == stock.code:
+            continue
+        if (
+            ordinary_share_rank > OPPOSITE_MOVE_PRIMARY_MARKET_CAP_LIMIT
+            and int(latest.trading_value or 0)
+            < OPPOSITE_MOVE_EXTENDED_MIN_TRADING_VALUE
+        ):
             continue
         top_market_cap_candidates[candidate.code] = (
             candidate,
             latest,
             ordinary_share_rank,
         )
-        if ordinary_share_rank >= OPPOSITE_MOVE_MARKET_CAP_UNIVERSE_LIMIT:
-            break
 
     if not top_market_cap_candidates:
         return _empty_payload(
             stock,
             status="no_stable_opposite",
             message=(
-                "시총 상위 100개 중 최근 꾸준히 다른 방향으로 움직인 종목을 "
+                "시총 상위 200개 중 최근 꾸준히 다른 방향으로 움직인 종목을 "
                 "찾지 못했어요."
             ),
             as_of=latest_date,
@@ -321,13 +328,26 @@ def build_opposite_moves(
         )
 
     scored.sort(key=lambda entry: (-entry[0], entry[1]["code"]))
-    items = [item for _score, item in scored[: max(1, min(limit, 5))]]
+    requested_limit = max(1, min(limit, 5))
+    primary_items = [
+        item
+        for _score, item in scored
+        if item["market_cap_rank"] <= OPPOSITE_MOVE_PRIMARY_MARKET_CAP_LIMIT
+    ]
+    extended_items = [
+        item
+        for _score, item in scored
+        if item["market_cap_rank"] > OPPOSITE_MOVE_PRIMARY_MARKET_CAP_LIMIT
+    ]
+    items = primary_items[:requested_limit]
+    if len(items) < requested_limit:
+        items.extend(extended_items[: requested_limit - len(items)])
     if not items:
         return _empty_payload(
             stock,
             status="no_stable_opposite",
             message=(
-                "시총 상위 100개 중 최근 꾸준히 다른 방향으로 움직인 종목을 "
+                "시총 상위 200개 중 최근 꾸준히 다른 방향으로 움직인 종목을 "
                 "찾지 못했어요."
             ),
             as_of=latest_date,
@@ -338,7 +358,10 @@ def build_opposite_moves(
         "code": stock.code,
         "name": stock.name,
         "status": "ready",
-        "message": "시총 상위 100개 보통주의 최근 완료 종가 흐름을 비교했어요.",
+        "message": (
+            "시총 100위 안에서 먼저 찾고, 부족한 후보는 200위까지 넓혀 "
+            "최근 완료 종가 흐름을 비교했어요."
+        ),
         "as_of": latest_date,
         "lookback_sessions": OPPOSITE_MOVE_LOOKBACK_SESSIONS,
         "observations": len(target_returns),
