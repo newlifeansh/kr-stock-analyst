@@ -2002,6 +2002,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-ENTRY-008",
         "SIG-ENTRY-009",
     }
+    expected_case_ids.add("DATA-KRX-NAVER-005")
     assert set(PYTEST_QA_CASE_TESTS) == expected_case_ids
     assert all(PYTEST_QA_CASE_TESTS.values())
     assert all(

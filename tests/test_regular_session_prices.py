@@ -431,6 +431,24 @@ def naver_auction_fixture():
     return {"code": "005930", "stockExchangeType": "KRX", "periodType": "week", "priceInfos": {"20261012": buckets}}
 
 
+def test_closing_auction_time_formatting_is_bounded_per_bucket(monkeypatch):
+    # Twenty recommendation cards replay several sessions each. Keep the
+    # unchanged cross-source validation from formatting bounds per minute.
+    rows = [row for row in minute_rows() if "090000" <= row["trade_time"] <= "151900"]
+    source = naver_auction_fixture()
+    calls = []
+    class CountedDatetime(datetime):
+        def strftime(self, fmt):
+            calls.append(fmt)
+            return super().strftime(fmt)
+    monkeypatch.setattr(rsp, "datetime", CountedDatetime)
+    close = rsp._verified_naver_closing_auction("005930", DAY, rows, source)
+    assert close["trade_time"] == "153000"
+    assert close["price"] == 110
+    assert close["volume"] == 100
+    assert len(calls) < 500
+
+
 def test_missing_auction_requires_cross_source_prefix_and_actual_single_price(db):
     rows = [row for row in minute_rows() if row["trade_time"] <= "151900"]
     naver = naver_auction_fixture()

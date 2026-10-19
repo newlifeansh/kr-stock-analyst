@@ -114,11 +114,6 @@ def test_main_collector_prioritizes_signal_data_before_long_backfills(
     monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
     monkeypatch.setattr(
         runtime,
-        "run_freshness_once",
-        lambda **_kwargs: False,
-    )
-    monkeypatch.setattr(
-        runtime,
         "_collect_prices",
         lambda _db: calls.append("price")
         or {"source": "naver_realtime_quotes", "rows_loaded": 100, "message": "ready"},
@@ -127,7 +122,7 @@ def test_main_collector_prioritizes_signal_data_before_long_backfills(
         runtime,
         "_collect_investor_flows",
         lambda _db: calls.append("flow")
-        or {"source": "naver_investor_flow", "rows_loaded": 200, "message": "ready"},
+        or {"source": "naver_investor_flow", "rows_loaded": 200, "ready": True, "message": "ready"},
     )
     monkeypatch.setattr(
         briefing,
@@ -146,9 +141,10 @@ def test_main_collector_prioritizes_signal_data_before_long_backfills(
         lambda *_args, **_kwargs: None,
     )
 
+    runtime.last_research_at = datetime.utcnow()
     runtime.run_once()
 
-    assert calls[:4] == ["price", "flow", "fundamental", "research_backfill"]
+    assert calls[:4] == ["flow", "price", "fundamental", "research_backfill"]
 
 
 def test_main_collector_keeps_degraded_prices_retryable(monkeypatch):
@@ -254,6 +250,8 @@ def test_short_cadence_lane_uses_the_fastest_enabled_interval():
         )
     )
 
+    assert runtime._freshness_poll_seconds() == 60
+    runtime.settings.investor_flow_enabled = False
     assert runtime._freshness_poll_seconds() == 300
 
 
@@ -1257,8 +1255,86 @@ def test_collect_investor_flows_fetches_only_stale_codes(monkeypatch):
 
     assert result["source"] == "naver_investor_flow"
     assert result["rows_loaded"] == 2
-    assert result["message"].endswith("stale=1")
+    assert "stale=1" in result["message"]
+    assert result["ready"] is False
     assert calls == [(["005930"], 1, 3)]
+
+
+def test_investor_flow_retries_historical_rows_until_target_coverage_is_ready(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(
+        investor_flow_enabled=True, research_enabled=False, disclosure_enabled=False,
+        news_enabled=False, briefing_realtime_enabled=False,
+    ))
+    class FakeSession:
+        def __enter__(self):
+            return object()
+        def __exit__(self, *_args):
+            pass
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    coverage = {"target_date": date(2026, 10, 19), "total": 100,
+                "fresh": 0, "coverage_ratio": 0.0, "stale_codes": ["005930"]}
+    monkeypatch.setattr(runtime, "_latest_investor_flow_coverage", lambda _db: dict(coverage))
+    calls = []
+    def collect(_db, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            coverage.update(fresh=100, coverage_ratio=1.0, stale_codes=[])
+        return 4000
+    monkeypatch.setattr(briefing, "collect_naver_investor_flows", collect)
+    assert runtime.run_freshness_once(refresh_briefing=False)
+    assert runtime.last_investor_flow_at is None
+    assert "coverage=0.00%" in runtime.source_errors["investor_flow"]
+    assert runtime._investor_flow_due()
+    assert runtime.run_freshness_once(refresh_briefing=False)
+    assert runtime.last_investor_flow_at is not None
+    assert "investor_flow" not in runtime.source_errors
+    assert not runtime._investor_flow_due()
+    assert len(calls) == 2
+
+
+def test_investor_flow_refreshes_while_main_market_job_is_blocked(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(
+        investor_flow_enabled=True, research_enabled=False, disclosure_enabled=False,
+        news_enabled=False, briefing_realtime_enabled=False, price_enabled=False,
+        stock_universe_enabled=False, financials_enabled=False,
+        fundamental_snapshot_enabled=False, stock_news_snapshot_enabled=False,
+        stock_company_snapshot_enabled=False, macro_enabled=False,
+    ))
+    main_started, release_main, flow_refreshed = Event(), Event(), Event()
+    class FakeSession:
+        def __enter__(self):
+            return object()
+        def __exit__(self, *_args):
+            pass
+    def blocked_main():
+        main_started.set()
+        release_main.wait(timeout=2)
+    def collect(_db):
+        flow_refreshed.set()
+        return {"source": "naver_investor_flow", "rows_loaded": 4000,
+                "ready": True, "message": "fresh=100/100"}
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(runtime, "run_once", blocked_main)
+    monkeypatch.setattr(runtime, "_collect_investor_flows", collect)
+    monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_a, **_k: None)
+    async def exercise():
+        try:
+            await runtime.start()
+            assert await asyncio.to_thread(main_started.wait, 1)
+            assert await asyncio.to_thread(flow_refreshed.wait, 1)
+        finally:
+            release_main.set()
+            await runtime.stop()
+    asyncio.run(exercise())
+
+
+def test_empty_flow_universe_is_not_marked_ready(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings())
+    monkeypatch.setattr(runtime, "_latest_investor_flow_coverage", lambda _db: {
+        "target_date": date(2026, 10, 19), "total": 0, "fresh": 0,
+        "coverage_ratio": 0.0, "stale_codes": [],
+    })
+    assert runtime._collect_investor_flows(object())["ready"] is False
 
 
 def test_collect_investor_flows_uses_canonical_fallback_when_naver_is_empty(monkeypatch):

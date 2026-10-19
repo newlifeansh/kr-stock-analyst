@@ -70,7 +70,14 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-KRX-NAVER-005": (
+        "tests.test_briefing_runtime.test_investor_flow_retries_historical_rows_until_target_coverage_is_ready",
+        "tests.test_briefing_runtime.test_investor_flow_refreshes_while_main_market_job_is_blocked",
+        "tests.test_briefing_runtime.test_empty_flow_universe_is_not_marked_ready",
+        "tests.test_briefing_runtime.test_investor_flow_coverage_uses_completed_session_universe_during_market_hours",
+    ),
     "SIG-CONTRACT-002": (
+        "tests.test_regular_session_prices.test_closing_auction_time_formatting_is_bounded_per_bucket",
         "tests.test_recommendations.test_recommendations_replay_only_returned_candidates_without_exits",
         "tests.test_recommendations.test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates",
         "tests.test_recommendations.test_recommendations_batch_consecutive_exit_replacements",
