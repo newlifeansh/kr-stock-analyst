@@ -2164,7 +2164,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261019us155",
+                "us_dashboard_version": "20261020us156",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2172,7 +2172,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261019us155",
+                "us_dashboard_version": "20261020us156",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2787,7 +2787,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261019us155"}, self._meta(path)
+            return {"version": "20261020us156"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2834,11 +2834,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261019us155" />'
+                '<link href="/assets/dashboard/styles.css?v=20261020us156" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261019us155"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261020us156"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2878,11 +2878,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261019v583" />'
+            '<link href="/assets/dashboard/styles.css?v=20261020v584" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261019v583"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261020v584"></script>'
             '</body></html>',
             self._meta(path),
         )

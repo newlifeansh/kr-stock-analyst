@@ -470,7 +470,7 @@ def test_stock_detail_v3_shell_and_controls():
         'id="stock-opposite-moves-section"',
         'id="stock-opposite-moves-title"',
         'id="stock-opposite-moves-list"',
-        "함께 볼 종목 · 시총 100→200위",
+        "함께 볼 종목",
         "다르게 움직인 종목",
         "기준 종목이 내린 날 오른 종목과 현재 시세예요.",
         "6개월 기준",
@@ -872,7 +872,8 @@ def test_stock_detail_opposite_moves_show_plain_language_live_quote_rows():
     source = client.get("/assets/dashboard/app.js").text
     styles = client.get("/assets/dashboard/styles.css").text
 
-    assert "함께 볼 종목 · 시총 100→200위" in shell
+    assert "함께 볼 종목" in shell
+    assert "함께 볼 종목 · 시총 100→200위" not in shell
     assert "다르게 움직인 종목" in shell
     assert "기준 종목이 내린 날 오른 종목과 현재 시세예요." in shell
     assert "6개월 기준" in shell
