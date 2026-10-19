@@ -12,11 +12,14 @@ import sys
 
 def _exit_with_parent() -> None:
     if sys.platform == "linux":
-        parent = os.getppid()
+        parent = int(os.environ["MAINTENANCE_PARENT_PID"])
+        if parent <= 0 or os.getppid() != parent:
+            raise SystemExit(1)
         # A container shutdown must not leave an orphan doing batch work.
         if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
             raise RuntimeError("Could not bind maintenance worker lifetime")
-        if parent == 1 or os.getppid() != parent:
+        # Uvicorn is legitimately PID 1 in the production container.
+        if os.getppid() != parent:
             raise SystemExit(1)
 
 

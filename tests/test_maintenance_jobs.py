@@ -89,3 +89,24 @@ def test_bulk_jobs_are_serialized(monkeypatch):
         results = list(executor.map(lambda _: jobs.run_maintenance_job('stock_logos', Settings()), range(2)))
     assert results == [{}, {}]
     assert len(children) == 2
+
+
+def test_linux_worker_accepts_container_pid_one_and_rejects_reparenting(monkeypatch):
+    from app import maintenance_job as worker
+    monkeypatch.setattr(worker.sys, 'platform', 'linux')
+    monkeypatch.setenv('MAINTENANCE_PARENT_PID', '1')
+    monkeypatch.setattr(worker.os, 'getppid', lambda: 1)
+    class LibC:
+        def prctl(self, *args):
+            assert args == (1, 9, 0, 0, 0)
+            return 0
+    monkeypatch.setattr(worker.ctypes, 'CDLL', lambda *_a, **_k: LibC())
+    worker._exit_with_parent()
+    monkeypatch.setenv('MAINTENANCE_PARENT_PID', '7')
+    with pytest.raises(SystemExit):
+        worker._exit_with_parent()
+    monkeypatch.setenv('MAINTENANCE_PARENT_PID', '1')
+    parents = iter([1, 2])
+    monkeypatch.setattr(worker.os, 'getppid', lambda: next(parents))
+    with pytest.raises(SystemExit):
+        worker._exit_with_parent()

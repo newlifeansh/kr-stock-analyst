@@ -71,6 +71,7 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "OPS-COST-001": (
+        "tests.test_maintenance_jobs.test_linux_worker_accepts_container_pid_one_and_rejects_reparenting",
         "tests.test_briefing_runtime.test_failed_isolated_bulk_job_remains_due_until_success",
         "tests.test_maintenance_jobs.test_real_worker_uses_parent_database_and_exits_after_each_job",
         "tests.test_maintenance_jobs.test_worker_failures_are_reaped_and_do_not_expose_output[timeout]",

@@ -57,6 +57,7 @@ def run_maintenance_job(job: str, settings: Settings) -> dict:
                     [sys.executable, "-m", "app.maintenance_job", job],
                     stdin=subprocess.PIPE, stdout=result_file,
                     stderr=subprocess.DEVNULL, start_new_session=True,
+                    env={**os.environ, "MAINTENANCE_PARENT_PID": str(os.getpid())},
                 )
                 try:
                     process.communicate(
