@@ -420,7 +420,11 @@ def _redact_current_signal(
     current["entry_setup"] = None
     current["entry_confirmation"] = None
     current["reasons"] = [item["summary"] for item in public_reasons]
-    current["next_confirmation"] = PUBLIC_SIGNAL_NEXT_CHECK
+    observed = _mapping(current.get("observed_entry"))
+    current["next_confirmation"] = (
+        "예비 포착 이후 완료된 정규장 1분봉에서 매수 조건을 확인합니다. 미충족 후보는 당일 만료됩니다."
+        if observed.get("status") == "watching" else PUBLIC_SIGNAL_NEXT_CHECK
+    )
     levels = []
     for level in _items(current.get("levels")):
         public_level = deepcopy(dict(level))
@@ -449,6 +453,7 @@ def public_quant_signal_payload(
     """Redact one detailed signal payload at the public API boundary."""
 
     result = deepcopy(dict(_mapping(payload)))
+    result.pop("_observed_entry_context", None)
     is_us_candidate = str(result.get("strategy_version") or "").startswith(
         "position-lifecycle-us-"
     )

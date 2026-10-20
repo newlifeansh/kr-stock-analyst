@@ -2500,7 +2500,7 @@ def test_home_ai_response_shows_update_time_and_market_based_watchlist_action() 
     assert "재진입을 서두르지 마세요." not in source
     assert "AI 확정 매도 상태 · 신호 발생 이후 가격과 거래대금 변화를 추적 중입니다." in source
     assert "AI 예비 매도 상태 · 15:40 확정 전까지 결과가 바뀔 수 있습니다." in source
-    assert "AI 예비 매수 상태 · 15:40 확정 전까지 결과가 바뀔 수 있습니다." in source
+    assert "AI 예비 매수 상태 · 매수 조건 충족 시 확정 알림을 별도로 보냅니다." in source
     assert "나스닥과 비트코인이 함께 강하고 VIX가 내려" not in source
     assert "미국 기술주와 가상자산은 강세이고, 시장 불안 지표는 낮아" in source
     assert "미국 증시 불안지수(VIX)" in source

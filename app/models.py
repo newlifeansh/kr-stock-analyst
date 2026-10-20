@@ -192,6 +192,19 @@ class QuantSignalIntradayPathSnapshot(Base):
     )
 
 
+class QuantSignalObservedEntry(Base):
+    """Append-only daily observation identity; terminal decisions never rewind."""
+
+    __tablename__ = "quant_signal_observed_entry"
+
+    stock_code: Mapped[str] = mapped_column(String(12), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class QuantSignalEvidenceSnapshot(Base):
     """Point-in-time evidence used to approve a daily quant entry.
 

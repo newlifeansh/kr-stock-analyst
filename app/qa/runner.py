@@ -70,6 +70,25 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-KR-OBSERVED-ENTRY-001": (
+        "tests.test_observed_entry.test_capture_then_later_closed_minute_confirms_once_across_restart",
+        "tests.test_observed_entry.test_no_retroactive_touch_or_unfinished_minute_confirmation",
+        "tests.test_observed_entry.test_unpublished_preliminary_cannot_confirm",
+        *(f"tests.test_observed_entry.test_missing_or_invalid_independent_evidence_never_confirms[{case}]"
+          for case in ("missing", "stale", "future", "wrong_day", "wrong_stock", "limited", "support", "veto")),
+        *(f"tests.test_observed_entry.test_invalidation_cancels_without_same_day_rearming[{case}]"
+          for case in ("position", "universe", "chase", "guard", "reentry")),
+        "tests.test_observed_entry.test_expiry_and_forward_only_without_historical_backfill",
+        "tests.test_observed_entry.test_replay_uses_close_and_excludes_pre_entry_stop_and_peak",
+        "tests.test_observed_entry.test_changed_or_missing_confirmation_evidence_quarantines_replay",
+        "tests.test_observed_entry.test_canonical_builder_captures_then_confirms_and_detail_only_reads",
+        "tests.test_observed_entry.test_two_distinct_pushes_dedupe_watchlist_and_reject_stale_unverified",
+        "tests.test_observed_entry.test_push_delivery_dedupes_two_paths_and_rechecks_expiry",
+        "tests.test_observed_entry.test_intraday_disclosure_includes_today_and_excludes_future",
+        "tests.test_observed_entry.test_observed_candidate_public_copy_and_ui_contract",
+        "tests.test_quant_signals.test_shared_lifecycle_indicator_core_matches_v742_domestic_golden_vector",
+        "tests.test_quant_signals.test_v8_live_buy_waits_for_a_closed_verified_minute",
+    ),
     "OPS-COST-001": (
         "tests.test_maintenance_jobs.test_linux_worker_accepts_container_pid_one_and_rejects_reparenting",
         "tests.test_briefing_runtime.test_failed_isolated_bulk_job_remains_due_until_success",
