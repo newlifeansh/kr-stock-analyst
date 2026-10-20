@@ -10,8 +10,8 @@ jobs:
     environment: production
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      DIAG_PROJECT: ${{ vars.PRODUCTION_RAILWAY_PROJECT_ID }}
-      DIAG_SERVICE: ${{ vars.PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
+      DIAG_PROJECT: ${{ vars.US_PRODUCTION_RAILWAY_PROJECT_ID }}
+      DIAG_SERVICE: ${{ vars.US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
     steps:
       - uses: actions/checkout@v4
       - run: npm install --global @railway/cli@5.45.7
@@ -29,7 +29,7 @@ jobs:
           cleanup() { railway ssh keys remove "$fingerprint"; ssh-agent -k; }
           trap cleanup EXIT
           railway ssh keys add --key "$fingerprint" --name "intraday-readonly-${GITHUB_RUN_ID}"
-          code="$(cat scripts/probe_intraday_blockers_readonly.py)"
+          code="$(cat scripts/probe_us_unclassified_readonly.py)"
           command="python -c $(printf '%q' "$code")"
           mkdir -p artifacts/intraday-evidence
           railway ssh -p "$DIAG_PROJECT" -s "$DIAG_SERVICE" -e production --identity-file "$task_dir/key" -- "$command" > artifacts/intraday-evidence/report.json
