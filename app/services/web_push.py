@@ -57,6 +57,7 @@ from app.services.quant_signals import (
     load_quant_signal_payload,
     load_reference_quant_signal_payload,
 )
+from app.services import observed_entry
 from app.services.signal_reconciliations import (
     apply_market_signal_reconciliations,
     apply_stock_signal_reconciliations,
@@ -405,6 +406,8 @@ class NotificationCandidate:
     ttl_seconds: int = PUSH_DELIVERY_TTL_SECONDS
     predecessor_event_key: Optional[str] = None
     market_scope: str = "kr"
+    expires_at: Optional[datetime] = None
+    entry_policy_version: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -583,6 +586,23 @@ def _ai_signal_candidate(
     lifecycle = current.get("lifecycle") if isinstance(current.get("lifecycle"), dict) else {}
     transition = lifecycle.get("latest_transition") if isinstance(lifecycle.get("latest_transition"), dict) else {}
     transition_label = str(transition.get("label") or "")
+    observed = current.get("observed_entry") or {}
+    if (transition.get("execution_model") == observed_entry.EXECUTION_MODEL
+            and transition.get("entry_policy_version") != observed_entry.POLICY_VERSION):
+        return None
+    observed_buy = (
+        action == "entered" and not preliminary
+        and transition.get("entry_policy_version") == observed_entry.POLICY_VERSION
+        and transition.get("side") == "buy"
+    )
+    confirmation_at = observed_entry.timestamp(transition.get("confirmed_at")) if observed_buy else None
+    local_now = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    if observed_buy and (
+        not confirmation_at or not 0 <= (local_now - confirmation_at).total_seconds() <= 180
+        or transition.get("intraday_execution_verified") is not True
+        or payload.get("execution_replay_state") == "unverified"
+    ):
+        return None
     effective_action = (
         "exited"
         if action == "entry_pending" and not preliminary and any(token in transition_label for token in ("매도", "청산"))
@@ -609,6 +629,7 @@ def _ai_signal_candidate(
         return None
     completed = effective_action in {"entered", "partially_exited", "exited"}
     basis_value = (
+        observed.get("first_observed_at") if observed.get("status") == "watching" else
         current.get("as_of")
         if intraday_preliminary
         else transition.get("transition_date") if completed else payload.get("price_through")
@@ -618,13 +639,19 @@ def _ai_signal_candidate(
         return None
     detail = str(current.get("next_confirmation") or "종목 상세에서 시그널 기준을 확인하세요.")
     return NotificationCandidate(
-        event_key=f"ai-signal:{item.code}:{effective_action}:{basis.date().isoformat()}",
+        event_key=(
+            f"market-ai-preliminary:{item.code}:buy:{basis.date().isoformat()}"
+            if observed.get("status") == "watching" else
+            f"market-ai-signal:{item.code}:buy:{basis.date().isoformat()}"
+            if observed_buy else f"ai-signal:{item.code}:{effective_action}:{basis.date().isoformat()}"
+        ),
         kind="ai_signal",
         title=_signal_notification_title(item.name, label, effective_action),
         body=f"{detail} 장 마감 전에는 바뀔 수 있어요." if intraday_preliminary else detail,
         url=_stock_url(item.name),
         tag=f"ai-signal-{item.code}",
-        occurred_at=now,
+        occurred_at=confirmation_at or now,
+        expires_at=confirmation_at + timedelta(seconds=180) if confirmation_at else None,
         stock_codes=(item.code,),
     )
 
@@ -1635,10 +1662,26 @@ class WebPushRuntime:
         preliminary_window = not confirmed_window and is_korea_regular_market_session(now)
         if not confirmed_window and not preliminary_window:
             return output
+        # The forward observer publishes one authoritative transition. Watchlist
+        # subscriptions must consume it too, without a second detail replay that
+        # lacks the publisher's live minute loader.
+        observed_candidates = [
+            candidate for candidate in self._market_ai_signal_candidates(db, now)
+            if candidate.entry_policy_version == observed_entry.POLICY_VERSION
+        ]
+        observed_codes = {code for candidate in observed_candidates for code in candidate.stock_codes}
+        for share_id, items in watchlists.items():
+            watched_codes = {item.code for item in items}
+            output[share_id].extend(
+                replace(candidate, kind="ai_signal")
+                for candidate in observed_candidates if watched_codes.intersection(candidate.stock_codes)
+            )
         quotes = live_quotes or {}
         payloads: dict[str, Optional[dict[str, object]]] = {}
         for items in watchlists.values():
             for item in items:
+                if item.code in observed_codes:
+                    continue
                 if item.code not in payloads:
                     try:
                         signal_kwargs = {
@@ -1736,17 +1779,27 @@ class WebPushRuntime:
                 if preliminary_date != current_date or not code or side not in {"buy", "sell"}:
                     continue
                 action = "예비 매수" if side == "buy" else "예비 매도"
+                observed = item.get("observed_entry") or {}
+                if observed.get("status") == "watching":
+                    action = "예비 포착"
                 notification_state = "preliminary_buy" if side == "buy" else "preliminary_sell"
                 candidates.append(
                     NotificationCandidate(
                         event_key=f"market-ai-preliminary:{code}:{side}:{signal_date}",
                         kind="market_ai_signal",
                         title=_signal_notification_title(name, action, notification_state),
-                        body=f"{current.strftime('%H:%M')} 기준 장중 관찰 신호예요. 15:40 확정 전에는 바뀔 수 있어요.",
+                        body=(
+                            "예비 후보가 포착됐어요. 이후 완료 분봉에서 조건을 충족하면 장중 매수 확정을 별도로 알려드려요."
+                            if observed.get("status") == "watching" else
+                            f"{current.strftime('%H:%M')} 기준 장중 관찰 신호예요. 15:40 확정 전에는 바뀔 수 있어요."
+                        ),
                         url=_stock_url(name),
                         tag=f"market-ai-signal-{code}",
                         occurred_at=current,
                         stock_codes=(code,),
+                        entry_policy_version=(
+                            observed_entry.POLICY_VERSION if observed.get("status") == "watching" else None
+                        ),
                     )
                 )
                 continue
@@ -1754,7 +1807,7 @@ class WebPushRuntime:
                 intraday_confirmed_ready
                 and item.get("status") == "confirmed"
                 and item.get("intraday_execution_verified") is True
-                and item.get("execution_model") == EXECUTION_MODEL
+                and item.get("execution_model") in {EXECUTION_MODEL, observed_entry.EXECUTION_MODEL}
             ):
                 continue
             execution_date = str(item.get("execution_date") or "").strip()
@@ -1769,6 +1822,16 @@ class WebPushRuntime:
             # today. Intraday preliminary candidates use a separate key above.
             if signal_date != current_date:
                 continue
+            confirmation_at = None
+            if (item.get("entry_policy_version") == observed_entry.POLICY_VERSION
+                    or item.get("execution_model") == observed_entry.EXECUTION_MODEL):
+                confirmation_at = observed_entry.timestamp(item.get("confirmed_at"))
+                if (item.get("entry_policy_version") != observed_entry.POLICY_VERSION
+                        or item.get("execution_model") != observed_entry.EXECUTION_MODEL
+                        or not confirmation_at
+                        or not 0 <= (current - confirmation_at).total_seconds() <= 180
+                        or not time(9, 0) <= current.time() < time(15, 30)):
+                    continue
             action = (
                 str(item.get("signal") or "수익확정")
                 if event_side == "partial_sell"
@@ -1790,6 +1853,10 @@ class WebPushRuntime:
                         else f"{execution_date} {action} 신호예요. 종목 상세에서 가격과 기준을 확인하세요."
                     ),
                     url=_stock_url(name),
+                    occurred_at=confirmation_at,
+                    expires_at=confirmation_at + timedelta(seconds=180) if confirmation_at else None,
+                    entry_policy_version=observed_entry.POLICY_VERSION if confirmation_at else None,
+                    stock_codes=(code,),
                     # A later full exit must not replace a +3% half-sale in
                     # the device tray when both resolve in one snapshot.
                     tag=(
@@ -2174,6 +2241,10 @@ class WebPushRuntime:
         self, db: Session, subscription: PushSubscription, candidate: NotificationCandidate,
         *, operator_approved: bool = False,
     ) -> bool:
+        if candidate.expires_at is not None:
+            current = datetime.now(KST)
+            if current > candidate.expires_at or not is_korea_regular_market_session(current):
+                return False
         if US_HYBRID_SIGNAL_EVENT_PATTERN.fullmatch(candidate.event_key):
             current = datetime.now(timezone.utc)
             occurred = candidate.occurred_at

@@ -1070,6 +1070,11 @@ class QuantSignalEventOut(BaseModel):
     source_strategy_version: Optional[str] = None
     reconciliation_id: Optional[str] = None
     execution_model: Optional[str] = None
+    entry_policy_version: Optional[str] = None
+    candidate_id: Optional[str] = None
+    first_observed_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = None
+    decision_minute_at: Optional[datetime] = None
 
 
 class QuantPartialExitOut(BaseModel):
@@ -1148,6 +1153,9 @@ class QuantLifecycleTransitionOut(BaseModel):
     signal_origin: Optional[str] = None
     reconciliation_id: Optional[str] = None
     execution_model: Optional[str] = None
+    entry_policy_version: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    intraday_execution_verified: Optional[bool] = None
 
 
 class QuantLifecycleOut(BaseModel):
@@ -1208,6 +1216,7 @@ class QuantCurrentSignalOut(BaseModel):
     as_of: datetime
     live_observation: bool
     position_open: bool
+    observed_entry: Optional[dict[str, object]] = None
     model_exposure_percent: Decimal
     lifecycle: QuantLifecycleOut
     entry_date: Optional[date] = None

@@ -42,6 +42,7 @@ from app.services.signal_reconciliations import (
 from app.services.signal_entry_evidence import (
     ENTRY_EVIDENCE_EFFECTIVE_DATE,
     build_relative_strength_context,
+    build_entry_evidence_payload,
     confirmation_response_payload,
     ensure_entry_evidence_snapshot,
     entry_confirmation_decision,
@@ -63,6 +64,7 @@ from app.services.regular_signal_transition import (
     regular_intraday_quote,
 )
 from app.services.regular_session_prices import UnverifiedRegularSessionPrice
+from app.services import observed_entry
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -2170,6 +2172,7 @@ def _simulate(
     intraday_minutes_by_date: Optional[dict[date, list[PriceBar]]] = None,
     lifecycle_start_date: Optional[date] = None,
     entry_filter_version: Optional[str] = None,
+    observed_entries: Optional[dict[date, dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     lifecycle_start_index = WARMUP_ROWS
     if lifecycle_start_date is not None:
@@ -2216,6 +2219,15 @@ def _simulate(
         if forming_bar_date == bar.trade_date and intraday_minutes is not None:
             session_minutes = intraday_minutes
         entry_minute_index: Optional[int] = None
+        observed_order = observed_entry.replay_order(
+            (observed_entries or {}).get(bar.trade_date), session_minutes,
+            forming=forming_bar_date == bar.trade_date,
+        )
+        close_entry = observed_order is not None
+        if observed_order:
+            if pending or position:
+                raise UnverifiedIntradayPathError("관측 진입이 기존 주문·보유 이력과 충돌합니다")
+            pending = observed_order
 
         if index == performance_start_index:
             if index > lifecycle_start_index and position:
@@ -2233,7 +2245,10 @@ def _simulate(
             pending = None
             execution_price: Optional[float] = float(bar.open)
             if active_pending["side"] == "buy":
-                if session_minutes:
+                if close_entry:
+                    execution_price = float(active_pending["price"])
+                    entry_minute_index = int(active_pending["minute_index"])
+                elif session_minutes:
                     execution_price, entry_minute_index = (
                         _ordered_intraday_entry_execution(
                             session_minutes, active_pending
@@ -2325,11 +2340,11 @@ def _simulate(
                 lifecycle_events.append(
                     {
                         "signal_date": active_pending["signal_date"],
-                        "signal_at": _signal_at(active_pending["signal_date"]),
+                        "signal_at": active_pending.get("signal_at") or _signal_at(active_pending["signal_date"]),
                         "execution_date": bar.trade_date,
                         "side": "buy",
                         "label": (
-                            "장중 돌파 진입"
+                            "장중 매수 확정" if close_entry else "장중 돌파 진입"
                             if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else "전략상 진입"
                         ),
@@ -2346,9 +2361,16 @@ def _simulate(
                         "position_percent": _decimal(100.0),
                         "state_after": "holding",
                         "execution_model": (
-                            EXECUTION_MODEL
+                            observed_entry.EXECUTION_MODEL if close_entry else EXECUTION_MODEL
                             if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else "close-confirmed-next-open"
+                        ),
+                        **(
+                            {
+                                key: active_pending[key]
+                                for key in ("candidate_id", "entry_policy_version", "first_observed_at",
+                                            "confirmed_at", "decision_minute_at", "observation_universe_rank")
+                            } if close_entry else {}
                         ),
                         **(
                             {
@@ -2526,11 +2548,12 @@ def _simulate(
             ordered_minutes = session_minutes
             if ordered_minutes and position["entry_date"] == bar.trade_date:
                 ordered_minutes = (
-                    ordered_minutes[entry_minute_index:]
+                    ordered_minutes[entry_minute_index + int(close_entry):]
                     if entry_minute_index is not None
                     else None
                 )
             intraday_decisions = (
+                [] if close_entry and not ordered_minutes else
                 _ordered_intraday_exit_decisions(position, ordered_minutes, indicator)
                 if ordered_minutes
                 else _intraday_exit_decisions(position, bar, indicator)
@@ -2698,9 +2721,15 @@ def _simulate(
                 break
 
         if position:
+            session_peak = (
+                max([float(position["entry_price"])] + [
+                    minute.high for minute in (session_minutes or [])[entry_minute_index + 1:]
+                ])
+                if close_entry else bar.high
+            )
             position["peak_price"] = max(
                 position["peak_price"],
-                bar.high
+                session_peak
                 if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                 else bar.close,
             )
@@ -2971,6 +3000,7 @@ def _simulate(
         "trades": trades,
         "lifecycle_trades": lifecycle_trades,
         "position": position,
+        "last_exit_index": last_exit_index,
         "performance": {
             "period_start": period_start,
             "period_end": bars[-1].trade_date,
@@ -4101,6 +4131,9 @@ def _current_signal(
             "profit_stage": last_event.get("profit_stage"),
             "sold_percent": last_event.get("sold_percent"),
             "execution_model": last_event.get("execution_model"),
+            "confirmed_at": last_event.get("confirmed_at"),
+            "entry_policy_version": last_event.get("entry_policy_version"),
+            "intraday_execution_verified": last_event.get("intraday_execution_verified"),
         }
     if position:
         target_sell_price = partial_target
@@ -4185,6 +4218,7 @@ def build_quant_signal_payload(
     entry_safety_guard: Optional[dict[str, Any]] = None,
     historical_intraday_minutes_by_date: Optional[dict[date, list[PriceBar]]] = None,
     lifecycle_start_date: Optional[date] = None,
+    observed_entries: Optional[dict[date, dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     current_time = now or datetime.now(KST)
     bars = _normalize_prices(rows)
@@ -4257,6 +4291,7 @@ def build_quant_signal_payload(
             "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
             "신호와 독립 근거는 완료 종가에서 확정하고, 다음 KRX 정규장에서 고정된 확인선을 돌파할 때 장중 매수합니다.",
+            "2026-10-21부터 실제 관측한 예비 후보는 포착 이후 완료된 정규장 1분봉에서 기존 매수 조건과 최신 독립 근거를 충족하면 같은 날 매수 확정합니다. 진입 관측가 이후 분봉만 매도 판단에 사용하며 과거 후보를 소급 생성하지 않습니다.",
             "장중 매도는 종료된 KRX 1분봉이 당일 현재가의 누적 고저가 범위 안에 있을 때 최대 1분 늦게 시각순으로 판정합니다. 첫 분봉 검증이 불가능하면 일중 OHLC는 조회 후보로만 쓰고 확정 매매를 보류하며, 이미 확정한 분봉 이력이 있으면 그 종목만 재검증 대기로 분리합니다. 같은 1분봉에서 손절선과 목표에 모두 닿으면 손절을 먼저 반영합니다.",
             "시가·고가·저가·종가가 모두 확인된 일봉과 현재 KRX 정규장의 검증된 형성 봉만 체결 판정에 사용합니다.",
             f"{INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat()}부터 종가 확정·다음 시가 체결을 종가 확정·다음 세션 장중 돌파 체결로 전환합니다.",
@@ -4353,6 +4388,7 @@ def build_quant_signal_payload(
         entry_safety_guard=entry_safety_guard,
         intraday_minutes_by_date=historical_intraday_minutes_by_date,
         lifecycle_start_date=lifecycle_start_date,
+        observed_entries=observed_entries,
     )
     simulation_bars, live_execution = _live_execution_bars(
         confirmed,
@@ -4373,6 +4409,7 @@ def build_quant_signal_payload(
             intraday_minutes=verified_minutes,
             intraday_minutes_by_date=historical_intraday_minutes_by_date,
             lifecycle_start_date=lifecycle_start_date,
+            observed_entries=observed_entries,
         )
         if (
             verified_minutes is None
@@ -4461,6 +4498,17 @@ def build_quant_signal_payload(
         "trades": list(reversed(simulation["trades"][-12:])),
         "entry_safety_guard": deepcopy(entry_safety_guard),
     }
+    # Private publisher context is removed before returning a persisted/public payload.
+    result["_observed_entry_context"] = {
+        "available": bool(
+            live_execution and verified_minutes is not None
+            and not simulation.get("position") and not simulation.get("pending")
+            and not any(event.get("execution_date") == current_time.date()
+                        for event in simulation.get("lifecycle_events") or [])
+        ),
+        "last_exit_index": simulation.get("last_exit_index"),
+    }
+    observed_entry.project_current(result, (observed_entries or {}).get(current_time.date()))
     result.update(quant_signal_display_return_fields(result))
     if lifecycle_start_date is not None:
         publish_forward_metadata(result)
@@ -5576,7 +5624,7 @@ def _market_preliminary_signal_item(
     live_observation = bool(current.get("live_observation"))
     signal_date = now.date() if live_observation else payload.get("price_through")
     signal_at = (
-        current.get("as_of") or now
+        (current.get("observed_entry") or {}).get("first_observed_at") or current.get("as_of") or now
         if live_observation
         else _signal_at(signal_date) or current.get("as_of") or now
     )
@@ -5606,6 +5654,7 @@ def _market_preliminary_signal_item(
         "current": current,
         "is_current_holding": bool(current.get("position_open")),
         "public_reasons": public_reasons,
+        "observed_entry": current.get("observed_entry"),
     }
     display_return_fields = quant_signal_display_return_fields(payload)
     item["return_rate"] = display_return_fields.get("display_return_rate")
@@ -5631,8 +5680,13 @@ def _market_stock_payload_with_intraday_path(
     *,
     verified_paths: Optional[dict[date, list[PriceBar]]] = None,
     lifecycle_start_date: Optional[date] = None,
+    observe_entry: bool = False,
+    entry_universe_eligible: Optional[Callable[[dict[str, Any]], bool]] = None,
+    fresh_entry_evidence: Optional[Callable[[], dict[str, Any]]] = None,
+    observation_universe_rank: Optional[int] = None,
 ) -> dict[str, Any]:
     code = stock.code
+    observed_entries = observed_entry.load_records(db, code, current_time) if lifecycle_start_date else {}
     historical_paths = verified_paths if verified_paths is not None else _load_verified_historical_intraday_paths(
         db, code, confirmed_stock_bars, current_time,
         historical_chart_loader=historical_intraday_chart_loader,
@@ -5643,6 +5697,7 @@ def _market_stock_payload_with_intraday_path(
         entry_safety_guard=entry_safety_guard,
         historical_intraday_minutes_by_date=historical_paths,
         lifecycle_start_date=lifecycle_start_date,
+        observed_entries=observed_entries,
     )
     stored_live_path = db.get(
         QuantSignalIntradayPathSnapshot, (code, current_time.date())
@@ -5657,6 +5712,10 @@ def _market_stock_payload_with_intraday_path(
             or (lifecycle_start_date is not None and (
                 (payload.get("current") or {}).get("position_open")
                 or (payload.get("current") or {}).get("action") == "entry_pending"
+                or (observe_entry and current_time.date() >= observed_entry.EFFECTIVE_DATE
+                    and (payload.get("current") or {}).get("action") == "entry_watch"
+                    and entry_universe_eligible and entry_universe_eligible(payload))
+                or observed_entries.get(current_time.date(), {}).get("status") == "watching"
             ))
         )
     )
@@ -5700,13 +5759,46 @@ def _market_stock_payload_with_intraday_path(
                 entry_safety_guard=entry_safety_guard,
                 historical_intraday_minutes_by_date=historical_paths,
                 lifecycle_start_date=lifecycle_start_date,
+                observed_entries=observed_entries,
             )
+            if verified_minutes and observe_entry:
+                # Use the actual chart observation clock, not the start of a
+                # market-wide scan, when recording the first possible entry.
+                observed_at = observed_entry.timestamp(chart_fetched_at)
+                rows = sorted(
+                    (row for row in minute_rows if not _non_trade_closing_auction_row(row)),
+                    key=lambda row: str(row.get("trade_time") or "").zfill(6),
+                )
+                minute_time = str(rows[len(verified_minutes) - 1]["trade_time"]).zfill(6)
+                minute_at = datetime.combine(current_time.date(), datetime.strptime(minute_time, "%H%M%S").time(), KST)
+                context = payload.get("_observed_entry_context") or {}
+                if observed_at and 0 <= (observed_at - current_time).total_seconds() <= 180:
+                    record = observed_entry.observe(
+                        db, code, now=observed_at, bars=confirmed_stock_bars,
+                        minutes=verified_minutes, minute_at=minute_at,
+                        available=context.get("available") is True,
+                        last_exit_index=context.get("last_exit_index"),
+                        guard=entry_safety_guard,
+                        evidence=fresh_entry_evidence() if fresh_entry_evidence else None,
+                        universe_eligible=bool(entry_universe_eligible and entry_universe_eligible(payload)),
+                        universe_rank=observation_universe_rank,
+                    )
+                    if record:
+                        observed_entries[current_time.date()] = record
+                        payload = build_quant_signal_payload(
+                            stock, stock_price_rows, live_quote=candidate_quote,
+                            now=current_time, context=None, entry_evidence_by_date=evidence_timeline,
+                            entry_safety_guard=entry_safety_guard,
+                            historical_intraday_minutes_by_date=historical_paths,
+                            lifecycle_start_date=lifecycle_start_date, observed_entries=observed_entries,
+                        )
         elif stored_live_path is not None and not stored_live_path.is_final:
             raise UnverifiedIntradayPathError("기존 장중 체결 이후 분봉 조회가 끊겼습니다")
     elif stored_live_path is not None and not stored_live_path.is_final:
         raise UnverifiedIntradayPathError(
             "기존 장중 체결 이후 현재가·분봉을 확인할 수 없습니다"
         )
+    payload.pop("_observed_entry_context", None)
     return payload
 
 
@@ -6030,6 +6122,23 @@ def load_market_quant_signal_feed(
                 current_time, intraday_chart_loader,
                 historical_intraday_chart_loader,
                 **({"verified_paths": forward_paths, "lifecycle_start_date": REGULAR_FORWARD_START} if forward_mode else {}),
+                observe_entry=bool(forward_mode and persist_entry_safety_guard
+                                   and capped_universe_limit == MARKET_SIGNAL_UNIVERSE_LIMIT),
+                observation_universe_rank=current_rank_by_code.get(code),
+                entry_universe_eligible=lambda candidate: bool(
+                    code in current_universe_codes and current_rank_by_code.get(code)
+                    and (current_rank_by_code[code] <= core_universe_limit
+                         or _extended_market_signal_qualification(
+                             confirmed_stock_bars, candidate.get("current"),
+                             required_price_date=required_price_date,
+                         )["allowed"])
+                ),
+                fresh_entry_evidence=lambda: build_entry_evidence_payload(
+                    db, stock, stock_price_rows, signal_date=latest_confirmed_date,
+                    now=current_time, relative_context=relative_context_by_date.get(latest_confirmed_date),
+                    flow_prices=prices_by_code.get(code, []),
+                    intraday_observation=True,
+                ),
             )
         except (UnverifiedIntradayPathError, UnverifiedRegularSessionPrice) as exc:
             unverified_codes.add(code)
@@ -6107,6 +6216,10 @@ def load_market_quant_signal_feed(
                 if event_execution_date
                 else None
             )
+            if event.get("entry_policy_version") == observed_entry.POLICY_VERSION:
+                # Membership/extended eligibility was verified at observation;
+                # today's daily cap row may not exist until after the close.
+                event_rank = event.get("observation_universe_rank") or event_rank
             event_qualification: dict[str, Any] = {}
             if event_side == "buy":
                 if code_has_core_history or (
@@ -6123,9 +6236,10 @@ def load_market_quant_signal_feed(
                     event_rank is not None
                     and core_universe_limit < event_rank <= capped_universe_limit
                 ):
-                    event_qualification = _extended_market_signal_event_qualification(
-                        event,
-                        confirmed_stock_bars,
+                    event_qualification = (
+                        {"allowed": True, "basis": "qualified_at_observation"}
+                        if event.get("entry_policy_version") == observed_entry.POLICY_VERSION
+                        else _extended_market_signal_event_qualification(event, confirmed_stock_bars)
                     )
                     lifecycle_tracked = bool(event_qualification.get("allowed"))
                     lifecycle_tier = "extended"
@@ -6249,6 +6363,10 @@ def load_market_quant_signal_feed(
                 "sold_percent": event.get("sold_percent"),
                 "state_after": event.get("state_after"),
                 "execution_model": event.get("execution_model"),
+                **{key: event.get(key) for key in (
+                    "candidate_id", "entry_policy_version", "first_observed_at",
+                    "confirmed_at", "decision_minute_at",
+                )},
                 "intraday_execution_verified": (
                     event.get("intraday_execution_verified") is True
                     and _fresh_kis_intraday_quote_for_market_alert(live_quote, current_time)
@@ -6954,6 +7072,12 @@ def save_market_quant_signal_snapshot(
     else:
         snapshot.payload = serialized
         snapshot.generated_at = stored_at
+    if (universe_limit == MARKET_SIGNAL_UNIVERSE_LIMIT and limit == 0
+            and recent_days == 30 and payload.get("status") == "ready"):
+        observed_entry.mark_published(
+            db, stored_payload.get("items") or [],
+            stored_at.replace(tzinfo=timezone.utc).astimezone(KST),
+        )
     db.commit()
     result = dict(stored_payload)
     result["status"] = "ready"

@@ -17018,13 +17018,16 @@ function aiSignalOutcomeMetrics(item = {}, view = {}) {
     const isUsItem = item.currency === "USD"
       || ["us", "usa", "united_states"].includes(scope)
       || ["NASDAQ", "NYSE", "AMEX", "SP500", "US"].includes(market);
-    metrics.push(item.rollout_mode === "hybrid_forward"
+    metrics.push(current.observed_entry?.policy_version === "same-session-observed-entry-v1"
+      ? { key: "confirmation", label: "확정 기준", value: "포착 후 완료 1분봉" }
+      : item.rollout_mode === "hybrid_forward"
       ? { key: "confirmation", label: "확정 기준", value: "정규장 완료 1분봉" }
       : isUsItem
       ? { key: "confirmation", label: "다음 확인", value: "미국 정규장 종가" }
       : { key: "execution", label: "체결 기준", value: "다음 거래일 시가" });
   } else if (view.preliminary && returnRate === null && !targetStatus) {
-    metrics.push({ key: "confirmation", label: "확정 기준", value: "15:40 전" });
+    metrics.push({ key: "confirmation", label: "확정 기준", value:
+      current.observed_entry?.policy_version === "same-session-observed-entry-v1" ? "포착 후 완료 1분봉" : "조건 확인 중" });
   }
   if (!metrics.length) {
     metrics.push({
@@ -17683,7 +17686,7 @@ function homeAttentionSentence(items = []) {
     if (view.preliminary) {
       return view.label === "예비 포착"
         ? `${name}: 조기 추세 후보가 포착됐으며 다음 매수 확정 조건을 확인하고 있습니다.`
-        : `${name}: AI 예비 매수 상태이며 15:40 확정 전까지 결과가 바뀔 수 있습니다.`;
+        : `${name}: AI 예비 매수 상태이며 매수 조건 충족 여부를 확인하고 있습니다.`;
     }
     return `${name}: AI 매수 신호 이후 가격과 거래대금 변화를 추적 중입니다.`;
   }
@@ -18460,7 +18463,7 @@ function homeWatchItemAction(item = {}, context = {}, signalItems = [], contexts
       : "AI 확정 매도 상태 · 신호 발생 이후 가격과 거래대금 변화를 추적 중입니다.";
   }
   if (signalView?.key === "recent-buy" && signalView.preliminary) {
-    return "AI 예비 매수 상태 · 15:40 확정 전까지 결과가 바뀔 수 있습니다.";
+    return "AI 예비 매수 상태 · 매수 조건 충족 시 확정 알림을 별도로 보냅니다.";
   }
   if (context.kind === "company-news") {
     if (context.responseTone === "negative") {

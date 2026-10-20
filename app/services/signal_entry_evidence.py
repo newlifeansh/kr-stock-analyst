@@ -692,6 +692,7 @@ def _disclosure_evidence(
     stock_code: str,
     signal_date: date,
     generated_at: datetime,
+    observed_through: Optional[datetime] = None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     run = _latest_successful_ingestion(
         db,
@@ -711,7 +712,9 @@ def _disclosure_evidence(
         signal_date - timedelta(days=DISCLOSURE_RISK_LOOKBACK_DAYS),
         time.min,
     )
-    through = datetime.combine(signal_date, time.max)
+    through = observed_through or datetime.combine(signal_date, time.max)
+    if observed_through is not None and age_minutes is not None and age_minutes < 0:
+        source_ready = False
     disclosures = list(
         db.scalars(
             select(DisclosureItem)
@@ -836,6 +839,7 @@ def build_entry_evidence_payload(
     now: Optional[datetime] = None,
     relative_context: Optional[dict[str, Any]] = None,
     flow_prices: Optional[list[DailyPrice]] = None,
+    intraday_observation: bool = False,
 ) -> dict[str, Any]:
     generated_at = _kst(now)
     sorted_prices = sorted(prices, key=lambda item: item.trade_date)
@@ -879,6 +883,7 @@ def build_entry_evidence_payload(
         stock_code=stock.code,
         signal_date=signal_date,
         generated_at=generated_at,
+        observed_through=_utc_naive(generated_at) if intraday_observation else None,
     )
     evidence = [earnings, relative, flow, disclosure]
     source_checks = [price_check, market_check, flow_check, *earnings_checks, disclosure_check]
