@@ -407,6 +407,7 @@ class NotificationCandidate:
     predecessor_event_key: Optional[str] = None
     market_scope: str = "kr"
     expires_at: Optional[datetime] = None
+    entry_policy_version: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -1661,10 +1662,26 @@ class WebPushRuntime:
         preliminary_window = not confirmed_window and is_korea_regular_market_session(now)
         if not confirmed_window and not preliminary_window:
             return output
+        # The forward observer publishes one authoritative transition. Watchlist
+        # subscriptions must consume it too, without a second detail replay that
+        # lacks the publisher's live minute loader.
+        observed_candidates = [
+            candidate for candidate in self._market_ai_signal_candidates(db, now)
+            if candidate.entry_policy_version == observed_entry.POLICY_VERSION
+        ]
+        observed_codes = {code for candidate in observed_candidates for code in candidate.stock_codes}
+        for share_id, items in watchlists.items():
+            watched_codes = {item.code for item in items}
+            output[share_id].extend(
+                replace(candidate, kind="ai_signal")
+                for candidate in observed_candidates if watched_codes.intersection(candidate.stock_codes)
+            )
         quotes = live_quotes or {}
         payloads: dict[str, Optional[dict[str, object]]] = {}
         for items in watchlists.values():
             for item in items:
+                if item.code in observed_codes:
+                    continue
                 if item.code not in payloads:
                     try:
                         signal_kwargs = {
@@ -1780,6 +1797,9 @@ class WebPushRuntime:
                         tag=f"market-ai-signal-{code}",
                         occurred_at=current,
                         stock_codes=(code,),
+                        entry_policy_version=(
+                            observed_entry.POLICY_VERSION if observed.get("status") == "watching" else None
+                        ),
                     )
                 )
                 continue
@@ -1835,6 +1855,8 @@ class WebPushRuntime:
                     url=_stock_url(name),
                     occurred_at=confirmation_at,
                     expires_at=confirmation_at + timedelta(seconds=180) if confirmation_at else None,
+                    entry_policy_version=observed_entry.POLICY_VERSION if confirmation_at else None,
+                    stock_codes=(code,),
                     # A later full exit must not replace a +3% half-sale in
                     # the device tray when both resolve in one snapshot.
                     tag=(

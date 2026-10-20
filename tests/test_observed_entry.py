@@ -287,6 +287,11 @@ def test_two_distinct_pushes_dedupe_watchlist_and_reject_stale_unverified(setup,
     assert "예비 포착" in candidates[0].title and "매수 확정" in candidates[1].title
     assert candidates[0].event_key != candidates[1].event_key
     watch = WatchlistItem(code=stock.code, name=stock.name, share_id="tester")
+    monkeypatch.setattr(web_push, "load_quant_signal_payload",
+                        lambda *a, **k: pytest.fail("observed watchlist alert must use canonical publication"))
+    from_watchlist = runtime._ai_signal_candidates(db, {"tester": [watch]}, now)["tester"]
+    assert [item.event_key for item in from_watchlist] == [item.event_key for item in candidates]
+    assert all(item.kind == "ai_signal" for item in from_watchlist)
     payload = {"current": {
         "action": "entry_watch", "live_observation": True, "as_of": now,
         "observed_entry": preliminary["observed_entry"], "lifecycle": {},
