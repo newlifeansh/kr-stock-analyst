@@ -10,6 +10,7 @@ from app.services.us_position_lifecycle import (
 )
 from app.services.us_sector_classification import (
     US_SECTOR_ETF_BY_CIK,
+    US_SECTOR_ETF_CLASSIFICATION_VERSION,
     US_SECTOR_ETFS,
 )
 from app.services.us_market_calendar import recent_us_market_session_dates
@@ -41,6 +42,7 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0001119639", "Energy", "XLE"),  # Petrobras
         ("0001668717", "Technology", "XLP"),  # AB InBev / BUD
         ("0000109198", "Consumer Staples", "XLY"),  # TJX
+        ("0001467373", "Consumer Discretionary", "XLK"),  # Accenture
     ]
     for cik, misleading_display_sector, expected in cases:
         assert (
@@ -230,7 +232,30 @@ def test_reviewed_bud_tjx_top100_boundary_restores_complete_coverage():
     assert payload["data_coverage_count"] == 100
     assert payload["sector_classification_errors"] == {}
     assert payload["new_entries_allowed"] is True
-    assert payload["sector_classification_version"] == "us-sector-etf-cik-v9"
+    assert payload["sector_classification_version"] == US_SECTOR_ETF_CLASSIFICATION_VERSION
+    assert len(payload["hybrid_setups"]) == 100
+
+
+def test_reviewed_acn_top100_boundary_restores_complete_coverage():
+    universe = _universe()
+    universe["items"][-1].update(
+        code="ACN", cik="0001467373", sector="Consumer Discretionary"
+    )
+    stock = _bars(0.0017)
+    histories = {
+        "SPY": _bars(0.0007), "QQQ": _bars(0.0009),
+        "XLK": _bars(0.0010), "XLP": _bars(0.0010), "XLY": _bars(0.0010),
+        **{str(item["code"]): stock for item in universe["items"]},
+    }
+    payload = build_us_position_lifecycle_feed(
+        limit=100, now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        universe_payload=universe, history_loader=lambda symbol: histories.get(symbol, []),
+    )
+    assert payload["status"] == "ready"
+    assert payload["data_coverage_count"] == 100
+    assert payload["sector_classification_errors"] == {}
+    assert payload["new_entries_allowed"] is True
+    assert payload["sector_classification_version"] == US_SECTOR_ETF_CLASSIFICATION_VERSION
     assert len(payload["hybrid_setups"]) == 100
 
 

@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v9"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v10"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -33,6 +33,9 @@ def _cik_map(etf: str, values: str) -> dict[str, str]:
 # TJX: SEC CIK 109198; the XLY fund lists TJX among its holdings.
 # https://www.sec.gov/Archives/edgar/data/109198/000010919826000008/0000109198-26-000008-index.html
 # https://www.ssga.com/mainfund/XLY
+# v10 adds ACN (SEC CIK 1467373), verified in the 2026-10-19 XLK holdings.
+# https://www.sec.gov/Archives/edgar/data/1467373/000146737326000049/0001467373-26-000049-index.htm
+# https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-xlk.xlsx
 US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
     **_cik_map(
         "XLK",
@@ -42,7 +45,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         0001321655 0000707549 0000006951 0001571996 0001973239 0001327567
         0001000184 0002023554 0001596532 0000319201 0000097476 0000051143
         0001535527 0001108524 0001137789 0001835632 0000804328 0000006281
-        0000106040 0001594805 0000820313
+        0000106040 0001594805 0000820313 0001467373
         """,
     ),
     **_cik_map(
