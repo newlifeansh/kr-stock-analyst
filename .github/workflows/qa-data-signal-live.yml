@@ -15,6 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm install --global @railway/cli@5.45.7
+      - name: Capture read-only US collector progress
+        run: |
+          mkdir -p artifacts/intraday-evidence
+          railway logs --latest --json --lines 500 --project "$DIAG_PROJECT" --environment production --service "$DIAG_SERVICE" > artifacts/intraday-evidence/us-collector-runtime.jsonl
       - name: Inspect stored evidence in a read-only database transaction
         shell: bash
         run: |
