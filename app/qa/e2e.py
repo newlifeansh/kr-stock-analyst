@@ -1713,7 +1713,53 @@ def _run_us_e2e_checks(
                         path=str(output_dir / f"performance-us-{width}-{theme}.png")
                     )
                     evidence.append({"width": width, **observed})
-                return {"theme": theme, "viewports": evidence}
+                repeated_window = page.evaluate(
+                    """() => {
+                      const original = state.aiSignalPerformanceSummary;
+                      const windows = {
+                        '7d': { completed_trades: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
+                        '15d': { completed_trades: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
+                        '30d': { completed_trades: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
+                      };
+                      state.aiSignalPerformanceSummary = {
+                        ...original, as_of: '2026-10-21T10:28:00+00:00', windows,
+                      };
+                      const inspect = () => {
+                        const card = document.querySelector('#ai-signal-performance');
+                        const rows = [...card.querySelectorAll('.ai-signal-performance-row')];
+                        return {
+                          asOf: card.querySelector('#ai-signal-performance-asof')?.textContent?.trim(),
+                          values: rows.map(row => row.querySelector('.ai-signal-performance-value')?.textContent?.trim()),
+                          tones: rows.map(row => row.querySelector('.ai-signal-performance-value')?.className),
+                          statuses: rows.map(row => row.querySelector('.ai-signal-performance-status')?.textContent?.trim()),
+                          evidence: rows.map(row => row.querySelector('.ai-signal-performance-evidence')?.textContent?.trim()),
+                        };
+                      };
+                      renderAiSignalPerformance();
+                      const sameSample = inspect();
+                      state.aiSignalPerformanceSummary.windows['30d'] = {
+                        ...windows['30d'], completed_trades: 4, average_return: 3.5,
+                      };
+                      renderAiSignalPerformance();
+                      const newTrade = inspect();
+                      state.aiSignalPerformanceSummary = original;
+                      renderAiSignalPerformance();
+                      return { sameSample, newTrade };
+                    }"""
+                )
+                same = repeated_window["sameSample"]
+                new = repeated_window["newTrade"]
+                if (
+                    same["values"] != ["+4.13%", "-", "-"]
+                    or any("is-neutral" not in tone for tone in same["tones"][1:])
+                    or same["statuses"] != ["참고 표본", "동일 표본", "동일 표본"]
+                    or any("추가 완료 거래 없음" not in item for item in same["evidence"][1:])
+                    or same["asOf"] != "2026-10-21 19:28 한국시간 기준"
+                    or new["values"] != ["+4.13%", "-", "+3.50%"]
+                    or new["statuses"][2] != "참고 표본"
+                ):
+                    raise QaFailure("미국 성과의 동일 표본 대시·새 거래·한국시간 표시가 일치하지 않습니다.", repeated_window)
+                return {"theme": theme, "viewports": evidence, "repeated_window": repeated_window}
 
             performance_result = _run_page_case(
                 browser=browser, catalog_by_id=catalog_by_id, case_id="SIG-PERF-US-001",

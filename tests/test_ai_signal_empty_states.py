@@ -18,6 +18,7 @@ const toNumber = value => value === null || value === undefined || value === ''
   ? null
   : Number.isFinite(Number(value)) ? Number(value) : null;
 const formatNumber = value => String(Number(value));
+const isUsHubContext = false;
 """ + helpers + "\n" + assertions
     completed = subprocess.run(
         ["node", "-e", script],
@@ -45,6 +46,7 @@ assert.deepEqual(empty, {
   completed: 0,
   average: null,
   empty: true,
+  sameSample: false,
   statusState: 'empty',
   statusLabel: '표본 없음',
 });

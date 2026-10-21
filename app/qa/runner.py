@@ -363,6 +363,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_ai_signal_performance_overview_contract_is_responsive_and_uses_30_day_source",
     ),
     "SIG-PERF-US-001": (
+        "tests.test_signal_performance_windows.test_us_performance_display_hides_only_repeated_window_samples",
+        "tests.test_ai_signal_empty_states.test_zero_completed_trades_are_an_empty_sample_not_an_endless_loading_state",
         "tests.test_signal_performance_windows.test_us_performance_windows_exclude_partial_future_invalid_and_duplicates",
         "tests.test_signal_performance_windows.test_us_performance_is_independent_of_public_row_limit",
         "tests.test_us_position_lifecycle.test_us_feed_replays_top100_model_lifecycle_without_orders",

@@ -19475,17 +19475,23 @@ function aiSignalPerformanceTone(value) {
   return number >= 0 ? "positive" : "negative";
 }
 
-function aiSignalPerformanceWindowState(windowSummary = {}) {
+function aiSignalPerformanceWindowState(windowSummary = {}, shorterWindowSummary = null) {
   const completed = Math.max(0, Number(windowSummary.completed_trades) || 0);
   const average = toNumber(windowSummary.average_return);
   const empty = completed === 0;
+  const shorterCompleted = Math.max(0, Number(shorterWindowSummary?.completed_trades) || 0);
+  const sameSample = Boolean(isUsHubContext && !empty && shorterWindowSummary
+    && completed === shorterCompleted);
   return {
     completed,
     average,
     empty,
-    statusState: empty ? "empty" : (windowSummary.sample_state || "limited"),
+    sameSample,
+    statusState: empty ? "empty" : sameSample ? "same-sample" : (windowSummary.sample_state || "limited"),
     statusLabel: empty
       ? "표본 없음"
+      : sameSample
+        ? "동일 표본"
       : windowSummary.sample_state === "sufficient"
         ? "표본 충족"
         : "참고 표본",
@@ -19532,7 +19538,9 @@ function renderAiSignalPerformance() {
   }
   elements.aiSignalPerformance.hidden = false;
   if (elements.aiSignalPerformanceAsOf) {
-    const asOf = formatDate(summary.as_of);
+    const asOf = isUsHubContext
+      ? formatMarketNewsDate({ published_at: summary.as_of, market_scope: "us" })
+      : formatDate(summary.as_of);
     elements.aiSignalPerformanceAsOf.textContent = asOf === "-" ? "집계 기준 확인 중" : `${asOf} 기준`;
   }
   const guard = state.aiSignalEntrySafetyGuard || {};
@@ -19550,10 +19558,11 @@ function renderAiSignalPerformance() {
             ? "완료된 미국 매도 시그널의 비용 차감 전 평균 수익률입니다."
             : "거래비용을 반영한 완료 매도 시그널의 평균 수익률입니다.";
   }
-  const rows = [[7, windows["7d"]], [15, windows["15d"]], [30, windows["30d"]]].map(([days, performanceWindow]) => {
+  const rows = [[7, windows["7d"], null], [15, windows["15d"], windows["7d"]], [30, windows["30d"], windows["15d"]]].map(([days, performanceWindow, shorterWindow]) => {
     const windowSummary = performanceWindow || {};
-    const windowState = aiSignalPerformanceWindowState(windowSummary);
+    const windowState = aiSignalPerformanceWindowState(windowSummary, shorterWindow);
     const { completed, average } = windowState;
+    const visibleAverage = windowState.empty || windowState.sameSample ? null : average;
     const row = el("div", "ai-signal-performance-row");
     const heading = el("div", "ai-signal-performance-row-heading");
     heading.append(
@@ -19566,13 +19575,12 @@ function renderAiSignalPerformance() {
     );
     const value = el(
       "strong",
-      `ai-signal-performance-value is-${aiSignalPerformanceTone(average)}`,
-      windowState.empty || average === null ? "-" : formatPercent(average),
+      `ai-signal-performance-value is-${aiSignalPerformanceTone(visibleAverage)}`,
+      visibleAverage === null ? "-" : formatPercent(visibleAverage),
     );
-    const evidenceParts = [
-      `완료 ${formatNumber(completed)}건`,
-      `승률 ${formatAiSignalRate(windowSummary.win_rate)}`,
-    ];
+    const evidenceParts = windowState.sameSample
+      ? [`완료 ${formatNumber(completed)}건`, "추가 완료 거래 없음"]
+      : [`완료 ${formatNumber(completed)}건`, `승률 ${formatAiSignalRate(windowSummary.win_rate)}`];
     const evidence = el("p", "ai-signal-performance-evidence", evidenceParts.join(" · "));
     row.append(heading, value, evidence);
     return row;
