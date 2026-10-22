@@ -249,6 +249,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_session_prices.test_regular_backfill_redacts_source_errors_and_keeps_failures_visible",
         "tests.test_regular_session_prices.test_regular_turnover_accepts_observed_day_boundary_not_assumed_zero",
         "tests.test_regular_session_prices.test_dated_regular_source_records_previous_day_rollover_separately",
+        "tests.test_regular_session_prices.test_delayed_first_trade_still_requests_explicit_preopen_boundary",
         "tests.test_regular_session_prices.test_missing_auction_requires_cross_source_prefix_and_actual_single_price",
         "tests.test_regular_session_prices.test_zero_volume_1530_requires_and_uses_verified_cross_source_close",
         "tests.test_regular_session_prices.test_cross_source_auction_never_recovers_wrong_venue_date_or_bad_prefix",
