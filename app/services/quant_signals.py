@@ -100,6 +100,7 @@ EARLY_ENTRY_EMA60_GAP_MAX = 0.005
 EARLY_ENTRY_VOLUME_MIN = 1.1
 PRE_ENTRY_SCORE = 54.0
 PRE_ENTRY_MOMENTUM_5_MIN = 0.0
+PRE_ENTRY_VOLUME_MIN = 0.75
 MAX_ENTRY_ATR_PERCENT = 0.045
 MAX_ENTRY_EXTENSION_ATR = 2.5
 # v7.4.1 blocks late entries independently from the composite score.  The
@@ -331,6 +332,7 @@ class PriceBar:
     volume: float
     trading_value: float
     ohlc_complete: bool = True
+    closed_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -342,6 +344,7 @@ class IntradayExecutionDecision:
     reason: str
     target_stage: Optional[int] = None
     sell_fraction: Optional[float] = None
+    confirmed_at: Optional[datetime] = None
 
 
 def _decimal(value: Optional[float], places: str = "0.01") -> Optional[Decimal]:
@@ -594,11 +597,17 @@ def _entry_quality_allowed(
     *,
     strategy_date: Optional[date] = None,
     entry_filter_version: Optional[str] = None,
+    minimum_volume_ratio: Optional[float] = None,
 ) -> bool:
     decision_date = strategy_date or bar.trade_date
     parameters = _entry_filter_parameters(
         decision_date,
         entry_filter_version or active_entry_filter_version(decision_date),
+    )
+    required_volume_ratio = (
+        parameters["min_volume_ratio"]
+        if minimum_volume_ratio is None
+        else float(minimum_volume_ratio)
     )
     return bool(
         bar.ohlc_complete
@@ -607,7 +616,7 @@ def _entry_quality_allowed(
         <= parameters.get("max_entry_extension_atr", MAX_ENTRY_EXTENSION_ATR)
         and indicator.get("average_trading_value", 0.0) >= MIN_AVERAGE_TRADING_VALUE
         and indicator.get("momentum5", 0.0) >= parameters["min_momentum5"]
-        and indicator.get("volume_ratio", 0.0) >= parameters["min_volume_ratio"]
+        and indicator.get("volume_ratio", 0.0) >= required_volume_ratio
     )
 
 
@@ -778,6 +787,7 @@ def _pre_entry_signal(
         bar,
         indicator,
         strategy_date=bar.trade_date,
+        minimum_volume_ratio=PRE_ENTRY_VOLUME_MIN,
     ):
         return False
     return bool(
@@ -787,7 +797,7 @@ def _pre_entry_signal(
         and indicator.get("momentum5", 0.0) > PRE_ENTRY_MOMENTUM_5_MIN
         and indicator["momentum20"] > -0.05
         and indicator.get("high_distance", -1.0) >= -0.08
-        and indicator.get("volume_ratio", 0.0) >= 0.75
+        and indicator.get("volume_ratio", 0.0) >= PRE_ENTRY_VOLUME_MIN
     )
 
 
@@ -1178,6 +1188,7 @@ def _intraday_exit_decisions(
                     protective=True,
                 ),
                 reason="장중 하드 위험선 이탈(OHLC 보수적 판정)",
+                confirmed_at=bar.closed_at,
             )
         ]
 
@@ -1213,6 +1224,7 @@ def _intraday_exit_decisions(
                 ),
                 target_stage=stage,
                 sell_fraction=sell_fraction,
+                confirmed_at=bar.closed_at,
             )
         )
         current_remaining = intended_remaining
@@ -1316,6 +1328,7 @@ def _verified_intraday_minutes(
                     close=float(minute_close),
                     volume=float(minute_volume),
                     trading_value=float(_safe_number(row.get("trading_value")) or 0),
+                    closed_at=minute_at.replace(tzinfo=KST) + timedelta(minutes=1),
                 ),
             )
         )
@@ -1869,6 +1882,7 @@ def _ordered_intraday_exit_decisions(
             close=minute.open,
             volume=minute.volume,
             trading_value=minute.trading_value,
+            closed_at=minute.closed_at,
         )
         for segment in (opening, minute):
             for decision in _intraday_exit_decisions(shadow, segment, indicator):
@@ -2256,6 +2270,32 @@ def _simulate(
                     )
                 else:
                     execution_price = _intraday_entry_execution_price(bar, active_pending)
+            execution_confirmed_at: Optional[datetime] = None
+            if close_entry:
+                execution_confirmed_at = observed_entry.timestamp(
+                    active_pending.get("confirmed_at") or active_pending.get("signal_at")
+                )
+            elif session_minutes:
+                execution_minute = (
+                    session_minutes[entry_minute_index]
+                    if entry_minute_index is not None
+                    else session_minutes[0]
+                )
+                execution_confirmed_at = execution_minute.closed_at
+            execution_clock_fields = (
+                {
+                    "confirmed_at": execution_confirmed_at,
+                    "decision_minute_at": execution_confirmed_at,
+                }
+                if execution_confirmed_at is not None
+                else {}
+            )
+            observed_execution_model = (
+                active_pending.get("execution_model")
+                or observed_entry.execution_model_for_policy(
+                    active_pending.get("entry_policy_version")
+                )
+            )
             execution_data_available = bar.ohlc_complete
             execution_allowed = execution_data_available and (
                 active_pending["side"] != "buy" or execution_price is not None
@@ -2361,10 +2401,11 @@ def _simulate(
                         "position_percent": _decimal(100.0),
                         "state_after": "holding",
                         "execution_model": (
-                            observed_entry.EXECUTION_MODEL if close_entry else EXECUTION_MODEL
+                            observed_execution_model if close_entry else EXECUTION_MODEL
                             if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else "close-confirmed-next-open"
                         ),
+                        **execution_clock_fields,
                         **(
                             {
                                 key: active_pending[key]
@@ -2456,6 +2497,7 @@ def _simulate(
                         "sold_percent": _decimal(sold_fraction * 100.0),
                         "position_percent": _decimal(position["remaining_fraction"] * 100.0),
                         "state_after": "partially_exited",
+                        **execution_clock_fields,
                         **(
                             {
                                 "execution_model": EXECUTION_MODEL,
@@ -2529,6 +2571,7 @@ def _simulate(
                         "profit_stage": int(position.get("profit_stage") or 0),
                         "position_percent": _decimal(0.0),
                         "state_after": "exited",
+                        **execution_clock_fields,
                         **(
                             {
                                 "execution_model": EXECUTION_MODEL,
@@ -2621,7 +2664,9 @@ def _simulate(
                     lifecycle_events.append(
                         {
                             "signal_date": bar.trade_date,
-                            "signal_at": _signal_at(bar.trade_date),
+                            "signal_at": intraday_decision.confirmed_at or _signal_at(bar.trade_date),
+                            "confirmed_at": intraday_decision.confirmed_at,
+                            "decision_minute_at": intraday_decision.confirmed_at,
                             "execution_date": bar.trade_date,
                             "side": "partial_sell",
                             "label": f"{target_stage}차 장중 수익확정",
@@ -2693,7 +2738,9 @@ def _simulate(
                 lifecycle_events.append(
                     {
                         "signal_date": bar.trade_date,
-                        "signal_at": _signal_at(bar.trade_date),
+                        "signal_at": intraday_decision.confirmed_at or _signal_at(bar.trade_date),
+                        "confirmed_at": intraday_decision.confirmed_at,
+                        "decision_minute_at": intraday_decision.confirmed_at,
                         "execution_date": bar.trade_date,
                         "side": "sell",
                         "label": "장중 전량 매도",
@@ -4291,7 +4338,7 @@ def build_quant_signal_payload(
             "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
             "신호와 독립 근거는 완료 종가에서 확정하고, 다음 KRX 정규장에서 고정된 확인선을 돌파할 때 장중 매수합니다.",
-            "2026-10-21부터 실제 관측한 예비 후보는 포착 이후 완료된 정규장 1분봉에서 기존 매수 조건과 최신 독립 근거를 충족하면 같은 날 매수 확정합니다. 진입 관측가 이후 분봉만 매도 판단에 사용하며 과거 후보를 소급 생성하지 않습니다.",
+            "2026-10-23부터 실제 관측한 예비 후보는 동시간대 누적 거래량 0.75배에서 포착하고, 이후 완료된 정규장 1분봉에서 H1 1.0배·기존 가격 조건·최신 독립 근거를 충족하면 같은 날 매수 확정합니다. 일시적 입력 장애는 당일 관측을 중지했다가 새 완료 분봉부터 재개하며, 진입 관측가 이후 분봉만 매도 판단에 사용합니다.",
             "장중 매도는 종료된 KRX 1분봉이 당일 현재가의 누적 고저가 범위 안에 있을 때 최대 1분 늦게 시각순으로 판정합니다. 첫 분봉 검증이 불가능하면 일중 OHLC는 조회 후보로만 쓰고 확정 매매를 보류하며, 이미 확정한 분봉 이력이 있으면 그 종목만 재검증 대기로 분리합니다. 같은 1분봉에서 손절선과 목표에 모두 닿으면 손절을 먼저 반영합니다.",
             "시가·고가·저가·종가가 모두 확인된 일봉과 현재 KRX 정규장의 검증된 형성 봉만 체결 판정에 사용합니다.",
             f"{INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat()}부터 종가 확정·다음 시가 체결을 종가 확정·다음 세션 장중 돌파 체결로 전환합니다.",
@@ -5702,6 +5749,9 @@ def _market_stock_payload_with_intraday_path(
     stored_live_path = db.get(
         QuantSignalIntradayPathSnapshot, (code, current_time.date())
     )
+    watching_entry = (
+        observed_entries.get(current_time.date(), {}).get("status") == "watching"
+    )
     should_fetch = bool(
         intraday_chart_loader is not None
         and forming_quote
@@ -5749,9 +5799,16 @@ def _market_stock_payload_with_intraday_path(
                     observed_at=chart_fetched_at, is_final=False,
                 )
             elif stored_live_path is not None and not stored_live_path.is_final:
-                raise UnverifiedIntradayPathError(
-                    "기존 장중 체결 이후 새 분봉을 검증할 수 없습니다"
-                )
+                if watching_entry and not (payload.get("current") or {}).get("position_open"):
+                    paused = observed_entry.mark_paused(
+                        db, code, current_time, "intraday_path_unverified"
+                    )
+                    if paused:
+                        observed_entries[current_time.date()] = paused
+                else:
+                    raise UnverifiedIntradayPathError(
+                        "기존 장중 체결 이후 새 분봉을 검증할 수 없습니다"
+                    )
             payload = build_quant_signal_payload(
                 stock, stock_price_rows, live_quote=candidate_quote,
                 now=current_time, context=None,
@@ -5761,6 +5818,10 @@ def _market_stock_payload_with_intraday_path(
                 lifecycle_start_date=lifecycle_start_date,
                 observed_entries=observed_entries,
             )
+            if watching_entry and not verified_minutes:
+                observed_entry.project_current(
+                    payload, observed_entries.get(current_time.date())
+                )
             if verified_minutes and observe_entry:
                 # Use the actual chart observation clock, not the start of a
                 # market-wide scan, when recording the first possible entry.
@@ -5793,11 +5854,27 @@ def _market_stock_payload_with_intraday_path(
                             lifecycle_start_date=lifecycle_start_date, observed_entries=observed_entries,
                         )
         elif stored_live_path is not None and not stored_live_path.is_final:
-            raise UnverifiedIntradayPathError("기존 장중 체결 이후 분봉 조회가 끊겼습니다")
+            if watching_entry and not (payload.get("current") or {}).get("position_open"):
+                paused = observed_entry.mark_paused(
+                    db, code, current_time, "intraday_path_unavailable"
+                )
+                if paused:
+                    observed_entries[current_time.date()] = paused
+                    observed_entry.project_current(payload, paused)
+            else:
+                raise UnverifiedIntradayPathError("기존 장중 체결 이후 분봉 조회가 끊겼습니다")
     elif stored_live_path is not None and not stored_live_path.is_final:
-        raise UnverifiedIntradayPathError(
-            "기존 장중 체결 이후 현재가·분봉을 확인할 수 없습니다"
-        )
+        if watching_entry and not (payload.get("current") or {}).get("position_open"):
+            paused = observed_entry.mark_paused(
+                db, code, current_time, "intraday_quote_unavailable"
+            )
+            if paused:
+                observed_entries[current_time.date()] = paused
+                observed_entry.project_current(payload, paused)
+        else:
+            raise UnverifiedIntradayPathError(
+                "기존 장중 체결 이후 현재가·분봉을 확인할 수 없습니다"
+            )
     payload.pop("_observed_entry_context", None)
     return payload
 
