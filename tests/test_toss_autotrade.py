@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
+from app.cli import _autotrade_log_signature
 from app.db import Base
 from app.integrations.toss_openapi import (
     LiveOrderDisabledError,
@@ -129,6 +130,17 @@ def test_signal_extraction_requires_fresh_verified_current_market_day() -> None:
     assert extract_actionable_events(
         stale, market_scope="US", now=now, max_age_seconds=180
     ) == []
+    unverified = _payload(now, "KR")
+    unverified["items"][0]["intraday_execution_verified"] = False
+    assert extract_actionable_events(
+        unverified, market_scope="KR", now=now, max_age_seconds=180
+    ) == []
+    assert extract_actionable_events(
+        _payload(now, "KR"),
+        market_scope="KR",
+        now=now.replace(tzinfo=None),
+        max_age_seconds=180,
+    )
 
 
 def test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent() -> None:
@@ -163,17 +175,37 @@ def test_us_feed_still_requires_explicit_new_entry_permission() -> None:
         )
         == []
     )
-    unverified = _payload(now, "KR")
-    unverified["items"][0]["intraday_execution_verified"] = False
-    assert extract_actionable_events(
-        unverified, market_scope="KR", now=now, max_age_seconds=180
-    ) == []
-    assert extract_actionable_events(
-        _payload(now, "KR"),
-        market_scope="KR",
-        now=now.replace(tzinfo=None),
-        max_age_seconds=180,
-    )
+
+
+def test_daemon_log_signature_ignores_small_fx_noise_but_records_state_changes() -> None:
+    base = {
+        "capital_ready": False,
+        "capital_state": {
+            "KR": {"funded": False, "total_capital_krw": "98122"},
+            "US": {"funded": False, "total_capital_krw": "159.2"},
+        },
+        "submitted": [],
+        "skipped": ["event:capital-not-funded"],
+        "reconciliation": [],
+    }
+    fx_noise = {
+        **base,
+        "capital_state": {
+            **base["capital_state"],
+            "US": {"funded": False, "total_capital_krw": "159.9"},
+        },
+    }
+    funded = {
+        **base,
+        "capital_ready": True,
+        "capital_state": {
+            "KR": {"funded": True, "total_capital_krw": "300000"},
+            "US": {"funded": True, "total_capital_krw": "700000"},
+        },
+    }
+
+    assert _autotrade_log_signature(base) == _autotrade_log_signature(fx_noise)
+    assert _autotrade_log_signature(base) != _autotrade_log_signature(funded)
 
 
 def test_live_cycle_caps_kr_and_us_orders_and_never_duplicates() -> None:

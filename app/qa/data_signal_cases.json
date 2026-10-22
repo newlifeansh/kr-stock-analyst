@@ -2909,7 +2909,7 @@
       "domain": "실계좌 주문 실행",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest 30:70 예산·신선한 당일 확정 이벤트·실거래 잠금·토스 계좌 헤더·주문 멱등 장부·부분체결·부분매도·일손실 중단 fixture + live 읽기 전용 preflight; live QA는 주문을 생성하지 않는다.",
+      "automation": "pytest 30:70 예산·신선한 당일 확정 이벤트·실거래 잠금·토스 계좌 헤더·주문 멱등 장부·부분체결·부분매도·일손실 중단·데몬 로그 상태변화 fixture + live 읽기 전용 preflight; live QA는 주문을 생성하지 않는다.",
       "preconditions": [
         "토스증권 Open API 키와 허용 IP를 등록하고 종합매매 계좌의 accountSeq를 환경변수로 지정한다.",
         "국내·미국 시그널 API가 각 시장의 당일 검증 완료 분봉으로 생성한 ready 스냅샷을 제공한다.",

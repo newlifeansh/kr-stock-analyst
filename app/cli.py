@@ -3,6 +3,7 @@ import re
 import subprocess
 import time as time_module
 from datetime import datetime, timedelta
+from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -186,6 +187,34 @@ def _run_autotrade_cycle(client=None) -> dict:
         )
 
 
+def _autotrade_log_signature(result: dict) -> tuple:
+    """Return a stable operational signature without per-tick FX noise."""
+
+    capital = result.get("capital_state") or {}
+
+    def _rounded_thousand(value: object) -> int:
+        try:
+            amount = Decimal(str(value))
+        except Exception:
+            return 0
+        return int((amount / Decimal("1000")).to_integral_value(rounding=ROUND_DOWN))
+
+    return (
+        bool(result.get("capital_ready")),
+        tuple(
+            (
+                scope,
+                bool((capital.get(scope) or {}).get("funded")),
+                _rounded_thousand((capital.get(scope) or {}).get("total_capital_krw")),
+            )
+            for scope in ("KR", "US")
+        ),
+        tuple(result.get("submitted") or ()),
+        tuple(result.get("skipped") or ()),
+        tuple(result.get("reconciliation") or ()),
+    )
+
+
 @autotrade_app.command("run-once")
 def autotrade_run_once_command() -> None:
     """Reconcile the broker and process one fresh signal cycle."""
@@ -200,14 +229,26 @@ def autotrade_run_command(
     """Run live cycles continuously; intended for a dedicated single process."""
 
     client = _toss_autotrade_client()
+    last_signature: tuple | None = None
+    last_emitted_at = 0.0
     while True:
         try:
             result = _run_autotrade_cycle(client)
-            typer.echo(json.dumps(result, ensure_ascii=False))
+            signature = ("result", _autotrade_log_signature(result))
+            now_monotonic = time_module.monotonic()
+            if signature != last_signature or now_monotonic - last_emitted_at >= 3600:
+                typer.echo(json.dumps(result, ensure_ascii=False))
+                last_signature = signature
+                last_emitted_at = now_monotonic
         except KeyboardInterrupt:
             raise typer.Exit(code=0)
         except Exception as exc:
-            typer.echo(json.dumps({"error": str(exc)}, ensure_ascii=False), err=True)
+            signature = ("error", type(exc).__name__, str(exc))
+            now_monotonic = time_module.monotonic()
+            if signature != last_signature or now_monotonic - last_emitted_at >= 3600:
+                typer.echo(json.dumps({"error": str(exc)}, ensure_ascii=False), err=True)
+                last_signature = signature
+                last_emitted_at = now_monotonic
         time_module.sleep(interval_seconds)
 
 
