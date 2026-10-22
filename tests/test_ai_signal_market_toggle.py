@@ -21,7 +21,7 @@ def test_unified_roots_use_compact_community_market_toggle_contract():
     assert shell.status_code == 200
     assert dashboard_shell.status_code == 200
     assert dashboard_shell.text == shell.text
-    assert 'src="/dashboard-app-v170.js?v=20261021v585"' in shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261022v586"' in shell.text
     assert 'src="/assets/staging/toss-ia.js?v=20261010-ai-response-visual-v118"' in shell.text
 
     intro_contract = staging_js.split(
@@ -280,7 +280,7 @@ def test_us_ai_signal_waits_for_both_markets_then_toggles_cached_snapshot_withou
     for contract in (
         "window.history.replaceState",
         "applyUsMarketSurface();",
-        "if (aiSignalHasCompleteMarketSnapshot()) renderAiSignalsPage();",
+        "renderAiSignalsPage();",
         "return;",
     ):
         assert contract in cached_signal_branch
@@ -323,7 +323,7 @@ def test_us_ai_signal_waits_for_both_markets_then_toggles_cached_snapshot_withou
         "function renderAiSignalsPage()",
         1,
     )[1].split("async function loadAiSignalsPage", 1)[0]
-    assert ".filter((item) => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope))" in render_source
+    assert '.filter((item) => itemMatchesMarketScope(item, isUsHubContext ? state.marketScope : "kr"))' in render_source
     assert "elements.aiSignalsPageList.replaceChildren(...nextRows);" in render_source
     assert 'elements.aiSignalsPageList.innerHTML = ""' not in render_source
 
