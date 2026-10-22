@@ -167,7 +167,7 @@
       "modes": [
         "gate"
       ],
-      "automation": "pytest 매수·부분매도·전량매도 정규장 경계, 완료 분봉 검증, 현재 거래일, 180초 신선도, 가격 fail-closed fixture. 실제 계좌 주문은 수행하지 않는다.",
+      "automation": "pytest 토스 어댑터 직접 호출·매수·부분매도·전량매도 정규장 경계, 완료 분봉 검증, 현재 거래일, 180초 신선도, 가격 fail-closed fixture. 실제 계좌 주문은 수행하지 않는다.",
       "preconditions": [
         "canonical 국내 시장 피드의 확정 이벤트를 준비한다.",
         "브로커 어댑터는 주문 생성 전에 evaluate_live_order_candidate를 호출한다.",

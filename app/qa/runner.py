@@ -95,6 +95,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-KR-LIVE-ORDER-GUARD-001": (
         "tests.test_observed_entry.test_replay_uses_close_and_excludes_pre_entry_stop_and_peak",
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_calls_live_order_guard[changes{index}]"
+          for index in range(4)),
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_rejects_orders_at_close[{side}]"
+          for side in ("buy", "partial_sell", "sell")),
         *(f"tests.test_live_order_guard.test_fresh_completed_minute_buy_and_sell_are_order_eligible[{side}]"
           for side in ("buy", "partial_sell", "sell")),
         *(f"tests.test_live_order_guard.test_no_buy_or_sell_order_is_created_outside_regular_session[{case}]"
@@ -109,6 +113,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_toss_autotrade.test_policy_enforces_approved_thirty_seventy_split",
         "tests.test_toss_autotrade.test_funding_check_allows_small_fx_buffer_without_raising_order_limits",
         "tests.test_toss_autotrade.test_signal_extraction_requires_fresh_verified_current_market_day",
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_calls_live_order_guard[changes{index}]"
+          for index in range(4)),
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_rejects_orders_at_close[{side}]"
+          for side in ("buy", "partial_sell", "sell")),
         "tests.test_toss_autotrade.test_domestic_buy_requires_same_session_quant_prechecks",
         "tests.test_toss_autotrade.test_domestic_sell_remains_allowed_when_buy_prechecks_are_unavailable",
         "tests.test_toss_autotrade.test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent",

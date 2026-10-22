@@ -46,8 +46,11 @@ def _payload(now: datetime, scope: str) -> dict:
                     "execution_date": "2026-10-22",
                     "signal_date": "2026-10-22",
                     "signal_at": "2026-10-22T11:00:00+09:00",
+                    "confirmed_at": "2026-10-22T10:00:00+09:00",
+                    "decision_minute_at": "2026-10-22T09:59:00+09:00",
                     "price": "100000",
                     "intraday_execution_verified": True,
+                    "intraday_order_verified": True,
                     "state_after": "entered",
                     "entry_confirmation": {"allowed": True},
                     "public_reasons": [
@@ -160,21 +163,22 @@ def test_signal_extraction_requires_fresh_verified_current_market_day() -> None:
     assert extract_actionable_events(
         stale, market_scope="US", now=now, max_age_seconds=180
     ) == []
-    unverified = _payload(now, "KR")
+    kr_now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
+    unverified = _payload(kr_now, "KR")
     unverified["items"][0]["intraday_execution_verified"] = False
     assert extract_actionable_events(
-        unverified, market_scope="KR", now=now, max_age_seconds=180
+        unverified, market_scope="KR", now=kr_now, max_age_seconds=180
     ) == []
-    assert extract_actionable_events(
-        _payload(now, "KR"),
+    assert len(extract_actionable_events(
+        _payload(kr_now, "KR"),
         market_scope="KR",
-        now=now.replace(tzinfo=None),
+        now=kr_now.replace(tzinfo=None),
         max_age_seconds=180,
-    )
+    )) == 1
 
 
 def test_domestic_buy_requires_same_session_quant_prechecks() -> None:
-    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
     mutations = [
         ("signal_date", "2026-10-21"),
         ("signal_at", "2026-10-22T15:40:00+09:00"),
@@ -198,7 +202,7 @@ def test_domestic_buy_requires_same_session_quant_prechecks() -> None:
 
 
 def test_domestic_sell_remains_allowed_when_buy_prechecks_are_unavailable() -> None:
-    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
     payload = _payload(now, "KR")
     payload["items"][0].update(
         event_side="sell",
@@ -212,6 +216,41 @@ def test_domestic_sell_remains_allowed_when_buy_prechecks_are_unavailable() -> N
     )
 
     assert [event.side for event in events] == ["SELL"]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"intraday_order_verified": False},
+        {"confirmed_at": None, "decision_minute_at": None},
+        {"confirmed_at": "2026-10-22T09:56:59+09:00"},
+        {"confirmed_at": "2026-10-22T10:00:01+09:00"},
+    ],
+)
+def test_domestic_broker_path_calls_live_order_guard(changes) -> None:
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
+    payload = _payload(now, "KR")
+    payload["items"][0].update(changes)
+
+    assert extract_actionable_events(
+        payload, market_scope="KR", now=now, max_age_seconds=180
+    ) == []
+
+
+@pytest.mark.parametrize("event_side", ["buy", "partial_sell", "sell"])
+def test_domestic_broker_path_rejects_orders_at_close(event_side) -> None:
+    now = datetime(2026, 10, 22, 6, 30, tzinfo=timezone.utc)
+    payload = _payload(now, "KR")
+    payload["items"][0].update(
+        event_side=event_side,
+        side=event_side,
+        confirmed_at="2026-10-22T15:29:00+09:00",
+        decision_minute_at="2026-10-22T15:29:00+09:00",
+    )
+
+    assert extract_actionable_events(
+        payload, market_scope="KR", now=now, max_age_seconds=180
+    ) == []
 
 
 def test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent() -> None:
@@ -280,18 +319,28 @@ def test_daemon_log_signature_ignores_small_fx_noise_but_records_state_changes()
 
 
 def test_live_cycle_caps_kr_and_us_orders_and_never_duplicates() -> None:
-    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    kr_now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
+    us_now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
     client = FakeTossClient()
     with _session() as db:
-        first = execute_cycle(
+        kr_first = execute_cycle(
             db,
             client,
-            kr_payload=_payload(now, "KR"),
-            us_payload=_payload(now, "US"),
+            kr_payload=_payload(kr_now, "KR"),
+            us_payload={"status": "ready", "data_state": "ready", "as_of": kr_now.isoformat(), "items": []},
             policy=AutoTradePolicy(),
-            now=now,
+            now=kr_now,
         )
-        assert len(first["submitted"]) == 2
+        us_first = execute_cycle(
+            db,
+            client,
+            kr_payload={"status": "ready", "data_state": "ready", "as_of": us_now.isoformat(), "items": []},
+            us_payload=_payload(us_now, "US"),
+            policy=AutoTradePolicy(),
+            now=us_now,
+        )
+        assert len(kr_first["submitted"]) == 1
+        assert len(us_first["submitted"]) == 1
         assert client.created[0]["symbol"] == "005930"
         assert client.created[0]["quantity"] == "1"
         assert client.created[1]["symbol"] == "AAPL"
@@ -304,21 +353,31 @@ def test_live_cycle_caps_kr_and_us_orders_and_never_duplicates() -> None:
             Decimal(str(row.requested_notional_krw))
             for row in db.scalars(select(AutoTradeOrder).where(AutoTradeOrder.market_scope == "US"))
         ) <= Decimal("406000")
-        second = execute_cycle(
+        kr_second = execute_cycle(
             db,
             client,
-            kr_payload=_payload(now, "KR"),
-            us_payload=_payload(now, "US"),
+            kr_payload=_payload(kr_now, "KR"),
+            us_payload={"status": "ready", "data_state": "ready", "as_of": kr_now.isoformat(), "items": []},
             policy=AutoTradePolicy(),
-            now=now,
+            now=kr_now,
         )
-        assert second["submitted"] == []
+        us_second = execute_cycle(
+            db,
+            client,
+            kr_payload={"status": "ready", "data_state": "ready", "as_of": us_now.isoformat(), "items": []},
+            us_payload=_payload(us_now, "US"),
+            policy=AutoTradePolicy(),
+            now=us_now,
+        )
+        assert kr_second["submitted"] == []
+        assert us_second["submitted"] == []
         assert len(client.created) == 2
-        assert all(reason.endswith(":duplicate") for reason in second["skipped"])
+        assert all(reason.endswith(":duplicate") for reason in kr_second["skipped"])
+        assert all(reason.endswith(":duplicate") for reason in us_second["skipped"])
 
 
 def test_partial_fill_sync_drives_original_quantity_partial_sell() -> None:
-    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
     kr = _payload(now, "KR")
     kr["items"][0]["price"] = "50000"
     empty = {
@@ -420,7 +479,7 @@ def test_unknown_old_submission_is_blocked_without_resend() -> None:
 
 
 def test_existing_account_holdings_consume_the_market_budget() -> None:
-    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
     client = FakeTossClient()
     client.holding_items = [
         {
@@ -446,7 +505,7 @@ def test_existing_account_holdings_consume_the_market_budget() -> None:
 
 
 def test_market_daily_loss_limit_blocks_only_new_buys() -> None:
-    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
     client = FakeTossClient()
     empty_us = _payload(now, "US")
     empty_us["items"] = []
@@ -480,7 +539,7 @@ def test_market_daily_loss_limit_blocks_only_new_buys() -> None:
 
 
 def test_new_buys_wait_until_both_thirty_seventy_sleeves_are_funded() -> None:
-    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
     client = FakeTossClient()
     client.krw_power = "98122"
     client.usd_power = "0.12"

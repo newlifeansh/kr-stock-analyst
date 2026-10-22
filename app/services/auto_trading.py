@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.toss_openapi import TossOpenApiClient, TossOpenApiError
 from app.models import AutoTradeOrder, AutoTradePosition
+from app.services.live_order_guard import evaluate_live_order_candidate
 
 
 TERMINAL_ORDER_STATES = {
@@ -198,10 +199,21 @@ def extract_actionable_events(
             verified = row.get("intraday_execution_verified") is True
             if scope == "US" and row.get("event_id"):
                 verified = True
+            kr_order_candidate = {**item, **row}
+            if scope == "KR":
+                kr_order_candidate["event_side"] = event_side
+                kr_order_candidate["side"] = event_side
+                kr_order_candidate["execution_date"] = execution_date
+                kr_order_candidate["price"] = row.get("price") or item.get("price")
+            kr_order_eligible = (
+                scope != "KR"
+                or evaluate_live_order_candidate(kr_order_candidate, now=current)["eligible"]
+            )
             if (
                 not side
                 or execution_date != today
                 or not verified
+                or not kr_order_eligible
                 or (scope == "KR" and item.get("status") != "confirmed")
                 or (side == "BUY" and not _new_buys_allowed(payload, scope))
                 or (
