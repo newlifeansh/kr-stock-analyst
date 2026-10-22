@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
@@ -122,6 +122,46 @@ def _new_buys_allowed(payload: dict[str, Any], scope: str) -> bool:
     return isinstance(guard, dict) and guard.get("active") is False
 
 
+def _kr_intraday_quant_prechecks_passed(
+    item: dict[str, Any],
+    row: dict[str, Any],
+) -> bool:
+    """Fail closed unless a KR buy is a same-session supported setup."""
+
+    execution_date = str(row.get("execution_date") or "")[:10]
+    signal_date = str(row.get("signal_date") or item.get("signal_date") or "")[:10]
+    if not execution_date or signal_date != execution_date:
+        return False
+
+    signal_at = _parse_time(row.get("signal_at") or item.get("signal_at"))
+    if signal_at is None:
+        return False
+    local_signal_at = signal_at.astimezone(ZoneInfo("Asia/Seoul"))
+    if (
+        local_signal_at.date().isoformat() != execution_date
+        or not time(9, 0) <= local_signal_at.time().replace(tzinfo=None) <= time(15, 30)
+    ):
+        return False
+
+    confirmation = row.get("entry_confirmation") or item.get("entry_confirmation")
+    if isinstance(confirmation, dict) and confirmation.get("allowed") is not True:
+        return False
+
+    reasons = item.get("public_reasons") or row.get("public_reasons") or []
+    by_key = {
+        str(reason.get("key") or ""): reason
+        for reason in reasons
+        if isinstance(reason, dict)
+    }
+    for key in ("trend_20d", "trend_60d", "flow"):
+        reason = by_key.get(key)
+        if not reason or reason.get("available") is not True:
+            return False
+        if str(reason.get("state") or "").lower() not in {"positive", "supportive"}:
+            return False
+    return True
+
+
 def extract_actionable_events(
     payload: dict[str, Any],
     *,
@@ -164,6 +204,14 @@ def extract_actionable_events(
                 or not verified
                 or (scope == "KR" and item.get("status") != "confirmed")
                 or (side == "BUY" and not _new_buys_allowed(payload, scope))
+                or (
+                    scope == "KR"
+                    and side == "BUY"
+                    and not _kr_intraday_quant_prechecks_passed(
+                        item,
+                        row,
+                    )
+                )
             ):
                 continue
             symbol = str(row.get("code") or item.get("code") or "").upper().strip()

@@ -44,9 +44,17 @@ def _payload(now: datetime, scope: str) -> dict:
                     "event_side": "buy",
                     "status": "confirmed",
                     "execution_date": "2026-10-22",
+                    "signal_date": "2026-10-22",
+                    "signal_at": "2026-10-22T11:00:00+09:00",
                     "price": "100000",
                     "intraday_execution_verified": True,
                     "state_after": "entered",
+                    "entry_confirmation": {"allowed": True},
+                    "public_reasons": [
+                        {"key": "trend_20d", "state": "positive", "available": True},
+                        {"key": "trend_60d", "state": "positive", "available": True},
+                        {"key": "flow", "state": "positive", "available": True},
+                    ],
                 }
             ],
         }
@@ -163,6 +171,47 @@ def test_signal_extraction_requires_fresh_verified_current_market_day() -> None:
         now=now.replace(tzinfo=None),
         max_age_seconds=180,
     )
+
+
+def test_domestic_buy_requires_same_session_quant_prechecks() -> None:
+    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    mutations = [
+        ("signal_date", "2026-10-21"),
+        ("signal_at", "2026-10-22T15:40:00+09:00"),
+        ("entry_confirmation", {"allowed": False}),
+        ("public_reasons", []),
+        (
+            "public_reasons",
+            [
+                {"key": "trend_20d", "state": "positive", "available": True},
+                {"key": "trend_60d", "state": "positive", "available": True},
+                {"key": "flow", "state": "unavailable", "available": False},
+            ],
+        ),
+    ]
+    for mutation, value in mutations:
+        payload = _payload(now, "KR")
+        payload["items"][0][mutation] = value
+        assert extract_actionable_events(
+            payload, market_scope="KR", now=now, max_age_seconds=180
+        ) == [], mutation
+
+
+def test_domestic_sell_remains_allowed_when_buy_prechecks_are_unavailable() -> None:
+    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    payload = _payload(now, "KR")
+    payload["items"][0].update(
+        event_side="sell",
+        side="sell",
+        public_reasons=[],
+        entry_confirmation=None,
+    )
+
+    events = extract_actionable_events(
+        payload, market_scope="KR", now=now, max_age_seconds=180
+    )
+
+    assert [event.side for event in events] == ["SELL"]
 
 
 def test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent() -> None:

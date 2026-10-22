@@ -109,6 +109,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_toss_autotrade.test_policy_enforces_approved_thirty_seventy_split",
         "tests.test_toss_autotrade.test_funding_check_allows_small_fx_buffer_without_raising_order_limits",
         "tests.test_toss_autotrade.test_signal_extraction_requires_fresh_verified_current_market_day",
+        "tests.test_toss_autotrade.test_domestic_buy_requires_same_session_quant_prechecks",
+        "tests.test_toss_autotrade.test_domestic_sell_remains_allowed_when_buy_prechecks_are_unavailable",
         "tests.test_toss_autotrade.test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent",
         "tests.test_toss_autotrade.test_us_feed_still_requires_explicit_new_entry_permission",
         "tests.test_toss_autotrade.test_daemon_log_signature_ignores_small_fx_noise_but_records_state_changes",
