@@ -1075,6 +1075,8 @@ class QuantSignalEventOut(BaseModel):
     first_observed_at: Optional[datetime] = None
     confirmed_at: Optional[datetime] = None
     decision_minute_at: Optional[datetime] = None
+    intraday_execution_verified: Optional[bool] = None
+    intraday_order_verified: Optional[bool] = None
 
 
 class QuantPartialExitOut(BaseModel):
@@ -1155,7 +1157,9 @@ class QuantLifecycleTransitionOut(BaseModel):
     execution_model: Optional[str] = None
     entry_policy_version: Optional[str] = None
     confirmed_at: Optional[datetime] = None
+    decision_minute_at: Optional[datetime] = None
     intraday_execution_verified: Optional[bool] = None
+    intraday_order_verified: Optional[bool] = None
 
 
 class QuantLifecycleOut(BaseModel):

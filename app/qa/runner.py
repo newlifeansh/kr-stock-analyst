@@ -71,6 +71,8 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-KR-OBSERVED-ENTRY-001": (
+        "tests.test_observed_entry.test_preliminary_volume_gate_is_distinct_from_confirmed_h1_gate",
+        "tests.test_observed_entry.test_intraday_volume_uses_finalized_same_minute_history_before_daily_fallback",
         "tests.test_observed_entry.test_capture_then_later_closed_minute_confirms_once_across_restart",
         "tests.test_observed_entry.test_no_retroactive_touch_or_unfinished_minute_confirmation",
         "tests.test_observed_entry.test_unpublished_preliminary_cannot_confirm",
@@ -79,6 +81,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         *(f"tests.test_observed_entry.test_invalidation_cancels_without_same_day_rearming[{case}]"
           for case in ("position", "universe", "chase", "guard", "reentry")),
         "tests.test_observed_entry.test_expiry_and_forward_only_without_historical_backfill",
+        "tests.test_observed_entry.test_transient_pause_resumes_on_a_new_completed_minute",
+        "tests.test_observed_entry.test_v1_observation_ledger_remains_readable_after_v2_cutover",
         "tests.test_observed_entry.test_replay_uses_close_and_excludes_pre_entry_stop_and_peak",
         "tests.test_observed_entry.test_changed_or_missing_confirmation_evidence_quarantines_replay",
         "tests.test_observed_entry.test_canonical_builder_captures_then_confirms_and_detail_only_reads",
@@ -88,6 +92,18 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_observed_entry.test_observed_candidate_public_copy_and_ui_contract",
         "tests.test_quant_signals.test_shared_lifecycle_indicator_core_matches_v742_domestic_golden_vector",
         "tests.test_quant_signals.test_v8_live_buy_waits_for_a_closed_verified_minute",
+    ),
+    "SIG-KR-LIVE-ORDER-GUARD-001": (
+        "tests.test_observed_entry.test_replay_uses_close_and_excludes_pre_entry_stop_and_peak",
+        *(f"tests.test_live_order_guard.test_fresh_completed_minute_buy_and_sell_are_order_eligible[{side}]"
+          for side in ("buy", "partial_sell", "sell")),
+        *(f"tests.test_live_order_guard.test_no_buy_or_sell_order_is_created_outside_regular_session[{case}]"
+          for case in ("before-open", "at-close", "after-close")),
+        *(f"tests.test_live_order_guard.test_live_order_guard_fails_closed[{case}]"
+          for case in (
+              "execution-unverified", "path-unverified", "previous-session",
+              "clock-missing", "stale", "future", "price-missing",
+          )),
     ),
     "OPS-COST-001": (
         "tests.test_maintenance_jobs.test_linux_worker_accepts_container_pid_one_and_rejects_reparenting",

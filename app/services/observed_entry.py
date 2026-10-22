@@ -15,13 +15,20 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import QuantSignalObservedEntry
+from app.models import QuantSignalIntradayPathSnapshot, QuantSignalObservedEntry
 
 KST = ZoneInfo("Asia/Seoul")
-POLICY_VERSION = "same-session-observed-entry-v1"
-EXECUTION_MODEL = "observed-candidate-minute-close-v1"
-EFFECTIVE_DATE = date(2026, 10, 21)
+LEGACY_POLICY_VERSION = "same-session-observed-entry-v1"
+POLICY_VERSION = "same-session-observed-entry-v2"
+SUPPORTED_POLICY_VERSIONS = (LEGACY_POLICY_VERSION, POLICY_VERSION)
+LEGACY_EXECUTION_MODEL = "observed-candidate-minute-close-v1"
+EXECUTION_MODEL = "observed-candidate-minute-close-v2"
+EFFECTIVE_DATE = date(2026, 10, 22)
 MAX_AGE_SECONDS = 180
+PRELIMINARY_VOLUME_RATIO = 0.75
+CONFIRMED_VOLUME_RATIO = 1.0
+SAME_TIME_VOLUME_LOOKBACK = 20
+MIN_SAME_TIME_VOLUME_SAMPLES = 3
 NEXT_CHECK = "예비 포착 이후 완료된 정규장 1분봉에서 매수 조건을 확인합니다. 미충족 후보는 당일 만료됩니다."
 
 
@@ -41,6 +48,14 @@ def _digest(value: dict) -> str:
     return hashlib.sha256(_encoded(value).encode()).hexdigest()
 
 
+def execution_model_for_policy(policy_version: Any) -> str:
+    return (
+        LEGACY_EXECUTION_MODEL
+        if policy_version == LEGACY_POLICY_VERSION
+        else EXECUTION_MODEL
+    )
+
+
 def minute_signature(bar: Any) -> list[float]:
     return [float(getattr(bar, key)) for key in ("open", "high", "low", "close", "volume")]
 
@@ -50,7 +65,7 @@ def load_records(db: Session, code: str, now: datetime) -> dict[date, dict]:
     for row in db.scalars(select(QuantSignalObservedEntry).where(
         QuantSignalObservedEntry.stock_code == code,
         QuantSignalObservedEntry.trade_date <= now.date(),
-        QuantSignalObservedEntry.policy_version == POLICY_VERSION,
+        QuantSignalObservedEntry.policy_version.in_(SUPPORTED_POLICY_VERSIONS),
     )):
         payload = json.loads(row.payload)
         if row.status == "confirmed":
@@ -73,7 +88,116 @@ def public_state(record: dict | None) -> dict | None:
     return {key: record.get(key) for key in (
         "candidate_id", "policy_version", "status", "first_observed_at",
         "published_at", "confirmed_at", "decision_minute_at", "expires_at",
+        "paused_at", "resumed_at", "pause_reasons", "volume_participation",
     )}
+
+
+def mark_paused(db: Session, code: str, now: datetime, reason: str) -> dict | None:
+    """Retain a same-day candidate across a transient input outage."""
+
+    row = db.scalar(select(QuantSignalObservedEntry).where(
+        QuantSignalObservedEntry.stock_code == code,
+        QuantSignalObservedEntry.trade_date == now.date(),
+    ).with_for_update())
+    if row is None or row.policy_version != POLICY_VERSION or row.status != "watching":
+        return None
+    record = json.loads(row.payload)
+    record.update(
+        paused_at=now.isoformat(),
+        pause_reasons=[reason],
+    )
+    row.payload = _encoded(record)
+    row.updated_at = now.astimezone(timezone.utc).replace(tzinfo=None)
+    db.flush()
+    return record
+
+
+def _same_time_volume_context(
+    db: Session,
+    code: str,
+    *,
+    bars: list,
+    minutes: list,
+    minute_at: datetime,
+) -> dict[str, Any]:
+    """Compare cumulative volume with prior sessions at the same KRX minute.
+
+    Finalized minute paths are preferred. During a cold start, completed daily
+    volume is prorated by elapsed regular-session minutes so an early-session
+    candidate is not compared with an entire trading day.
+    """
+
+    from app.services import quant_signals as qs
+
+    current_volume = sum(max(0.0, float(item.volume)) for item in minutes)
+    cutoff = minute_at.strftime("%H%M%S")
+    snapshots = list(db.scalars(
+        select(QuantSignalIntradayPathSnapshot).where(
+            QuantSignalIntradayPathSnapshot.stock_code == code,
+            QuantSignalIntradayPathSnapshot.trade_date < minute_at.date(),
+            QuantSignalIntradayPathSnapshot.strategy_version == qs.STRATEGY_VERSION,
+            QuantSignalIntradayPathSnapshot.is_final.is_(True),
+        ).order_by(QuantSignalIntradayPathSnapshot.trade_date.desc()).limit(
+            SAME_TIME_VOLUME_LOOKBACK
+        )
+    ))
+    samples: list[float] = []
+    for snapshot in snapshots:
+        try:
+            rows = json.loads(snapshot.payload)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(rows, list):
+            continue
+        cumulative = 0.0
+        valid = False
+        for row in rows:
+            if not isinstance(row, dict):
+                valid = False
+                break
+            trade_time = str(row.get("trade_time") or "").zfill(6)
+            if trade_time > cutoff:
+                continue
+            try:
+                volume = float(row.get("volume"))
+            except (TypeError, ValueError):
+                valid = False
+                break
+            if volume <= 0:
+                continue
+            cumulative += volume
+            valid = True
+        if valid and cumulative > 0:
+            samples.append(cumulative)
+
+    if len(samples) >= MIN_SAME_TIME_VOLUME_SAMPLES:
+        expected_volume = sum(samples) / len(samples)
+        basis = "historical_same_minute"
+    else:
+        daily_volumes = [
+            float(bar.volume) for bar in bars[-SAME_TIME_VOLUME_LOOKBACK:]
+            if float(bar.volume) > 0
+        ]
+        average_daily_volume = (
+            sum(daily_volumes) / len(daily_volumes) if daily_volumes else 0.0
+        )
+        session_start = datetime.combine(minute_at.date(), time(9, 0), KST)
+        elapsed_minutes = max(
+            1.0,
+            min(390.0, ((minute_at - session_start).total_seconds() / 60.0) + 1.0),
+        )
+        expected_volume = average_daily_volume * elapsed_minutes / 390.0
+        basis = "elapsed_session_fallback"
+
+    ratio = current_volume / expected_volume if expected_volume > 0 else 0.0
+    return {
+        "basis": basis,
+        "ratio": round(ratio, 6),
+        "current_cumulative_volume": round(current_volume, 3),
+        "expected_cumulative_volume": round(expected_volume, 3),
+        "sample_count": len(samples),
+        "as_of_minute": minute_at.isoformat(),
+    }
 
 
 def mark_published(db: Session, items: list, now: datetime) -> None:
@@ -86,7 +210,11 @@ def mark_published(db: Session, items: list, now: datetime) -> None:
             QuantSignalObservedEntry.stock_code == item.get("code"),
             QuantSignalObservedEntry.trade_date == now.date(),
         ).with_for_update())
-        if row is None or row.status != "watching":
+        if (
+            row is None
+            or row.policy_version != POLICY_VERSION
+            or row.status != "watching"
+        ):
             continue
         record = json.loads(row.payload)
         if record.get("candidate_id") != state.get("candidate_id") or record.get("published_at"):
@@ -105,7 +233,10 @@ def project_current(payload: dict, record: dict | None) -> None:
     if current.get("position_open"):
         return
     if record["status"] == "watching":
-        current.update(action="entry_watch", label="예비 포착 · 장중 조건 대기",
+        paused = bool(record.get("pause_reasons"))
+        current.update(action="entry_watch", label=(
+                           "예비 포착 · 데이터 복구 대기" if paused else "예비 포착 · 장중 조건 대기"
+                       ),
                        live_observation=True, next_confirmation=NEXT_CHECK)
         current["lifecycle"].update(state="entry_watch", label=current["label"], stage_index=1)
     elif record["status"] in {"expired", "cancelled"}:
@@ -152,7 +283,11 @@ def observe(
     )
     decision_bars = [*bars, forming]
     indicators = qs._indicator_rows(decision_bars)
-    indicator = indicators[-1]
+    volume_participation = _same_time_volume_context(
+        db, code, bars=bars, minutes=minutes, minute_at=minute_at,
+    )
+    indicator = {**indicators[-1], "volume_ratio": volume_participation["ratio"]}
+    indicators = [*indicators[:-1], indicator]
     recent = indicators[-qs.CHASE_MOMENTUM_LOOKBACK_BARS:]
     setup = qs._entry_setup_kind(forming, indicator, recent_indicators=recent)
     risk_blocked = (
@@ -173,6 +308,7 @@ def observe(
             "signal_price": forming.close,
             "observation_universe_rank": universe_rank,
             "trigger_price": max(forming.close, float(indicator.get("prior_high") or forming.close)),
+            "volume_participation": volume_participation,
         }
         # Concurrent publishers must keep the first observer's identity and clock.
         if db.bind.dialect.name == "postgresql":
@@ -190,8 +326,15 @@ def observe(
     if risk_blocked:
         record.update(status="cancelled", cancelled_at=now.isoformat())
     else:
+        if record.pop("pause_reasons", None):
+            record["resumed_at"] = now.isoformat()
+        record.pop("paused_at", None)
+        record["volume_participation"] = volume_participation
         published_at = timestamp(record.get("published_at"))
         if published_at is None:
+            row.payload = _encoded(record)
+            row.updated_at = now.astimezone(timezone.utc).replace(tzinfo=None)
+            db.flush()
             return record
         first_at = max(timestamp(record["first_observed_at"]), published_at)
         # Exclude the minute containing capture, including its pre-capture trades.
@@ -204,7 +347,14 @@ def observe(
             and (evidence or {}).get("stock_code") == code
         )
         confirmation = qs.entry_confirmation_decision(evidence, setup or "trend_continuation", signal_date=bars[-1].trade_date)
-        if (
+        pause_reason = None
+        if not evidence_valid:
+            pause_reason = "entry_evidence_unavailable"
+        elif not confirmation["allowed"]:
+            pause_reason = "entry_evidence_insufficient"
+        if pause_reason:
+            record.update(paused_at=now.isoformat(), pause_reasons=[pause_reason])
+        elif (
             minute_at >= first_eligible and setup and evidence_valid and confirmation["allowed"]
             and forming.close >= record["trigger_price"]
             and qs._entry_execution_allowed(forming.close, {
@@ -220,9 +370,11 @@ def observe(
                 "price": forming.close, "minute_index": len(minutes) - 1,
                 "minute_signature": minute_signature(minutes[-1]),
                 "candidate_id": record["candidate_id"], "entry_policy_version": POLICY_VERSION,
+                "execution_model": EXECUTION_MODEL,
                 "observation_universe_rank": universe_rank,
                 "first_observed_at": record["first_observed_at"],
                 "confirmed_at": now.isoformat(), "decision_minute_at": minute_at.isoformat(),
+                "volume_participation": volume_participation,
             }
             record.update(status="confirmed", order=order, order_hash=_digest(order),
                           evidence=deepcopy(evidence), confirmed_at=now.isoformat(),
@@ -249,4 +401,8 @@ def replay_order(record: dict | None, minutes: list | None, *, forming: bool) ->
         raise UnverifiedIntradayPathError("저장된 장중 관측 진입의 완료 분봉을 재검증할 수 없습니다")
     order["signal_date"] = date.fromisoformat(order["signal_date"])
     order["signal_at"] = timestamp(order["signal_at"])
+    order.setdefault(
+        "execution_model",
+        execution_model_for_policy(order.get("entry_policy_version")),
+    )
     return order

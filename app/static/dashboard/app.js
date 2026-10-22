@@ -17018,7 +17018,7 @@ function aiSignalOutcomeMetrics(item = {}, view = {}) {
     const isUsItem = item.currency === "USD"
       || ["us", "usa", "united_states"].includes(scope)
       || ["NASDAQ", "NYSE", "AMEX", "SP500", "US"].includes(market);
-    metrics.push(current.observed_entry?.policy_version === "same-session-observed-entry-v1"
+    metrics.push(["same-session-observed-entry-v1", "same-session-observed-entry-v2"].includes(current.observed_entry?.policy_version)
       ? { key: "confirmation", label: "확정 기준", value: "포착 후 완료 1분봉" }
       : item.rollout_mode === "hybrid_forward"
       ? { key: "confirmation", label: "확정 기준", value: "정규장 완료 1분봉" }
@@ -17027,7 +17027,7 @@ function aiSignalOutcomeMetrics(item = {}, view = {}) {
       : { key: "execution", label: "체결 기준", value: "다음 거래일 시가" });
   } else if (view.preliminary && returnRate === null && !targetStatus) {
     metrics.push({ key: "confirmation", label: "확정 기준", value:
-      current.observed_entry?.policy_version === "same-session-observed-entry-v1" ? "포착 후 완료 1분봉" : "조건 확인 중" });
+      ["same-session-observed-entry-v1", "same-session-observed-entry-v2"].includes(current.observed_entry?.policy_version) ? "포착 후 완료 1분봉" : "조건 확인 중" });
   }
   if (!metrics.length) {
     metrics.push({

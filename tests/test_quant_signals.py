@@ -1403,6 +1403,7 @@ def test_v8_ordered_minutes_keep_first_profit_sale_before_a_later_stop():
             close=close,
             volume=100,
             trading_value=10_000,
+            closed_at=datetime(2026, 10, 8, 9, 31, tzinfo=quant_signals.KST),
         )
 
     target_then_stop = [
@@ -1417,6 +1418,10 @@ def test_v8_ordered_minutes_keep_first_profit_sale_before_a_later_stop():
     assert ordered[0].price == 103.0
     assert ordered[0].sell_fraction == pytest.approx(0.5)
     assert ordered[1].price >= 98.0
+    assert all(
+        item.confirmed_at == datetime(2026, 10, 8, 9, 31, tzinfo=quant_signals.KST)
+        for item in ordered
+    )
 
     stop_then_target = [
         minute(100, 101, 99, 100),
