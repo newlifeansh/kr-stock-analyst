@@ -716,6 +716,83 @@ class NewsItem(Base):
     )
 
 
+class AutoTradeOrder(Base):
+    """Durable intent and broker state for one signal-driven order."""
+
+    __tablename__ = "auto_trade_order"
+    __table_args__ = (
+        UniqueConstraint("signal_event_id", name="uq_auto_trade_order_signal_event"),
+        UniqueConstraint("client_order_id", name="uq_auto_trade_order_client_order"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    signal_event_id: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    client_order_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    broker_order_id: Mapped[Optional[str]] = mapped_column(String(180), index=True)
+    strategy_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    market_scope: Mapped[str] = mapped_column(String(4), nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    request_payload: Mapped[str] = mapped_column(Text, nullable=False)
+    response_payload: Mapped[Optional[str]] = mapped_column(Text)
+    requested_notional_krw: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    filled_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    applied_filled_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    average_filled_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
+    filled_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
+    commission: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
+    tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8))
+    realized_pnl_krw: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False, index=True
+    )
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class AutoTradePosition(Base):
+    """Strategy-owned position quantities used for deterministic exits."""
+
+    __tablename__ = "auto_trade_position"
+    __table_args__ = (
+        UniqueConstraint("market_scope", "symbol", name="uq_auto_trade_position_symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    market_scope: Mapped[str] = mapped_column(String(4), nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    currency: Mapped[str] = mapped_column(String(4), nullable=False)
+    initial_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    remaining_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    average_entry_price: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    realized_pnl_krw: Mapped[Decimal] = mapped_column(
+        Numeric(24, 8), default=Decimal("0"), nullable=False
+    )
+    opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 # Query-order indexes are declared separately so their direction is explicit on
 # both SQLite and PostgreSQL. Existing single-column and uniqueness indexes
 # remain intact and continue to enforce the current data contract.

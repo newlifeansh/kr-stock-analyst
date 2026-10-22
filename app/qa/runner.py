@@ -105,6 +105,17 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
               "clock-missing", "stale", "future", "price-missing",
           )),
     ),
+    "EXEC-TOSS-LIVE-001": (
+        "tests.test_toss_autotrade.test_policy_enforces_approved_thirty_seventy_split",
+        "tests.test_toss_autotrade.test_signal_extraction_requires_fresh_verified_current_market_day",
+        "tests.test_toss_autotrade.test_live_cycle_caps_kr_and_us_orders_and_never_duplicates",
+        "tests.test_toss_autotrade.test_partial_fill_sync_drives_original_quantity_partial_sell",
+        "tests.test_toss_autotrade.test_unknown_old_submission_is_blocked_without_resend",
+        "tests.test_toss_autotrade.test_existing_account_holdings_consume_the_market_budget",
+        "tests.test_toss_autotrade.test_market_daily_loss_limit_blocks_only_new_buys",
+        "tests.test_toss_autotrade.test_new_buys_wait_until_both_thirty_seventy_sleeves_are_funded",
+        "tests.test_toss_autotrade.test_toss_client_requires_live_switch_and_sets_account_header",
+    ),
     "OPS-COST-001": (
         "tests.test_maintenance_jobs.test_linux_worker_accepts_container_pid_one_and_rejects_reparenting",
         "tests.test_briefing_runtime.test_failed_isolated_bulk_job_remains_due_until_success",

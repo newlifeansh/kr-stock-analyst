@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+import time as time_module
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -52,7 +53,162 @@ from app.services.web_push import web_push_runtime
 
 app = typer.Typer(no_args_is_help=True)
 qa_app = typer.Typer(no_args_is_help=True, help="Data-integration and signal-decision QA.")
+autotrade_app = typer.Typer(no_args_is_help=True, help="Toss Open API live auto trading.")
 app.add_typer(qa_app, name="qa")
+app.add_typer(autotrade_app, name="autotrade")
+
+
+def _toss_autotrade_client():
+    from app.integrations.toss_openapi import TossCredentials, TossOpenApiClient
+
+    settings = get_settings()
+    if not settings.toss_openapi_client_id or not settings.toss_openapi_client_secret:
+        raise typer.BadParameter(
+            "TOSS_OPENAPI_CLIENT_ID and TOSS_OPENAPI_CLIENT_SECRET must be set"
+        )
+    return TossOpenApiClient(
+        TossCredentials(
+            client_id=settings.toss_openapi_client_id,
+            client_secret=settings.toss_openapi_client_secret,
+            account_seq=settings.toss_openapi_account_seq,
+        ),
+        base_url=settings.toss_openapi_base_url,
+        live_orders_enabled=settings.toss_autotrade_live_enabled,
+    )
+
+
+def _autotrade_policy():
+    from app.services.auto_trading import AutoTradePolicy
+
+    settings = get_settings()
+    return AutoTradePolicy(
+        kr_budget_krw=settings.toss_autotrade_kr_budget_krw,
+        us_budget_krw=settings.toss_autotrade_us_budget_krw,
+        daily_loss_limit_krw=settings.toss_autotrade_daily_loss_limit_krw,
+        max_positions_per_market=settings.toss_autotrade_max_positions_per_market,
+        signal_max_age_seconds=settings.toss_autotrade_signal_max_age_seconds,
+    )
+
+
+@autotrade_app.command("preflight")
+def autotrade_preflight_command() -> None:
+    """Verify credentials, selected account, buying power, and the 30/70 policy."""
+
+    settings = get_settings()
+    policy = _autotrade_policy()
+    from app.services.auto_trading import account_capital_state
+
+    client = _toss_autotrade_client()
+    accounts = client.accounts()
+    selected = next(
+        (
+            account
+            for account in accounts
+            if account.get("accountSeq") == settings.toss_openapi_account_seq
+        ),
+        None,
+    )
+    if settings.toss_openapi_account_seq is None or selected is None:
+        raise typer.BadParameter(
+            "TOSS_OPENAPI_ACCOUNT_SEQ must select one of the connected brokerage accounts"
+        )
+    krw_power = client.buying_power("KRW").get("cashBuyingPower")
+    usd_power = client.buying_power("USD").get("cashBuyingPower")
+    fx = client.exchange_rate().get("rate")
+    capital_state = account_capital_state(
+        holdings=client.holdings(),
+        open_orders=client.orders("OPEN"),
+        krw_buying_power=krw_power,
+        usd_buying_power=usd_power,
+        fx=fx,
+        policy=policy,
+    )
+    capital_ready = all(capital_state[scope]["funded"] for scope in ("KR", "US"))
+    output = {
+        "ready": capital_ready,
+        "live_orders_enabled": settings.toss_autotrade_live_enabled,
+        "account": {
+            "account_seq": selected.get("accountSeq"),
+            "account_type": selected.get("accountType"),
+            "account_no_tail": str(selected.get("accountNo") or "")[-4:],
+        },
+        "capital": {
+            "KR": str(policy.kr_budget_krw),
+            "US": str(policy.us_budget_krw),
+        },
+        "buying_power": {
+            "KRW": krw_power,
+            "USD": usd_power,
+        },
+        "usd_krw": fx,
+        "capital_state": {
+            scope: {
+                key: str(value) if hasattr(value, "as_tuple") else value
+                for key, value in capital_state[scope].items()
+            }
+            for scope in ("KR", "US")
+        },
+    }
+    typer.echo(json.dumps(output, ensure_ascii=False, indent=2))
+    if not capital_ready:
+        raise typer.Exit(code=2)
+
+
+def _load_autotrade_signal(url: str) -> dict:
+    response = requests.get(url, timeout=15, headers={"Accept": "application/json"})
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Signal endpoint returned a non-object payload: {url}")
+    return payload
+
+
+def _run_autotrade_cycle(client=None) -> dict:
+    from app.services.auto_trading import execute_cycle
+
+    settings = get_settings()
+    if not settings.toss_autotrade_live_enabled:
+        raise RuntimeError(
+            "Live trading is locked; set TOSS_AUTOTRADE_LIVE_ENABLED=true after preflight"
+        )
+    client = client or _toss_autotrade_client()
+    policy = _autotrade_policy()
+    kr_payload = _load_autotrade_signal(settings.toss_autotrade_kr_signal_url)
+    us_payload = _load_autotrade_signal(settings.toss_autotrade_us_signal_url)
+    init_db()
+    with SessionLocal() as db:
+        return execute_cycle(
+            db,
+            client,
+            kr_payload=kr_payload,
+            us_payload=us_payload,
+            policy=policy,
+        )
+
+
+@autotrade_app.command("run-once")
+def autotrade_run_once_command() -> None:
+    """Reconcile the broker and process one fresh signal cycle."""
+
+    typer.echo(json.dumps(_run_autotrade_cycle(), ensure_ascii=False, indent=2))
+
+
+@autotrade_app.command("run")
+def autotrade_run_command(
+    interval_seconds: int = typer.Option(30, "--interval-seconds", min=10, max=300),
+) -> None:
+    """Run live cycles continuously; intended for a dedicated single process."""
+
+    client = _toss_autotrade_client()
+    while True:
+        try:
+            result = _run_autotrade_cycle(client)
+            typer.echo(json.dumps(result, ensure_ascii=False))
+        except KeyboardInterrupt:
+            raise typer.Exit(code=0)
+        except Exception as exc:
+            typer.echo(json.dumps({"error": str(exc)}, ensure_ascii=False), err=True)
+        time_module.sleep(interval_seconds)
 
 
 @qa_app.command("data-signal")
