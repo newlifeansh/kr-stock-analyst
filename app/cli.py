@@ -212,6 +212,15 @@ def _autotrade_log_signature(result: dict) -> tuple:
         tuple(result.get("submitted") or ()),
         tuple(result.get("skipped") or ()),
         tuple(result.get("reconciliation") or ()),
+        tuple(
+            (
+                guard.get("symbol"),
+                guard.get("trigger"),
+                guard.get("state"),
+                guard.get("checks"),
+            )
+            for guard in (result.get("position_guards") or ())
+        ),
     )
 
 

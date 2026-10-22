@@ -15,7 +15,7 @@ from app.integrations.toss_openapi import (
     TossCredentials,
     TossOpenApiClient,
 )
-from app.models import AutoTradeOrder
+from app.models import AutoTradeOrder, AutoTradePosition
 from app.services.auto_trading import (
     AutoTradePolicy,
     account_capital_state,
@@ -374,6 +374,106 @@ def test_live_cycle_caps_kr_and_us_orders_and_never_duplicates() -> None:
         assert len(client.created) == 2
         assert all(reason.endswith(":duplicate") for reason in kr_second["skipped"])
         assert all(reason.endswith(":duplicate") for reason in us_second["skipped"])
+
+
+def test_managed_kr_position_guard_requires_two_broker_checks_before_hard_stop() -> None:
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
+    empty = {"status": "ready", "data_state": "ready", "as_of": now.isoformat(), "items": []}
+    client = FakeTossClient()
+    client.holding_items = [{
+        "symbol": "138040", "marketCountry": "KR", "lastPrice": "126100",
+        "marketValue": {"purchaseAmount": "131400", "amount": "126100"},
+    }]
+    with _session() as db:
+        db.add(AutoTradePosition(
+            market_scope="KR", symbol="138040", currency="KRW",
+            initial_quantity=Decimal("1"), remaining_quantity=Decimal("1"),
+            average_entry_price=Decimal("131400"),
+        ))
+        db.commit()
+        first = execute_cycle(
+            db, client, kr_payload=empty, us_payload=empty,
+            policy=AutoTradePolicy(), now=now,
+        )
+        assert first["submitted"] == []
+        assert any(item["trigger"] == "hard_stop" and item["state"] == "candidate"
+                   for item in first["position_guards"])
+        second = execute_cycle(
+            db, client, kr_payload=empty, us_payload=empty,
+            policy=AutoTradePolicy(), now=now + timedelta(seconds=30),
+        )
+        assert len(second["submitted"]) == 1
+        assert client.created[-1]["symbol"] == "138040"
+        assert client.created[-1]["side"] == "SELL"
+        assert client.created[-1]["quantity"] == "1"
+
+
+def test_one_share_position_skips_three_percent_partial_and_exits_at_five_percent() -> None:
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
+    empty = {"status": "ready", "data_state": "ready", "as_of": now.isoformat(), "items": []}
+    client = FakeTossClient()
+    with _session() as db:
+        db.add(AutoTradePosition(
+            market_scope="KR", symbol="138040", currency="KRW",
+            initial_quantity=Decimal("1"), remaining_quantity=Decimal("1"),
+            average_entry_price=Decimal("131400"),
+        ))
+        db.commit()
+        client.holding_items = [{
+            "symbol": "138040", "marketCountry": "KR", "lastPrice": "135400",
+            "marketValue": {"purchaseAmount": "131400", "amount": "135400"},
+        }]
+        at_three = execute_cycle(
+            db, client, kr_payload=empty, us_payload=empty,
+            policy=AutoTradePolicy(), now=now,
+        )
+        assert at_three["submitted"] == []
+        assert all(item.get("trigger") != "partial_profit" for item in at_three["position_guards"])
+        client.holding_items[0]["lastPrice"] = "138000"
+        first = execute_cycle(
+            db, client, kr_payload=empty, us_payload=empty,
+            policy=AutoTradePolicy(), now=now + timedelta(seconds=30),
+        )
+        second = execute_cycle(
+            db, client, kr_payload=empty, us_payload=empty,
+            policy=AutoTradePolicy(), now=now + timedelta(seconds=60),
+        )
+        assert first["submitted"] == []
+        assert len(second["submitted"]) == 1
+        assert client.created[-1]["side"] == "SELL"
+        assert client.created[-1]["quantity"] == "1"
+
+
+def test_quant_sell_and_position_guard_never_submit_two_sells_for_one_symbol() -> None:
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
+    empty = {"status": "ready", "data_state": "ready", "as_of": now.isoformat(), "items": []}
+    client = FakeTossClient()
+    client.holding_items = [{
+        "symbol": "138040", "marketCountry": "KR", "lastPrice": "126100",
+        "marketValue": {"purchaseAmount": "131400", "amount": "126100"},
+    }]
+    with _session() as db:
+        db.add(AutoTradePosition(
+            market_scope="KR", symbol="138040", currency="KRW",
+            initial_quantity=Decimal("1"), remaining_quantity=Decimal("1"),
+            average_entry_price=Decimal("131400"),
+        ))
+        db.commit()
+        execute_cycle(db, client, kr_payload=empty, us_payload=empty,
+                      policy=AutoTradePolicy(), now=now)
+        quant_sell = _payload(now + timedelta(seconds=30), "KR")
+        quant_sell["items"][0].update({
+            "code": "138040", "event_side": "sell", "side": "sell",
+            "price": "126100", "state_after": "exited",
+        })
+        result = execute_cycle(
+            db, client, kr_payload=quant_sell, us_payload=empty,
+            policy=AutoTradePolicy(), now=now + timedelta(seconds=30),
+        )
+        assert len(result["submitted"]) == 1
+        assert len(client.created) == 1
+        assert client.created[0]["symbol"] == "138040"
+        assert any(reason.endswith(":sell-already-scheduled") for reason in result["skipped"])
 
 
 def test_partial_fill_sync_drives_original_quantity_partial_sell() -> None:

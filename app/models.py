@@ -793,6 +793,30 @@ class AutoTradePosition(Base):
     )
 
 
+class AutoTradePositionGuard(Base):
+    """Persistent consecutive broker-price checks for managed-position exits."""
+
+    __tablename__ = "auto_trade_position_guard"
+    __table_args__ = (
+        UniqueConstraint(
+            "market_scope", "symbol", "trigger_key", name="uq_auto_trade_position_guard"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    market_scope: Mapped[str] = mapped_column(String(4), nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    trigger_key: Mapped[str] = mapped_column(String(40), nullable=False)
+    consecutive_breaches: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_price: Mapped[Decimal] = mapped_column(Numeric(24, 8), nullable=False)
+    threshold_price: Mapped[Decimal] = mapped_column(Numeric(24, 8), nullable=False)
+    first_breached_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    last_observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 # Query-order indexes are declared separately so their direction is explicit on
 # both SQLite and PostgreSQL. Existing single-column and uniqueness indexes
 # remain intact and continue to enforce the current data contract.

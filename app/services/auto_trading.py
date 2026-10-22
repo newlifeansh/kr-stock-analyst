@@ -5,7 +5,7 @@ import json
 import math
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_CEILING, ROUND_DOWN
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.integrations.toss_openapi import TossOpenApiClient, TossOpenApiError
-from app.models import AutoTradeOrder, AutoTradePosition
+from app.models import AutoTradeOrder, AutoTradePosition, AutoTradePositionGuard
 from app.services.live_order_guard import evaluate_live_order_candidate
 
 
@@ -26,6 +26,12 @@ TERMINAL_ORDER_STATES = {
     "REPLACE_REJECTED",
     "PARTIAL_FILLED_CLOSED",
 }
+
+POSITION_GUARD_VERSION = "managed-position-guard-v1"
+POSITION_GUARD_CONFIRMATIONS = 2
+POSITION_GUARD_STOP_PERCENT = Decimal("0.04")
+POSITION_GUARD_PARTIAL_TARGET_PERCENT = Decimal("0.03")
+POSITION_GUARD_FULL_TARGET_PERCENT = Decimal("0.05")
 
 
 @dataclass(frozen=True)
@@ -493,6 +499,110 @@ def _sell_quantity(position: AutoTradePosition, event: SignalEvent) -> Decimal:
     return min(remaining, target)
 
 
+def _krx_tick(price: Decimal) -> Decimal:
+    for upper, tick in (
+        (Decimal("2000"), Decimal("1")),
+        (Decimal("5000"), Decimal("5")),
+        (Decimal("20000"), Decimal("10")),
+        (Decimal("50000"), Decimal("50")),
+        (Decimal("200000"), Decimal("100")),
+        (Decimal("500000"), Decimal("500")),
+    ):
+        if price < upper:
+            return tick
+    return Decimal("1000")
+
+
+def _krx_trigger_price(price: Decimal, *, upward: bool) -> Decimal:
+    rounding = ROUND_CEILING if upward else ROUND_DOWN
+    tick = _krx_tick(price)
+    return (price / tick).to_integral_value(rounding=rounding) * tick
+
+
+def _managed_position_guard_events(
+    db: Session,
+    holdings: dict[str, Any],
+    *,
+    now: datetime,
+) -> tuple[list[SignalEvent], list[dict[str, Any]]]:
+    """Create exits for locally managed KR positions after two broker-price checks."""
+
+    market_now = (now if now.tzinfo else now.replace(tzinfo=timezone.utc)).astimezone(
+        ZoneInfo("Asia/Seoul")
+    )
+    if market_now.weekday() >= 5 or not time(9, 0) <= market_now.time().replace(tzinfo=None) < time(15, 30):
+        return [], []
+    broker_by_symbol = {
+        str(item.get("symbol") or "").upper(): item
+        for item in holdings.get("items") or []
+        if str(item.get("marketCountry") or "").upper() == "KR"
+    }
+    events: list[SignalEvent] = []
+    statuses: list[dict[str, Any]] = []
+    positions = list(db.scalars(select(AutoTradePosition).where(
+        AutoTradePosition.market_scope == "KR",
+        AutoTradePosition.remaining_quantity > 0,
+    )))
+    observed_at = market_now.astimezone(timezone.utc).replace(tzinfo=None)
+    for position in positions:
+        broker = broker_by_symbol.get(position.symbol.upper())
+        price = _decimal((broker or {}).get("lastPrice"))
+        entry = _decimal(position.average_entry_price)
+        if price <= 0 or entry <= 0:
+            statuses.append({"symbol": position.symbol, "state": "price_unavailable"})
+            continue
+        initial = _decimal(position.initial_quantity)
+        triggers = [
+            ("hard_stop", _krx_trigger_price(entry * (Decimal("1") - POSITION_GUARD_STOP_PERCENT), upward=False), price <= _krx_trigger_price(entry * (Decimal("1") - POSITION_GUARD_STOP_PERCENT), upward=False), "sell", None),
+            ("full_profit", _krx_trigger_price(entry * (Decimal("1") + POSITION_GUARD_FULL_TARGET_PERCENT), upward=True), price >= _krx_trigger_price(entry * (Decimal("1") + POSITION_GUARD_FULL_TARGET_PERCENT), upward=True), "sell", None),
+        ]
+        if initial >= 2:
+            partial_threshold = _krx_trigger_price(
+                entry * (Decimal("1") + POSITION_GUARD_PARTIAL_TARGET_PERCENT), upward=True
+            )
+            triggers.insert(1, ("partial_profit", partial_threshold, price >= partial_threshold, "partial_sell", Decimal("0.5")))
+        for key, threshold, breached, event_side, fraction in triggers:
+            row = db.scalar(select(AutoTradePositionGuard).where(
+                AutoTradePositionGuard.market_scope == "KR",
+                AutoTradePositionGuard.symbol == position.symbol,
+                AutoTradePositionGuard.trigger_key == key,
+            ))
+            if row is None:
+                row = AutoTradePositionGuard(
+                    market_scope="KR", symbol=position.symbol, trigger_key=key,
+                    consecutive_breaches=0, last_price=price, threshold_price=threshold,
+                    last_observed_at=observed_at,
+                )
+                db.add(row)
+            row.last_price = price
+            row.threshold_price = threshold
+            row.last_observed_at = observed_at
+            if breached:
+                if row.consecutive_breaches == 0:
+                    row.first_breached_at = observed_at
+                row.consecutive_breaches += 1
+            else:
+                row.consecutive_breaches = 0
+                row.first_breached_at = None
+            state = "confirmed" if row.consecutive_breaches >= POSITION_GUARD_CONFIRMATIONS else "candidate" if breached else "clear"
+            statuses.append({
+                "symbol": position.symbol, "trigger": key, "state": state,
+                "price": str(price), "threshold": str(threshold),
+                "checks": row.consecutive_breaches,
+            })
+            if state == "confirmed":
+                opened = position.opened_at.isoformat(timespec="seconds")
+                events.append(SignalEvent(
+                    event_id=f"{POSITION_GUARD_VERSION}:{position.symbol}:{opened}:{key}",
+                    strategy_version=POSITION_GUARD_VERSION,
+                    market_scope="KR", symbol=position.symbol, side="SELL",
+                    event_side=event_side, execution_date=market_now.date().isoformat(),
+                    price=price, sell_fraction_original=fraction,
+                ))
+    db.commit()
+    return events, statuses
+
+
 def execute_cycle(
     db: Session,
     client: TossOpenApiClient,
@@ -533,6 +643,9 @@ def execute_cycle(
         for scope in ("KR", "US")
     }
     all_markets_funded = all(capital_state[scope]["funded"] for scope in ("KR", "US"))
+    guard_events, position_guards = _managed_position_guard_events(
+        db, holdings, now=current
+    )
     events = extract_actionable_events(
         kr_payload,
         market_scope="KR",
@@ -543,9 +656,13 @@ def execute_cycle(
         market_scope="US",
         now=current,
         max_age_seconds=policy.signal_max_age_seconds,
-    )
+    ) + guard_events
     submitted: list[str] = []
     skipped: list[str] = []
+    sell_symbols_scheduled = set(db.scalars(select(AutoTradeOrder.symbol).where(
+        AutoTradeOrder.side == "SELL",
+        AutoTradeOrder.status.not_in(TERMINAL_ORDER_STATES | {"AMBIGUOUS_BLOCKED"}),
+    )))
     for event in events:
         if db.scalar(select(AutoTradeOrder.id).where(AutoTradeOrder.signal_event_id == event.event_id)):
             skipped.append(f"{event.event_id}:duplicate")
@@ -559,6 +676,9 @@ def execute_cycle(
         request: dict[str, Any]
         notional_krw = Decimal("0")
         if event.side == "SELL":
+            if event.symbol in sell_symbols_scheduled:
+                skipped.append(f"{event.event_id}:sell-already-scheduled")
+                continue
             if position is None or _decimal(position.remaining_quantity) <= 0:
                 skipped.append(f"{event.event_id}:no-managed-position")
                 continue
@@ -681,6 +801,8 @@ def execute_cycle(
         db.commit()
         if event.side == "BUY":
             reserved_by_scope[event.market_scope] += notional_krw
+        else:
+            sell_symbols_scheduled.add(event.symbol)
         submitted.append(local.client_order_id)
     return {
         "mode": "live",
@@ -700,4 +822,5 @@ def execute_cycle(
         "submitted": submitted,
         "skipped": skipped,
         "reconciliation": messages,
+        "position_guards": position_guards,
     }

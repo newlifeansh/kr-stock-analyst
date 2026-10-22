@@ -130,6 +130,11 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_toss_autotrade.test_new_buys_wait_until_both_thirty_seventy_sleeves_are_funded",
         "tests.test_toss_autotrade.test_toss_client_requires_live_switch_and_sets_account_header",
     ),
+    "EXEC-TOSS-POSITION-GUARD-001": (
+        "tests.test_toss_autotrade.test_managed_kr_position_guard_requires_two_broker_checks_before_hard_stop",
+        "tests.test_toss_autotrade.test_one_share_position_skips_three_percent_partial_and_exits_at_five_percent",
+        "tests.test_toss_autotrade.test_quant_sell_and_position_guard_never_submit_two_sells_for_one_symbol",
+    ),
     "OPS-COST-001": (
         "tests.test_maintenance_jobs.test_linux_worker_accepts_container_pid_one_and_rejects_reparenting",
         "tests.test_briefing_runtime.test_failed_isolated_bulk_job_remains_due_until_success",
