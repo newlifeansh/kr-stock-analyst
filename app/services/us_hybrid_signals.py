@@ -9,6 +9,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from hashlib import sha256
 import json
 import math
@@ -240,12 +241,18 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
             if latest_at <= _utc(position["entry_at"]):
                 continue
             gain = price / position["entry_price"] - 1.0
-            if gain <= (-0.04 if position["remaining"] == 1.0 else 0.0):
+            # Compare quoted prices, not a binary-float percentage. Exact
+            # -4%/+3%/+5% quotes can otherwise fall just outside the boundary.
+            # No epsilon: a quote short of the target must never trigger early.
+            quoted_price = Decimal(str(price))
+            entry_price = Decimal(str(position["entry_price"]))
+            stop_multiple = Decimal("0.96") if position["remaining"] == 1.0 else Decimal("1")
+            if quoted_price <= entry_price * stop_multiple:
                 side, fraction, reason = "sell", position["remaining"], "초기 손실 기준" if position["remaining"] == 1.0 else "잔여 비중 본전 보호"
-            elif gain >= 0.05:
+            elif quoted_price >= entry_price * Decimal("1.05"):
                 # A jump over both targets closes all at the observed price.
                 side, fraction, reason = "sell", position["remaining"], "2차 수익확정"
-            elif gain >= 0.03 and position["remaining"] == 1.0:
+            elif quoted_price >= entry_price * Decimal("1.03") and position["remaining"] == 1.0:
                 side, fraction, reason = "partial_sell", 0.5, "1차 수익확정"
             elif base_ready and setup.get("close_exit") and setup.get("signal_date", "") > position["entry_date"]:
                 side, fraction, reason = "sell", position["remaining"], "완료 종가 추세 이탈"

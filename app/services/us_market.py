@@ -2207,6 +2207,7 @@ def _repair_completed_daily_close_from_intraday(
             "raw_volume": raw_volume,
             "provider_ohlv_complete": provider_ohlv_complete,
             "provider_ohlv_empty": provider_ohlv_empty,
+            "provider_bounds_invalid": bool(provider_ohlv_complete and not raw_low <= raw_open <= raw_high),
         }
     if not repair_candidates:
         return result
@@ -2310,7 +2311,28 @@ def _repair_completed_daily_close_from_intraday(
         raw_high = candidate["raw_high"]
         raw_low = candidate["raw_low"]
         raw_volume = candidate["raw_volume"]
-        if candidate["provider_ohlv_complete"]:
+        bounds_rebuilt = False
+        if candidate["provider_bounds_invalid"]:
+            # A missing close with the open outside H/L is not a valid daily
+            # candle. Require every regular five-minute interval, an exact
+            # opening anchor, and a compatible consolidated daily volume.
+            # Never merely clamp the daily bounds around a guessed close.
+            regular_only = [row for row in regular_rows if row[0] < completed.close_at]
+            expected = tuple(completed.open_at + timedelta(minutes=5 * index)
+                             for index in range(int((completed.close_at - completed.open_at).total_seconds() // 300)))
+            if (tuple(row[0] for row in regular_only) != expected
+                    or regular_only[0][1] != raw_open
+                    or sum((row[5] for row in regular_only), Decimal("0")) > raw_volume):
+                continue
+            # The optional close-time quote must be an instantaneous flat
+            # zero-volume marker, not an additional five-minute interval.
+            closing = [row for row in regular_rows if row[0] == completed.close_at]
+            if len(closing) > 1 or any(row[5] != 0 or len(set(row[1:5])) != 1 for row in closing):
+                continue
+            raw_high = max(row[2] for row in regular_rows)
+            raw_low = min(row[3] for row in regular_rows)
+            bounds_rebuilt = True
+        elif candidate["provider_ohlv_complete"]:
             bound_tolerance = (
                 max(raw_open, intraday_close) * YAHOO_OHLC_BOUND_TOLERANCE
             )
@@ -2347,6 +2369,7 @@ def _repair_completed_daily_close_from_intraday(
                 "raw_low": raw_low,
                 "raw_volume": raw_volume,
                 "provider_ohlv_empty": candidate["provider_ohlv_empty"],
+                "bounds_rebuilt": bounds_rebuilt,
             }
         )
     if not repairs:
@@ -2376,6 +2399,14 @@ def _repair_completed_daily_close_from_intraday(
         repaired_close = repair["close"]
         repaired_close_values[completed_index] = float(repaired_close)
         repaired_adjusted_values[completed_index] = float(repaired_close)
+        if repair["bounds_rebuilt"]:
+            repaired_quotes[0]["high"][completed_index] = float(repair["raw_high"])
+            repaired_quotes[0]["low"][completed_index] = float(repair["raw_low"])
+            repaired.setdefault("meta", {}).setdefault("signal_daily_repairs", []).append({
+                "timestamp": timestamps[completed_index],
+                "basis": "complete_regular_5m_open_anchor_and_daily_volume",
+                "fields": ["high", "low", "close", "adjclose"],
+            })
         if repair["provider_ohlv_empty"]:
             for key, value in (
                 ("open", repair["raw_open"]),

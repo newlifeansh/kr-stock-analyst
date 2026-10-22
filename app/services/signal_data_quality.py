@@ -13,6 +13,7 @@ from sqlalchemy import desc, distinct, func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.collectors.naver_flows import NAVER_TREND_URL
 from app.models import (
     DailyPrice,
     DisclosureItem,
@@ -885,8 +886,8 @@ def probe_signal_source_apis(
         (
             "flow",
             "Naver investor trend API",
-            f"https://stock.naver.com/api/domestic/detail/{sample_code}/trend",
-            {"tradeType": "KRX", "startIdx": 0, "pageSize": 20},
+            NAVER_TREND_URL.format(code=sample_code),
+            {"tradeType": "KRX", "pageSize": 20},
             flow_has_rows,
         ),
         (

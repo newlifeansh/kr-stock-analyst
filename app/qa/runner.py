@@ -118,7 +118,21 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_railway_staging_runtime.test_invalid_extra_service_fails_before_any_mutation[invalid;selector]",
         "tests.test_local_stock_ai.test_rules_provider_does_not_call_local_model",
     ),
+    "SIG-FORWARD-BENCHMARK-001": (
+        "tests.test_current_signal_trade_audit.test_trade_audit_pairs_reentry_and_original_exit_weights_without_mutation",
+        "tests.test_current_signal_trade_audit.test_trade_audit_never_fills_missing_minutes_or_unreviewed_splits",
+        "tests.test_current_signal_trade_audit.test_trade_audit_rejects_incomplete_or_conflicting_observed_ledger",
+        "tests.test_current_signal_trade_audit.test_trade_audit_benchmark_requires_identity_valid_closed_regular_minute",
+    ),
+    "SIG-US-EXIT-BOUNDARY-001": (
+        "tests.test_us_hybrid_signals.test_hybrid_exact_decimal_exit_boundaries_and_adjacent_quotes",
+        "tests.test_us_hybrid_signals.test_hybrid_partial_breakeven_boundary_does_not_exit_early",
+    ),
     "DATA-KRX-NAVER-005": (
+        "tests.test_signal_entry_evidence.test_source_probe_uses_current_naver_json_endpoints",
+        "tests.test_naver_flows.test_fetch_rows_prefers_new_trend_api_and_does_not_call_legacy",
+        "tests.test_naver_flows.test_collect_naver_empty_source_is_failed_and_preserves_stored_flows",
+        "tests.test_naver_flows.test_trend_window_is_bounded_and_rejects_wrong_symbol_or_missing_values",
         "tests.test_briefing_runtime.test_investor_flow_retries_historical_rows_until_target_coverage_is_ready",
         "tests.test_briefing_runtime.test_investor_flow_refreshes_while_main_market_job_is_blocked",
         "tests.test_briefing_runtime.test_empty_flow_universe_is_not_marked_ready",
@@ -850,6 +864,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_complete_daily_snapshot_rejects_audit_only_rewrite",
     ),
     "DATA-US-SIGNAL-INPUT-001": (
+        "tests.test_us_market.test_signal_invalid_daily_bounds_require_complete_intraday_evidence",
+        "tests.test_us_market.test_signal_invalid_daily_bounds_reject_gaps_conflicts_and_early_repair",
         "tests.test_us_market."
         "test_chart_price_rows_use_adjusted_ohlc_but_raw_dollar_notional",
         "tests.test_us_market."

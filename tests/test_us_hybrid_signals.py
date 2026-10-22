@@ -1,6 +1,8 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import json
+import math
 
 import pytest
 from sqlalchemy import create_engine
@@ -85,6 +87,53 @@ def test_hybrid_profit_and_stop_use_observed_prices_not_ideal_threshold(prices, 
     assert state["positions"]["AAPL"]["remaining"] == remaining
     if prices[-1] == 95:
         assert event["return_rate"] < -4  # Gaps are not clipped to the stop.
+
+
+def test_hybrid_exact_decimal_exit_boundaries_and_adjacent_quotes():
+    entries = (100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 125, 150, 200, 333, 500, 1000)
+    for entry in entries:
+        for multiple, expected in (("0.96", "sell"), ("1.03", "partial_sell"), ("1.05", "sell")):
+            boundary = float(Decimal(str(entry)) * Decimal(multiple))
+            for direction in (-1, 0, 1):
+                quote = boundary if direction == 0 else math.nextafter(boundary, math.inf * direction)
+                state = entered()
+                state["positions"]["AAPL"]["entry_price"] = entry
+                original = deepcopy(state)
+                result = hybrid.advance_us_hybrid_state(
+                    state, feed(), {"AAPL": chart((entry, entry, quote))},
+                    OPEN + timedelta(minutes=3, seconds=5),
+                )
+                actual = result["events"][-1]["side"] if len(result["events"]) > 1 else None
+                expected_side = expected
+                if multiple == "0.96" and direction == 1:
+                    expected_side = None
+                elif multiple == "1.03" and direction == -1:
+                    expected_side = None
+                elif multiple == "1.05" and direction == -1:
+                    expected_side = "partial_sell"
+                assert actual == expected_side, (entry, multiple, direction, quote)
+                assert state == original
+                if actual:
+                    assert result["events"][-1]["price"] == quote
+                replay = hybrid.advance_us_hybrid_state(
+                    result, feed(), {"AAPL": chart((entry, entry, quote))},
+                    OPEN + timedelta(minutes=3, seconds=10),
+                )
+                assert replay["events"] == result["events"]
+
+
+def test_hybrid_partial_breakeven_boundary_does_not_exit_early():
+    for quote, expected in ((math.nextafter(333.0, math.inf), None), (333.0, "sell"),
+                            (math.nextafter(333.0, -math.inf), "sell")):
+        state = entered()
+        state["positions"]["AAPL"].update(entry_price=333.0, remaining=.5, realized_return=1.5)
+        result = hybrid.advance_us_hybrid_state(
+            state, feed(), {"AAPL": chart((333, 333, quote))}, OPEN + timedelta(minutes=3, seconds=5),
+        )
+        assert (result["events"][-1]["side"] if len(result["events"]) > 1 else None) == expected
+        if expected:
+            assert result["events"][-1]["sell_fraction_original"] == .5
+            assert result["events"][-1]["return_rate"] == pytest.approx(1.5)
 
 
 def test_hybrid_partial_then_remaining_exit_weighted_return_and_no_same_day_reentry():
