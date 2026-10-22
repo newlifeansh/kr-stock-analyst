@@ -57,6 +57,17 @@ def test_us_market_display_session_stays_closed_on_xnys_holiday():
     assert state["refresh_interval_seconds"] == 300
 
 
+def test_signal_session_state_identifies_xnys_premarket_without_enabling_regular_execution():
+    state = us_signal_session_state(datetime(2026, 10, 22, 12, 23, tzinfo=UTC))
+
+    assert state["session"] == "premarket"
+    assert state["is_premarket"] is True
+    assert state["is_regular"] is False
+    assert state["current_session"].open_at == datetime(
+        2026, 10, 22, 13, 30, tzinfo=UTC
+    )
+
+
 def test_us_calendar_uses_official_early_close():
     session = us_market_session(date(2026, 11, 27))
 

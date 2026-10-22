@@ -131,10 +131,19 @@ def us_signal_session_state(now: Optional[datetime] = None) -> dict[str, Any]:
     today = us_market_session(current.date())
     latest_completed = latest_completed_us_market_session(current)
     regular = bool(today and today.open_at <= current < today.close_at)
+    premarket_start = (
+        today.open_at - timedelta(hours=5, minutes=30) if today is not None else None
+    )
+    premarket = bool(
+        today
+        and premarket_start is not None
+        and premarket_start <= current < today.open_at
+    )
     refresh_after = latest_completed.close_at + US_SIGNAL_PUBLICATION_GRACE
     return {
-        "session": "regular" if regular else "closed",
+        "session": "regular" if regular else "premarket" if premarket else "closed",
         "is_regular": regular,
+        "is_premarket": premarket,
         "current_session": today,
         "latest_completed": latest_completed,
         "latest_completed_date": latest_completed.session_date,
