@@ -76,8 +76,11 @@ def _payload(now: datetime, scope: str) -> dict:
                         "code": "AAPL",
                         "side": "buy",
                         "execution_date": "2026-10-22",
+                        "observed_at": (now - timedelta(minutes=1)).isoformat(),
+                        "signal_at": now.isoformat(),
                         "price": "200",
                         "intraday_execution_verified": True,
+                        "intraday_order_verified": True,
                     }
                 ],
             }
@@ -406,6 +409,41 @@ def test_managed_kr_position_guard_requires_two_broker_checks_before_hard_stop()
         assert client.created[-1]["symbol"] == "138040"
         assert client.created[-1]["side"] == "SELL"
         assert client.created[-1]["quantity"] == "1"
+
+
+def test_managed_us_position_guard_requires_two_regular_session_checks() -> None:
+    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    empty = {"status": "ready", "data_state": "ready", "as_of": now.isoformat(), "items": []}
+    client = FakeTossClient()
+    client.holding_items = [{
+        "symbol": "AAPL", "marketCountry": "US", "lastPrice": "192",
+        "marketValue": {"purchaseAmount": "200", "amount": "192"},
+    }]
+    with _session() as db:
+        db.add(AutoTradePosition(
+            market_scope="US", symbol="AAPL", currency="USD",
+            initial_quantity=Decimal("1"), remaining_quantity=Decimal("1"),
+            average_entry_price=Decimal("200"),
+        ))
+        db.commit()
+        first = execute_cycle(
+            db, client, kr_payload=empty, us_payload=empty,
+            policy=AutoTradePolicy(), now=now,
+        )
+        second = execute_cycle(
+            db, client, kr_payload=empty, us_payload=empty,
+            policy=AutoTradePolicy(), now=now + timedelta(seconds=30),
+        )
+        assert first["submitted"] == []
+        assert any(
+            item["market_scope"] == "US"
+            and item["trigger"] == "hard_stop"
+            and item["state"] == "candidate"
+            for item in first["position_guards"]
+        )
+        assert len(second["submitted"]) == 1
+        assert client.created[-1]["symbol"] == "AAPL"
+        assert client.created[-1]["side"] == "SELL"
 
 
 def test_one_share_position_skips_three_percent_partial_and_exits_at_five_percent() -> None:

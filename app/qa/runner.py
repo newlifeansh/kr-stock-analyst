@@ -121,6 +121,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_toss_autotrade.test_domestic_sell_remains_allowed_when_buy_prechecks_are_unavailable",
         "tests.test_toss_autotrade.test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent",
         "tests.test_toss_autotrade.test_us_feed_still_requires_explicit_new_entry_permission",
+        "tests.test_live_order_guard.test_us_live_order_guard_requires_fresh_completed_regular_minute",
         "tests.test_toss_autotrade.test_daemon_log_signature_ignores_small_fx_noise_but_records_state_changes",
         "tests.test_toss_autotrade.test_live_cycle_caps_kr_and_us_orders_and_never_duplicates",
         "tests.test_toss_autotrade.test_partial_fill_sync_drives_original_quantity_partial_sell",
@@ -132,6 +133,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "EXEC-TOSS-POSITION-GUARD-001": (
         "tests.test_toss_autotrade.test_managed_kr_position_guard_requires_two_broker_checks_before_hard_stop",
+        "tests.test_toss_autotrade.test_managed_us_position_guard_requires_two_regular_session_checks",
         "tests.test_toss_autotrade.test_one_share_position_skips_three_percent_partial_and_exits_at_five_percent",
         "tests.test_toss_autotrade.test_quant_sell_and_position_guard_never_submit_two_sells_for_one_symbol",
     ),
@@ -226,6 +228,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[entered]",
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[exited]",
         "tests.test_us_hybrid_signals.test_hybrid_two_fresh_minutes_enter_once_and_restart_is_idempotent",
+        "tests.test_us_hybrid_signals.test_hybrid_candidate_waits_for_h1_volume_and_survives_transient_minute_failure",
         "tests.test_us_hybrid_signals.test_hybrid_partial_then_remaining_exit_weighted_return_and_no_same_day_reentry",
         "tests.test_us_hybrid_signals.test_hybrid_profit_after_entry_does_not_read_same_minute_high",
         "tests.test_us_hybrid_signals.test_hybrid_early_close_and_dst_are_exchange_calendared",

@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 
 from app.integrations.toss_openapi import TossOpenApiClient, TossOpenApiError
 from app.models import AutoTradeOrder, AutoTradePosition, AutoTradePositionGuard
-from app.services.live_order_guard import evaluate_live_order_candidate
+from app.services.live_order_guard import (
+    evaluate_live_order_candidate,
+    evaluate_us_live_order_candidate,
+)
 
 
 TERMINAL_ORDER_STATES = {
@@ -203,8 +206,6 @@ def extract_actionable_events(
             side = "BUY" if event_side == "buy" else "SELL" if event_side in {"sell", "partial_sell"} else ""
             execution_date = str(row.get("execution_date") or "")[:10]
             verified = row.get("intraday_execution_verified") is True
-            if scope == "US" and row.get("event_id"):
-                verified = True
             kr_order_candidate = {**item, **row}
             if scope == "KR":
                 kr_order_candidate["event_side"] = event_side
@@ -215,11 +216,16 @@ def extract_actionable_events(
                 scope != "KR"
                 or evaluate_live_order_candidate(kr_order_candidate, now=current)["eligible"]
             )
+            us_order_eligible = (
+                scope != "US"
+                or evaluate_us_live_order_candidate(row, now=current)["eligible"]
+            )
             if (
                 not side
                 or execution_date != today
                 or not verified
                 or not kr_order_eligible
+                or not us_order_eligible
                 or (scope == "KR" and item.get("status") != "confirmed")
                 or (side == "BUY" and not _new_buys_allowed(payload, scope))
                 or (
@@ -525,51 +531,69 @@ def _managed_position_guard_events(
     *,
     now: datetime,
 ) -> tuple[list[SignalEvent], list[dict[str, Any]]]:
-    """Create exits for locally managed KR positions after two broker-price checks."""
+    """Create KR/US exits after two independent in-session broker-price checks."""
 
-    market_now = (now if now.tzinfo else now.replace(tzinfo=timezone.utc)).astimezone(
-        ZoneInfo("Asia/Seoul")
-    )
-    if market_now.weekday() >= 5 or not time(9, 0) <= market_now.time().replace(tzinfo=None) < time(15, 30):
+    aware_now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    kr_now = aware_now.astimezone(ZoneInfo("Asia/Seoul"))
+    from app.services.us_market_calendar import us_signal_session_state
+
+    active_scopes: dict[str, datetime] = {}
+    if kr_now.weekday() < 5 and time(9, 0) <= kr_now.time().replace(tzinfo=None) < time(15, 30):
+        active_scopes["KR"] = kr_now
+    us_state = us_signal_session_state(aware_now)
+    if us_state.get("is_regular") is True:
+        active_scopes["US"] = aware_now.astimezone(ZoneInfo("America/New_York"))
+    if not active_scopes:
         return [], []
-    broker_by_symbol = {
-        str(item.get("symbol") or "").upper(): item
-        for item in holdings.get("items") or []
-        if str(item.get("marketCountry") or "").upper() == "KR"
+    broker_by_scope = {
+        scope: {
+            str(item.get("symbol") or "").upper(): item
+            for item in holdings.get("items") or []
+            if str(item.get("marketCountry") or "").upper() == scope
+        }
+        for scope in active_scopes
     }
     events: list[SignalEvent] = []
     statuses: list[dict[str, Any]] = []
     positions = list(db.scalars(select(AutoTradePosition).where(
-        AutoTradePosition.market_scope == "KR",
+        AutoTradePosition.market_scope.in_(tuple(active_scopes)),
         AutoTradePosition.remaining_quantity > 0,
     )))
-    observed_at = market_now.astimezone(timezone.utc).replace(tzinfo=None)
+    observed_at = aware_now.astimezone(timezone.utc).replace(tzinfo=None)
     for position in positions:
-        broker = broker_by_symbol.get(position.symbol.upper())
+        scope = str(position.market_scope).upper()
+        market_now = active_scopes[scope]
+        broker = broker_by_scope[scope].get(position.symbol.upper())
         price = _decimal((broker or {}).get("lastPrice"))
         entry = _decimal(position.average_entry_price)
         if price <= 0 or entry <= 0:
             statuses.append({"symbol": position.symbol, "state": "price_unavailable"})
             continue
         initial = _decimal(position.initial_quantity)
+        def threshold(multiple: Decimal, *, upward: bool) -> Decimal:
+            raw = entry * multiple
+            return _krx_trigger_price(raw, upward=upward) if scope == "KR" else raw
+
+        stop_threshold = threshold(Decimal("1") - POSITION_GUARD_STOP_PERCENT, upward=False)
+        full_threshold = threshold(Decimal("1") + POSITION_GUARD_FULL_TARGET_PERCENT, upward=True)
         triggers = [
-            ("hard_stop", _krx_trigger_price(entry * (Decimal("1") - POSITION_GUARD_STOP_PERCENT), upward=False), price <= _krx_trigger_price(entry * (Decimal("1") - POSITION_GUARD_STOP_PERCENT), upward=False), "sell", None),
-            ("full_profit", _krx_trigger_price(entry * (Decimal("1") + POSITION_GUARD_FULL_TARGET_PERCENT), upward=True), price >= _krx_trigger_price(entry * (Decimal("1") + POSITION_GUARD_FULL_TARGET_PERCENT), upward=True), "sell", None),
+            ("hard_stop", stop_threshold, price <= stop_threshold, "sell", None),
+            ("full_profit", full_threshold, price >= full_threshold, "sell", None),
         ]
-        if initial >= 2:
-            partial_threshold = _krx_trigger_price(
-                entry * (Decimal("1") + POSITION_GUARD_PARTIAL_TARGET_PERCENT), upward=True
+        if initial >= 2 or (scope == "US" and initial > 0):
+            partial_threshold = threshold(
+                Decimal("1") + POSITION_GUARD_PARTIAL_TARGET_PERCENT, upward=True
             )
             triggers.insert(1, ("partial_profit", partial_threshold, price >= partial_threshold, "partial_sell", Decimal("0.5")))
         for key, threshold, breached, event_side, fraction in triggers:
             row = db.scalar(select(AutoTradePositionGuard).where(
-                AutoTradePositionGuard.market_scope == "KR",
+                AutoTradePositionGuard.market_scope == scope,
                 AutoTradePositionGuard.symbol == position.symbol,
                 AutoTradePositionGuard.trigger_key == key,
             ))
             if row is None:
                 row = AutoTradePositionGuard(
-                    market_scope="KR", symbol=position.symbol, trigger_key=key,
+                    market_scope=scope, symbol=position.symbol, trigger_key=key,
                     consecutive_breaches=0, last_price=price, threshold_price=threshold,
                     last_observed_at=observed_at,
                 )
@@ -586,16 +610,17 @@ def _managed_position_guard_events(
                 row.first_breached_at = None
             state = "confirmed" if row.consecutive_breaches >= POSITION_GUARD_CONFIRMATIONS else "candidate" if breached else "clear"
             statuses.append({
-                "symbol": position.symbol, "trigger": key, "state": state,
+                "market_scope": scope, "symbol": position.symbol,
+                "trigger": key, "state": state,
                 "price": str(price), "threshold": str(threshold),
                 "checks": row.consecutive_breaches,
             })
             if state == "confirmed":
                 opened = position.opened_at.isoformat(timespec="seconds")
                 events.append(SignalEvent(
-                    event_id=f"{POSITION_GUARD_VERSION}:{position.symbol}:{opened}:{key}",
+                    event_id=f"{POSITION_GUARD_VERSION}:{scope}:{position.symbol}:{opened}:{key}",
                     strategy_version=POSITION_GUARD_VERSION,
-                    market_scope="KR", symbol=position.symbol, side="SELL",
+                    market_scope=scope, symbol=position.symbol, side="SELL",
                     event_side=event_side, execution_date=market_now.date().isoformat(),
                     price=price, sell_fraction_original=fraction,
                 ))
