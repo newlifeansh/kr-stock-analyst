@@ -1,103 +1,46 @@
 name: QA data-signal live
-
 on:
   workflow_dispatch:
-  schedule:
-    # KST weekdays 08:20, 10:00 and 16:20.
-    - cron: "20 23 * * 0-4"
-    - cron: "0 1 * * 1-5"
-    - cron: "20 7 * * 1-5"
-
 permissions:
   contents: read
-
-concurrency:
-  group: domestic-staging-runtime
-  cancel-in-progress: false
-
 jobs:
-  live:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        surface: [dashboard, us]
-    environment: staging
-    env:
-      QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_STAGING_BASE_URL || vars.DASHBOARD_STAGING_BASE_URL }}
-      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
-      KIS_ENV: ${{ vars.KIS_ENV || 'real' }}
-      DART_API_KEY: ${{ secrets.DART_API_KEY }}
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      RAILWAY_PROJECT_ID: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_PROJECT_ID || vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
-      RAILWAY_WEB_SERVICE: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_WEB_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
-      RAILWAY_COLLECTOR_SERVICE: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_COLLECTOR_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
-      RAILWAY_DATABASE_SERVICE: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_DATABASE_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
-      RAILWAY_REGION: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_REGION || vars.DASHBOARD_STAGING_RAILWAY_REGION }}
-      RAILWAY_EXTRA_STOP_SERVICES: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_EXTRA_STOP_SERVICES || '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-      - name: Install project and QA dependencies
-        run: pip install -e '.[qa,mcp]'
-      - name: Install Railway CLI for selected staging
-        run: npm install --global @railway/cli@5.45.7
-      - name: Start selected staging for live QA
-        run: |
-          RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"
-          export RAILWAY_RESUME_IMAGE_REF
-          test -n "$RAILWAY_RESUME_IMAGE_REF"
-          ./scripts/railway_staging_runtime.sh up
-      - name: Run read-only staging and source checks
-        shell: bash
-        run: |
-          test -n "$QA_BASE_URL"
-          kis_flag=""
-          if [[ -n "$KIS_APP_KEY" && -n "$KIS_APP_SECRET" ]]; then
-            kis_flag="--direct-kis"
-          fi
-          analyst qa data-signal \
-            --mode live \
-            --surface "${{ matrix.surface }}" \
-            --base-url "$QA_BASE_URL" \
-            --output artifacts/qa-data-signal/live.json \
-            $kis_flag
-      - name: Upload live evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qa-data-signal-live-${{ matrix.surface }}-${{ github.run_id }}
-          path: artifacts/qa-data-signal/live.json
-          if-no-files-found: error
-          retention-days: 30
-
-  shutdown_staging:
-    if: ${{ always() }}
-    needs: live
+  intraday_evidence_readonly:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: staging
-    strategy:
-      fail-fast: false
-      matrix:
-        surface: [dashboard, us]
+    environment: production
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      RAILWAY_PROJECT_ID: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_PROJECT_ID || vars.DASHBOARD_STAGING_RAILWAY_PROJECT_ID }}
-      RAILWAY_WEB_SERVICE: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_WEB_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_WEB_SERVICE }}
-      RAILWAY_COLLECTOR_SERVICE: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_COLLECTOR_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE }}
-      RAILWAY_DATABASE_SERVICE: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_DATABASE_SERVICE || vars.DASHBOARD_STAGING_RAILWAY_DATABASE_SERVICE }}
-      RAILWAY_REGION: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_REGION || vars.DASHBOARD_STAGING_RAILWAY_REGION }}
-      RAILWAY_EXTRA_STOP_SERVICES: ${{ matrix.surface == 'us' && vars.US_STAGING_RAILWAY_EXTRA_STOP_SERVICES || '' }}
+      DIAG_PROJECT: ${{ vars.US_PRODUCTION_RAILWAY_PROJECT_ID }}
+      DIAG_SERVICE: ${{ vars.US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Railway CLI for cleanup
-        run: npm install --global @railway/cli@5.45.7
-      - name: Stop selected staging after live QA (including job timeout)
-        if: ${{ always() }}
-        run: ./scripts/railway_staging_runtime.sh down
+      - run: npm install --global @railway/cli@5.45.7
+      - name: Capture read-only US collector progress
+        run: |
+          mkdir -p artifacts/intraday-evidence
+          railway logs --latest --json --lines 500 --project "$DIAG_PROJECT" --environment production --service "$DIAG_SERVICE" > artifacts/intraday-evidence/us-collector-runtime.jsonl
+      - name: Inspect stored evidence in a read-only database transaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          task_dir="$(mktemp -d)"
+          ssh-keygen -q -t ed25519 -N '' -C "intraday-readonly-${GITHUB_RUN_ID}" -f "$task_dir/key"
+          fingerprint="$(ssh-keygen -lf "$task_dir/key.pub" -E sha256 | awk '{print $2}')"
+          eval "$(ssh-agent -s)"
+          ssh-add "$task_dir/key"
+          mkdir -p "$HOME/.ssh"
+          printf 'Host *\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile %s\n' "$task_dir/known_hosts" > "$HOME/.ssh/config"
+          cleanup() { railway ssh keys remove "$fingerprint"; ssh-agent -k; }
+          trap cleanup EXIT
+          railway ssh keys add --key "$fingerprint" --name "intraday-readonly-${GITHUB_RUN_ID}"
+          code="$(cat scripts/probe_us_signal_recovery.py)"
+          command="python -c $(printf '%q' "$code")"
+          mkdir -p artifacts/intraday-evidence
+          railway ssh -p "$DIAG_PROJECT" -s "$DIAG_SERVICE" -e production --identity-file "$task_dir/key" -- "$command" > artifacts/intraday-evidence/report.json
+          python3 -c 'import json,pathlib; p=json.loads(pathlib.Path("artifacts/intraday-evidence/report.json").read_text()); print(json.dumps({k:v for k,v in p.items() if k!="items"}))'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: intraday-evidence-${{ github.run_id }}
+          path: artifacts/intraday-evidence
+          retention-days: 30
