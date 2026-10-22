@@ -18,10 +18,11 @@ const end = source.indexOf('function aiSignalCandidateScanView(', begin);
 assert.ok(begin >= 0 && end > begin);
 const section = source.slice(begin, end);
 const toNumber = value => value == null ? null : Number(value);
-const build = isUs => new Function('toNumber', 'isUsHubContext',
-  `${section}\nreturn aiSignalPerformanceWindowState;`)(toNumber, isUs);
-const us = build(true);
-const kr = build(false);
+const build = (isUs, marketScope) => new Function('toNumber', 'isUsHubContext', 'state',
+  `${section}\nreturn aiSignalPerformanceWindowState;`)(toNumber, isUs, { marketScope });
+const us = build(true, 'us');
+const kr = build(false, 'kr');
+const unifiedKr = build(true, 'kr');
 const seven = { completed_trades: 3, average_return: 4.13, sample_state: 'limited' };
 const fifteen = { ...seven };
 const thirty = { ...seven };
@@ -32,6 +33,7 @@ assert.equal(us({ ...thirty, completed_trades: 4 }, fifteen).sameSample, false);
 assert.equal(us({ completed_trades: 0, average_return: null }, seven).statusLabel, '표본 없음');
 assert.equal(us({ completed_trades: 2, average_return: 1 }, { completed_trades: 0 }).sameSample, false);
 assert.equal(kr(fifteen, seven).sameSample, false);
+assert.equal(unifiedKr(fifteen, seven).sameSample, false);
 """
     subprocess.run(["node", "-e", script, str(source_path)], check=True, capture_output=True, text=True)
 

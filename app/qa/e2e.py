@@ -1678,6 +1678,8 @@ def _run_us_e2e_checks(
                           '#ai-signals-page-list > .home-ai-signal-row'
                         )];
                         return {
+                          marketTitle: card.querySelector('#ai-signal-performance-title')?.textContent || '',
+                          foreignTradeCount: ledger.filter(item => marketScopeForItem(item) !== 'us').length,
                           labels: [...card.querySelectorAll('.ai-signal-performance-label')].map(n => n.textContent.trim()),
                           values: [...card.querySelectorAll('.ai-signal-performance-value')].map(n => n.textContent.trim()),
                           note: card.querySelector('#ai-signal-performance-note')?.textContent || '',
@@ -1699,7 +1701,9 @@ def _run_us_e2e_checks(
                         };
                         }"""
                     )
-                    if (observed["labels"] != ["최근 7일", "최근 15일", "최근 30일"]
+                    if (observed.get("marketTitle") != "최근 미국 시그널 평균 수익률"
+                            or observed.get("foreignTradeCount") != 0
+                            or observed["labels"] != ["최근 7일", "최근 15일", "최근 30일"]
                             or "비용·세금·환율 반영 전" not in observed["note"]
                             or observed["ledgerCount"] != observed["summaryCount"]
                             or observed["rowCount"] != observed["ledgerCount"]
@@ -3480,6 +3484,8 @@ def run_e2e_checks(
                       const overview = document.querySelector('#ai-signal-performance');
                       const rows = [...overview.querySelectorAll('.ai-signal-performance-row')];
                       return {
+                        marketTitle: overview.querySelector('#ai-signal-performance-title')?.textContent || '',
+                        foreignTradeCount: (summary.completed_trade_items || []).filter(item => marketScopeForItem(item) !== 'kr').length,
                         asOf: overview.querySelector('#ai-signal-performance-asof')?.textContent?.trim() || '',
                         lead: overview.querySelector('#ai-signal-performance-lead')?.textContent?.trim() || '',
                         note: overview.querySelector('#ai-signal-performance-note')?.textContent?.trim() || '',
@@ -3498,7 +3504,9 @@ def run_e2e_checks(
                 window_30 = windows.get("30d") or {}
                 guard = contract.get("guard") or {}
                 if (
-                    contract.get("labels")
+                    contract.get("marketTitle") != "최근 국내 시그널 평균 수익률"
+                    or contract.get("foreignTradeCount") != 0
+                    or contract.get("labels")
                     != ["최근 7일", "최근 15일", "최근 30일"]
                     or not contract.get("asOf")
                     or len(contract.get("statuses") or []) != 3

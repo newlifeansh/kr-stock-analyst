@@ -422,6 +422,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_readiness_rejects_schema_upgrade_and_empty_recommendations",
     ),
     "SIG-PERF-001": (
+        "tests.test_signal_market_isolation.test_signal_market_metrics_follow_selected_market_without_cross_market_fallback",
+        "tests.test_signal_market_isolation.test_signal_snapshot_signature_tracks_both_markets_performance_changes",
         "tests.test_quant_signals."
         "test_market_signal_performance_summary_uses_completed_net_returns_and_matched_index_periods",
         "tests.test_app.test_ai_signal_performance_overview_contract_is_responsive_and_uses_30_day_source",
@@ -429,6 +431,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-PERF-US-001": (
         "tests.test_signal_performance_windows.test_us_performance_display_hides_only_repeated_window_samples",
         "tests.test_ai_signal_empty_states.test_zero_completed_trades_are_an_empty_sample_not_an_endless_loading_state",
+        "tests.test_signal_market_isolation.test_signal_market_metrics_follow_selected_market_without_cross_market_fallback",
+        "tests.test_signal_market_isolation.test_signal_snapshot_signature_tracks_both_markets_performance_changes",
         "tests.test_signal_performance_windows.test_us_performance_windows_exclude_partial_future_invalid_and_duplicates",
         "tests.test_signal_performance_windows.test_us_performance_is_independent_of_public_row_limit",
         "tests.test_us_position_lifecycle.test_us_feed_replays_top100_model_lifecycle_without_orders",
@@ -4133,6 +4137,12 @@ def _live_checks(
             def signal_performance_contract() -> dict[str, Any]:
                 payload = market_performance_payload()
                 summary = payload.get("performance_summary") or {}
+                ledger = summary.get("completed_trade_items") or []
+                _assert(
+                    all(item.get("market_scope") == "kr" for item in ledger),
+                    "국내 시그널 성과 원장에 다른 시장의 거래가 포함됐습니다.",
+                    market_scopes=sorted({str(item.get("market_scope")) for item in ledger}),
+                )
                 _assert(
                     isinstance(summary, dict)
                     and summary.get("version")
