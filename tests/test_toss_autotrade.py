@@ -18,6 +18,7 @@ from app.integrations.toss_openapi import (
 from app.models import AutoTradeOrder
 from app.services.auto_trading import (
     AutoTradePolicy,
+    account_capital_state,
     execute_cycle,
     extract_actionable_events,
 )
@@ -114,10 +115,31 @@ class FakeTossClient:
 
 def test_policy_enforces_approved_thirty_seventy_split() -> None:
     policy = AutoTradePolicy()
-    assert policy.kr_budget_krw == Decimal("300000")
-    assert policy.us_budget_krw == Decimal("700000")
+    assert policy.kr_budget_krw == Decimal("174000")
+    assert policy.us_budget_krw == Decimal("406000")
+    assert policy.daily_loss_limit_krw == Decimal("5800")
+    assert AutoTradePolicy(
+        kr_budget_krw=Decimal("300000"),
+        us_budget_krw=Decimal("700000"),
+    ).budget("US") == Decimal("700000")
     with pytest.raises(ValueError, match="30% / US 70%"):
         AutoTradePolicy(kr_budget_krw=Decimal("500000"), us_budget_krw=Decimal("500000"))
+
+
+def test_funding_check_allows_small_fx_buffer_without_raising_order_limits() -> None:
+    policy = AutoTradePolicy()
+    state = account_capital_state(
+        holdings={"items": []},
+        open_orders=[],
+        krw_buying_power=Decimal("198125"),
+        usd_buying_power=Decimal("301.57"),
+        fx=Decimal("1326.3"),
+        policy=policy,
+    )
+
+    assert state["KR"]["funded"] is True
+    assert state["US"]["funded"] is True
+    assert state["US"]["budget_krw"] == Decimal("406000")
 
 
 def test_signal_extraction_requires_fresh_verified_current_market_day() -> None:
@@ -224,15 +246,15 @@ def test_live_cycle_caps_kr_and_us_orders_and_never_duplicates() -> None:
         assert client.created[0]["symbol"] == "005930"
         assert client.created[0]["quantity"] == "1"
         assert client.created[1]["symbol"] == "AAPL"
-        assert client.created[1]["orderAmount"] == "247.50"
+        assert client.created[1]["orderAmount"] == "143.55"
         assert sum(
             Decimal(str(row.requested_notional_krw))
             for row in db.scalars(select(AutoTradeOrder).where(AutoTradeOrder.market_scope == "KR"))
-        ) <= Decimal("300000")
+        ) <= Decimal("174000")
         assert sum(
             Decimal(str(row.requested_notional_krw))
             for row in db.scalars(select(AutoTradeOrder).where(AutoTradeOrder.market_scope == "US"))
-        ) <= Decimal("700000")
+        ) <= Decimal("406000")
         second = execute_cycle(
             db,
             client,

@@ -179,9 +179,9 @@ class Settings(BaseSettings):
     toss_openapi_client_secret: Optional[str] = None
     toss_openapi_account_seq: Optional[int] = None
     toss_autotrade_live_enabled: bool = False
-    toss_autotrade_kr_budget_krw: int = 300_000
-    toss_autotrade_us_budget_krw: int = 700_000
-    toss_autotrade_daily_loss_limit_krw: int = 10_000
+    toss_autotrade_kr_budget_krw: int = 174_000
+    toss_autotrade_us_budget_krw: int = 406_000
+    toss_autotrade_daily_loss_limit_krw: int = 5_800
     toss_autotrade_max_positions_per_market: int = 2
     toss_autotrade_signal_max_age_seconds: int = 180
     toss_autotrade_kr_signal_url: str = (

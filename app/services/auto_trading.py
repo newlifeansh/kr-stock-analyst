@@ -29,19 +29,30 @@ TERMINAL_ORDER_STATES = {
 
 @dataclass(frozen=True)
 class AutoTradePolicy:
-    kr_budget_krw: Decimal = Decimal("300000")
-    us_budget_krw: Decimal = Decimal("700000")
-    daily_loss_limit_krw: Decimal = Decimal("10000")
+    kr_budget_krw: Decimal = Decimal("174000")
+    us_budget_krw: Decimal = Decimal("406000")
+    daily_loss_limit_krw: Decimal = Decimal("5800")
     max_positions_per_market: int = 2
     signal_max_age_seconds: int = 180
     order_retry_window_seconds: int = 480
+    minimum_funding_ratio: Decimal = Decimal("0.98")
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "kr_budget_krw", _decimal(self.kr_budget_krw))
         object.__setattr__(self, "us_budget_krw", _decimal(self.us_budget_krw))
         object.__setattr__(self, "daily_loss_limit_krw", _decimal(self.daily_loss_limit_krw))
-        if self.kr_budget_krw != Decimal("300000") or self.us_budget_krw != Decimal("700000"):
-            raise ValueError("This strategy requires the approved KR 30% / US 70% capital split")
+        object.__setattr__(self, "minimum_funding_ratio", _decimal(self.minimum_funding_ratio))
+        if (
+            self.kr_budget_krw <= 0
+            or self.us_budget_krw <= 0
+            or self.kr_budget_krw * Decimal("7")
+            != self.us_budget_krw * Decimal("3")
+        ):
+            raise ValueError("This strategy requires an exact KR 30% / US 70% capital split")
+        if self.daily_loss_limit_krw <= 0:
+            raise ValueError("daily_loss_limit_krw must be positive")
+        if not Decimal("0") < self.minimum_funding_ratio <= Decimal("1"):
+            raise ValueError("minimum_funding_ratio must be greater than 0 and at most 1")
         if self.max_positions_per_market < 1:
             raise ValueError("max_positions_per_market must be positive")
 
@@ -261,7 +272,7 @@ def account_capital_state(
             "exposure_krw": exposure,
             "open_buy_reserve_krw": reserve,
             "total_capital_krw": total,
-            "funded": total >= policy.budget(scope),
+            "funded": total >= policy.budget(scope) * policy.minimum_funding_ratio,
         }
     return result
 
@@ -545,6 +556,8 @@ def execute_cycle(
                 policy.budget(event.market_scope) / policy.max_positions_per_market,
             ) * Decimal("0.99")
             if event.market_scope == "KR":
+                if event.price <= min(available, cash_krw) * Decimal("0.99"):
+                    allocation = max(allocation, event.price)
                 quantity = Decimal(math.floor(min(allocation, cash_krw) / event.price))
                 if quantity <= 0:
                     skipped.append(f"{event.event_id}:insufficient-kr-budget")
@@ -611,7 +624,10 @@ def execute_cycle(
         submitted.append(local.client_order_id)
     return {
         "mode": "live",
-        "capital": {"KR": "300000 KRW", "US": "700000 KRW"},
+        "capital": {
+            "KR": f"{policy.kr_budget_krw} KRW",
+            "US": f"{policy.us_budget_krw} KRW",
+        },
         "exchange_rate": str(fx),
         "capital_ready": all_markets_funded,
         "capital_state": {
