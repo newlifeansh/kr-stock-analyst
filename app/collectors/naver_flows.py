@@ -14,7 +14,7 @@ from app.models import InvestorFlow, StockMaster
 from app.repository import finish_ingestion, start_ingestion, upsert_many
 
 NAVER_FLOW_URL = "https://finance.naver.com/item/frgn.naver"
-NAVER_TREND_URL = "https://stock.naver.com/api/domestic/detail/{code}/trend"
+NAVER_TREND_URL = "https://m.stock.naver.com/api/stock/{code}/trend"
 NAVER_HEADERS = {"User-Agent": "Mozilla/5.0"}
 MARKET_SET = {"KOSPI", "KOSDAQ"}
 CANONICAL_FLOW_TYPES = {"외국인", "기관합계"}
@@ -119,24 +119,15 @@ def parse_naver_investor_trend_json(code: str, payload: object) -> list[dict[str
 
 
 def _fetch_trend_rows_for_code(code: str, pages: int) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for page in range(max(1, pages)):
-        response = requests.get(
-            NAVER_TREND_URL.format(code=code),
-            params={
-                "tradeType": "KRX",
-                "startIdx": page * NAVER_TREND_PAGE_SIZE,
-                "pageSize": NAVER_TREND_PAGE_SIZE,
-            },
-            headers=NAVER_HEADERS,
-            timeout=10,
-        )
-        response.raise_for_status()
-        page_rows = parse_naver_investor_trend_json(code, response.json())
-        rows.extend(page_rows)
-        if len(page_rows) < NAVER_TREND_PAGE_SIZE * len(CANONICAL_FLOW_TYPES):
-            break
-    return rows
+    # This endpoint ignores startIdx/page; request the bounded window once.
+    response = requests.get(
+        NAVER_TREND_URL.format(code=code),
+        params={"tradeType": "KRX", "pageSize": NAVER_TREND_PAGE_SIZE * max(1, min(pages, 20))},
+        headers=NAVER_HEADERS,
+        timeout=10,
+    )
+    response.raise_for_status()
+    return parse_naver_investor_trend_json(code, response.json())
 
 
 def _fetch_rows_for_code(code: str, pages: int = 1) -> list[dict[str, object]]:
@@ -243,7 +234,10 @@ def collect_naver_investor_flows(
             for future in as_completed(futures):
                 code = futures[future]
                 try:
-                    pending_rows.extend(future.result())
+                    fetched_rows = future.result()
+                    if not fetched_rows:
+                        raise ValueError("empty investor-flow response")
+                    pending_rows.extend(fetched_rows)
                 except Exception as exc:
                     errors[code] = str(exc)
                     continue

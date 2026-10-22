@@ -844,3 +844,28 @@ def test_empty_regular_bucket_requires_matching_cross_source_absence_and_later_p
         closing_auction_evidence=trailing_naver,
     )
     assert trailing["state"] == "unverified"
+
+
+def test_delayed_first_trade_still_requests_explicit_preopen_boundary(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.config import Settings
+    import requests
+    def unavailable(*_a, **_kw):
+        raise requests.RequestException('No independent auction fixture')
+    monkeypatch.setattr('app.collectors.briefing.requests.get',unavailable)
+    for first, before in (('090100','090000'),('090700','090600')):
+        provider=KisRestBriefingProvider(Settings())
+        calls=[]
+        def get(_path,_tr,params):
+            cursor=params['FID_INPUT_HOUR_1'];calls.append(cursor)
+            if cursor=='153100':
+                return {'output2':[{'stck_bsop_date':'20261012','stck_cntg_hour':first,
+                    'stck_prpr':'100','stck_oprc':'100','stck_hgpr':'100','stck_lwpr':'100',
+                    'cntg_vol':'10','acml_tr_pbmn':'1000'}]}
+            return {'output2':[{'stck_bsop_date':'20261008','stck_cntg_hour':'153000','acml_tr_pbmn':'9000'}]}
+        monkeypatch.setattr(provider,'_get',get)
+        result=provider.fetch_regular_session_data('005930',DAY)
+        assert calls==['153100',before,'085900']
+        assert result['preopen_baseline']=={'kind':'observed_day_boundary','requested_date':'20261012',
+            'requested_time':'085900','previous_trade_date':'20261008','previous_trade_time':'153000','value':None}
+        assert len(result['rows'])==1 and result['rows'][0]['trade_time']==first

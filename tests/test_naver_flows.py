@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import pytest
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, sessionmaker
@@ -128,7 +129,7 @@ def test_fetch_rows_prefers_new_trend_api_and_does_not_call_legacy(monkeypatch):
 
     def fake_get(url, **kwargs):
         calls.append((url, kwargs))
-        assert url == naver_flows.NAVER_TREND_URL.format(code="267270")
+        assert url == "https://m.stock.naver.com/api/stock/267270/trend"
         return Response()
 
     monkeypatch.setattr(naver_flows.requests, "get", fake_get)
@@ -139,8 +140,7 @@ def test_fetch_rows_prefers_new_trend_api_and_does_not_call_legacy(monkeypatch):
     assert len(calls) == 1
     assert calls[0][1]["params"] == {
         "tradeType": "KRX",
-        "startIdx": 0,
-        "pageSize": 20,
+        "pageSize": 40,
     }
 
 
@@ -232,6 +232,40 @@ def test_collect_canonical_investor_flows_normalizes_and_upserts(monkeypatch):
         assert run.source == "canonical"
         assert run.dataset == "investor_flow"
         assert run.status == "success"
+
+
+def test_collect_naver_empty_source_is_failed_and_preserves_stored_flows(monkeypatch):
+    monkeypatch.setattr(naver_flows, "_fetch_rows_for_code", lambda code, pages: [])
+    with _session() as db:
+        db.add(InvestorFlow(code="005930", trade_date=date(2026, 10, 20),
+                            investor_type="외국인", net_buy_volume=123, net_buy_value=12300))
+        db.commit()
+        with pytest.raises(RuntimeError, match="failed_codes=1"):
+            naver_flows.collect_naver_investor_flows(db, codes=["005930"], max_workers=1)
+        assert db.query(InvestorFlow).one().net_buy_volume == 123
+        assert db.query(IngestionRun).one().status == "failed"
+
+
+def test_trend_window_is_bounded_and_rejects_wrong_symbol_or_missing_values(monkeypatch):
+    calls = []
+    class Response:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return [{"itemCode": "005930", "bizdate": "20261021", "closePrice": "223,500",
+                     "organPureBuyQuant": "0", "foreignerPureBuyQuant": "-2,055,241"},
+                    {"itemCode": "000660", "bizdate": "20261021", "closePrice": "100",
+                     "organPureBuyQuant": "10", "foreignerPureBuyQuant": "20"},
+                    {"itemCode": "005930", "bizdate": "20261020", "closePrice": "223,500"}]
+    def get(url, **kwargs):
+        calls.append(kwargs["params"])
+        return Response()
+    monkeypatch.setattr(naver_flows.requests, "get", get)
+    rows = naver_flows._fetch_trend_rows_for_code("005930", 1000)
+    assert calls == [{"tradeType": "KRX", "pageSize": 400}]
+    assert len(rows) == 2
+    assert [r["net_buy_volume"] for r in rows] == [0, -2055241]
+    assert all(r["code"] == "005930" and r["trade_date"] == date(2026, 10, 21) for r in rows)
 
 
 def test_fetch_canonical_rows_rejects_untrusted_shape(monkeypatch):

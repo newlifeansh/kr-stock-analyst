@@ -721,6 +721,12 @@ class KisRestBriefingProvider:
                 # final print before today's first trade. Keep that response
                 # as provenance, not as proof of zero pre-open turnover.
                 previous = [row for row in all_rows if str(row.get("stck_bsop_date") or "") < target]
+                if previous and points and "085900" < cursor < "091000":
+                    # A delayed first print (e.g. 09:01) rolls back at 09:00.
+                    # Still observe the explicit 08:59 boundary; do not infer
+                    # a zero pre-open turnover from the absence of a trade.
+                    cursor = "085900"
+                    continue
                 if cursor == "085900" and previous:
                     latest = max(previous, key=lambda row: (str(row.get("stck_bsop_date") or ""), str(row.get("stck_cntg_hour") or "")))
                     baseline = {"kind": "observed_day_boundary", "requested_date": target,

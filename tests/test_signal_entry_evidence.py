@@ -873,9 +873,9 @@ def test_source_probe_uses_current_naver_json_endpoints(monkeypatch):
         if item["key"] == "kis_historical_intraday"
     )["state"] == "not_configured"
     flow_call = next(call for call in calls if call[0].endswith("/trend"))
+    assert flow_call[0] == "https://m.stock.naver.com/api/stock/005930/trend"
     assert flow_call[1] == {
         "tradeType": "KRX",
-        "startIdx": 0,
         "pageSize": 20,
     }
     assert any(call[0].endswith("/researches/v2/company") for call in calls)

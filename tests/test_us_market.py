@@ -2171,3 +2171,52 @@ def test_fresh_quotes_do_not_readmit_closed_hybrid_positions_to_recommendations(
         assert [item['recommendation_score'] for item in result['items']] == [80, 70]
         assert result['terminal_exit_excluded_count'] == 1
         assert [item['ai_trade_signal']['current']['action'] for item in result['items']] == ['holding', 'entered']
+
+
+def test_signal_invalid_daily_bounds_require_complete_intraday_evidence(monkeypatch):
+    from copy import deepcopy
+    for invalid_field, invalid_value in (("high", 99.5), ("low", 100.5)):
+        daily = _provider_lagged_daily_chart()
+        daily["indicators"]["quote"][0][invalid_field] = [invalid_value]
+        original = deepcopy(daily)
+        minutes = _gap_free_regular_intraday_chart()
+        # Yahoo appends an instantaneous closing quote, outside the 78 intervals.
+        minutes["timestamp"].append(int(datetime(2026, 9, 14, 20, tzinfo=UTC).timestamp()))
+        for key, values in minutes["indicators"]["quote"][0].items():
+            values.append(0 if key == "volume" else 101.27)
+        monkeypatch.setattr(us_market, "_fetch_chart", lambda *_a, **_kw: minutes)
+        repaired = us_market._repair_completed_daily_close_from_intraday(
+            "AAPL", daily, now=datetime(2026, 9, 14, 20, 16, tzinfo=UTC))
+        q = repaired["indicators"]["quote"][0]
+        assert q["high"] == [101.77] and q["low"] == [99.0]
+        assert q["open"] == [100.0] and q["volume"] == [1234567]
+        assert q["close"] == [101.27]
+        assert repaired["meta"]["signal_daily_repairs"][0]["fields"] == ["high", "low", "close", "adjclose"]
+        assert daily == original
+
+
+def test_signal_invalid_daily_bounds_reject_gaps_conflicts_and_early_repair(monkeypatch):
+    from copy import deepcopy
+    for fault in ("gap", "duplicate", "wrong_open", "volume_exceeds_daily", "wrong_symbol", "before_grace", "complete_daily"):
+        daily = _provider_lagged_daily_chart()
+        daily["indicators"]["quote"][0]["high"] = [99.5]
+        minutes = _gap_free_regular_intraday_chart()
+        if fault == "gap":
+            for values in [minutes["timestamp"], *minutes["indicators"]["quote"][0].values()]:
+                values.pop(20)
+        elif fault == "duplicate":
+            minutes["timestamp"][20] = minutes["timestamp"][19]
+        elif fault == "wrong_open":
+            minutes["indicators"]["quote"][0]["open"][0] = 100.1
+        elif fault == "volume_exceeds_daily":
+            daily["indicators"]["quote"][0]["volume"] = [1000]
+        elif fault == "wrong_symbol":
+            minutes["meta"]["symbol"] = "OTHER"
+        elif fault == "complete_daily":
+            daily["indicators"]["quote"][0]["close"] = [100.0]
+            daily["indicators"]["adjclose"][0]["adjclose"] = [100.0]
+        monkeypatch.setattr(us_market, "_fetch_chart", lambda *_a, **_kw: minutes)
+        original = deepcopy(daily)
+        result = us_market._repair_completed_daily_close_from_intraday(
+            "AAPL", daily, now=datetime(2026, 9, 14, 20, 14 if fault == "before_grace" else 16, tzinfo=UTC))
+        assert result == original, fault

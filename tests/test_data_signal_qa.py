@@ -356,7 +356,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.1"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert len(ids) == 156
+    assert len(ids) == 158
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -471,7 +471,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.1`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v3-hybrid1`" in first
-    assert "QA 항목: 156개" in first
+    assert "QA 항목: 158개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1933,7 +1933,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.1"
     assert report["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert report["catalog_case_count"] == 156
+    assert report["catalog_case_count"] == 158
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -2002,7 +2002,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-ENTRY-008",
         "SIG-ENTRY-009",
     }
-    expected_case_ids.update({"DATA-KRX-NAVER-005", "OPS-COST-001", "SIG-KR-OBSERVED-ENTRY-001"})
+    expected_case_ids.update({"DATA-KRX-NAVER-005", "OPS-COST-001", "SIG-KR-OBSERVED-ENTRY-001", "SIG-US-EXIT-BOUNDARY-001", "SIG-FORWARD-BENCHMARK-001"})
     assert set(PYTEST_QA_CASE_TESTS) == expected_case_ids
     assert all(PYTEST_QA_CASE_TESTS.values())
     assert all(
