@@ -129,6 +129,40 @@ def test_signal_extraction_requires_fresh_verified_current_market_day() -> None:
     assert extract_actionable_events(
         stale, market_scope="US", now=now, max_age_seconds=180
     ) == []
+
+
+def test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent() -> None:
+    now = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
+    payload = _payload(now, "KR")
+    payload.pop("new_entries_allowed")
+    payload["entry_safety_guard"] = {"active": False, "state": "collecting"}
+
+    assert len(
+        extract_actionable_events(
+            payload, market_scope="KR", now=now, max_age_seconds=180
+        )
+    ) == 1
+
+    payload["entry_safety_guard"] = {"active": True, "state": "blocked"}
+    assert (
+        extract_actionable_events(
+            payload, market_scope="KR", now=now, max_age_seconds=180
+        )
+        == []
+    )
+
+
+def test_us_feed_still_requires_explicit_new_entry_permission() -> None:
+    now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
+    payload = _payload(now, "US")
+    payload.pop("new_entries_allowed")
+
+    assert (
+        extract_actionable_events(
+            payload, market_scope="US", now=now, max_age_seconds=180
+        )
+        == []
+    )
     unverified = _payload(now, "KR")
     unverified["items"][0]["intraday_execution_verified"] = False
     assert extract_actionable_events(

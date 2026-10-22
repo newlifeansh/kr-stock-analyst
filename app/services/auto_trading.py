@@ -94,6 +94,23 @@ def _event_key(parts: Iterable[Any]) -> str:
     return "signal-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
 
 
+def _new_buys_allowed(payload: dict[str, Any], scope: str) -> bool:
+    """Honor each market feed's published entry-safety contract.
+
+    The US feed publishes an explicit fail-closed ``new_entries_allowed`` flag.
+    The domestic feed predates that field and publishes ``entry_safety_guard``
+    instead; an active guard downgrades unexecuted entries before publication.
+    If the domestic feed later adds the explicit flag, it takes precedence.
+    """
+
+    if "new_entries_allowed" in payload:
+        return payload.get("new_entries_allowed") is True
+    if scope != "KR":
+        return False
+    guard = payload.get("entry_safety_guard")
+    return isinstance(guard, dict) and guard.get("active") is False
+
+
 def extract_actionable_events(
     payload: dict[str, Any],
     *,
@@ -135,7 +152,7 @@ def extract_actionable_events(
                 or execution_date != today
                 or not verified
                 or (scope == "KR" and item.get("status") != "confirmed")
-                or (side == "BUY" and payload.get("new_entries_allowed") is not True)
+                or (side == "BUY" and not _new_buys_allowed(payload, scope))
             ):
                 continue
             symbol = str(row.get("code") or item.get("code") or "").upper().strip()

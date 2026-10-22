@@ -108,6 +108,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "EXEC-TOSS-LIVE-001": (
         "tests.test_toss_autotrade.test_policy_enforces_approved_thirty_seventy_split",
         "tests.test_toss_autotrade.test_signal_extraction_requires_fresh_verified_current_market_day",
+        "tests.test_toss_autotrade.test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent",
+        "tests.test_toss_autotrade.test_us_feed_still_requires_explicit_new_entry_permission",
         "tests.test_toss_autotrade.test_live_cycle_caps_kr_and_us_orders_and_never_duplicates",
         "tests.test_toss_autotrade.test_partial_fill_sync_drives_original_quantity_partial_sell",
         "tests.test_toss_autotrade.test_unknown_old_submission_is_blocked_without_resend",
