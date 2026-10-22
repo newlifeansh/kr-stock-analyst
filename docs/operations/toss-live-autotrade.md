@@ -16,6 +16,14 @@ TOSS_AUTOTRADE_LIVE_ENABLED=false analyst autotrade preflight
 analyst autotrade run --interval-seconds 30
 ```
 
+macOS 상시 운영은 `~/Library/LaunchAgents/com.secretnote.toss-autotrade.plist`에서 전용 프로세스를 하나만 기동한다. `WorkingDirectory`는 비밀 `.env`와 같은 체크아웃을 가리켜야 하고 `KeepAlive=true`, `RunAtLoad=true`로 설정한다. 운영 상태와 중지 명령은 다음과 같다.
+
+```bash
+launchctl print gui/$(id -u)/com.secretnote.toss-autotrade
+tail -f ~/Library/Logs/secret-note-toss-autotrade.log
+launchctl bootout gui/$(id -u)/com.secretnote.toss-autotrade
+```
+
 운영 프로세스는 국내·미국 시그널 API의 `ready` 스냅샷 중 각 시장의 당일 이벤트이며 180초 안에 갱신된 분봉 검증 이벤트만 처리한다. 국내 매수는 정수 수량 시장가, 미국 매수는 달러 금액 시장가를 사용한다. Open API의 `orderAmount`는 달러 단위이며 원화 자동환전을 계약으로 보장하지 않으므로, 실행 전에 미국 예산 상당의 달러 매수가능금액을 준비한다. 미국 금액 주문은 토스가 허용하는 정규장 시작부터 종료 1시간 전까지만 접수된다.
 
 주문 전에 `signal_event_id`, `clientOrderId`, 요청 본문을 데이터베이스에 커밋한다. 같은 이벤트는 다시 주문하지 않는다. 응답을 받지 못한 요청은 토스의 10분 멱등성 보장보다 짧은 8분 안에서 같은 본문으로만 복구한다. 8분이 지나면 `AMBIGUOUS_BLOCKED`로 남기며 자동 재전송하지 않는다. 이 상태는 토스 주문 내역과 장부를 사람이 대조한 뒤 해결해야 한다.
