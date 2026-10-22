@@ -23,18 +23,23 @@ from app.models import MarketQuantSignalSnapshot
 from app.services.us_market_calendar import us_signal_session_state
 
 US_HYBRID_VERSION = "position-lifecycle-us-v3-hybrid1"
-US_HYBRID_EXECUTION_MODEL = "completed-close-fresh-minute-confirmation-v1"
+LEGACY_US_HYBRID_EXECUTION_MODEL = "completed-close-fresh-minute-confirmation-v1"
+US_HYBRID_EXECUTION_MODEL = "same-session-observed-entry-us-v1"
 US_HYBRID_START = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
 US_HYBRID_KEY = "us-hybrid-forward-v1"
 US_HYBRID_MAX_AGE_SECONDS = 90
 US_HYBRID_POLL_SECONDS = 30
+US_PRELIMINARY_VOLUME_RATIO = 0.75
+US_CONFIRMED_VOLUME_RATIO = 1.0
 LABELS = {
-    "entry_pending": "장중 매수 대기", "entered": "전략 매수 확정",
+    "entry_pending": "장중 조건 감시", "entry_watch": "예비 포착·완료 분봉 대기",
+    "entered": "전략 매수 확정",
     "holding": "전략 보유", "partially_exited": "1차 수익확정",
     "exited": "전략 전량 매도 확정", "no_signal": "관망",
 }
 HYBRID_NOTICE = (
-    "완료 종가로 후보를 정하고 정규장의 최신 완료 1분봉으로 매수·매도를 확인합니다. "
+    "전일 완료 일봉 근거를 바탕으로 정규장 장중 예비 포착을 새로 생성하고, "
+    "포착 이후의 신선한 완료 1분봉에서 매수·매도를 확인합니다. "
     "+3%에서 원래 비중의 50%, +5%에서 잔여 비중을 매도하며 초기 손실 기준은 -4%입니다. "
     "관측·전송 지연이나 갭으로 해당 가격의 체결을 보장하지 않습니다. 실제 계좌 주문이 아닌 모델 신호입니다."
 )
@@ -77,7 +82,12 @@ def read_us_hybrid_state(db: Session) -> dict | None:
     return payload
 
 
-def build_close_setup(member: dict, decision: dict, bar: Any) -> dict:
+def build_close_setup(
+    member: dict,
+    decision: dict,
+    bar: Any,
+    history: list[Any] | None = None,
+) -> dict:
     """Store a raw-price trigger alongside split-adjusted technical evidence."""
     volume = _number(getattr(bar, "volume", None)) if bar is not None else None
     notional = _number(getattr(bar, "trading_value", None)) if bar is not None else None
@@ -85,14 +95,82 @@ def build_close_setup(member: dict, decision: dict, bar: Any) -> dict:
     raw_close = notional / volume if notional and volume and volume > 0 else None
     atr = _number((decision.get("technical") or {}).get("atr"))
     raw_atr = atr * raw_close / adjusted_close if atr and raw_close and adjusted_close else None
+    completed = list(history or ([] if bar is None else [bar]))
+    recent_volumes = [
+        value
+        for item in completed[-20:]
+        if (value := _number(getattr(item, "volume", None))) is not None and value > 0
+    ]
+    average_daily_volume = (
+        sum(recent_volumes) / len(recent_volumes) if recent_volumes else None
+    )
+    action = str(decision.get("action") or "no_signal")
     return {
         "code": member["code"], "name": member["name"], "market": member["market"],
         "market_cap_rank": member.get("market_cap_rank"),
         "signal_date": str(decision.get("signal_date") or ""),
-        "eligible": bool(decision.get("action") == "entry_pending" and raw_atr and raw_close),
+        "eligible": bool(action == "entry_pending" and raw_atr and raw_close),
+        "daily_watch": bool(action in {"entry_watch", "entry_pending"}),
         "reference_close": raw_close, "atr": raw_atr,
+        "average_daily_volume": average_daily_volume,
         "close_exit": bool(adjusted_close and (decision.get("technical") or {}).get("ema20")
                            and adjusted_close < float(decision["technical"]["ema20"])),
+    }
+
+
+def _supportive_public_reasons(feed: dict, code: str) -> bool:
+    item = next(
+        (
+            row
+            for row in feed.get("public_member_signals") or []
+            if row.get("code") == code
+        ),
+        {},
+    )
+    reasons = {
+        str(reason.get("key") or ""): reason
+        for reason in item.get("public_reasons") or []
+        if isinstance(reason, dict)
+    }
+    return all(
+        reasons.get(key, {}).get("available") is True
+        and str(reasons[key].get("state") or "").lower()
+        in {"positive", "supportive"}
+        for key in ("trend_20d", "trend_60d", "flow")
+    )
+
+
+def _intraday_volume_participation(
+    points: list[dict],
+    setup: dict,
+    *,
+    session: Any,
+) -> dict[str, Any]:
+    """Use elapsed-session volume until same-minute US history is persisted."""
+
+    average_daily_volume = _number(setup.get("average_daily_volume")) or 0.0
+    current_volume = sum(float(point["volume"]) for point in points)
+    latest_at = _utc(points[-1]["at"])
+    session_minutes = max(
+        1.0,
+        (session.close_at - session.open_at).total_seconds() / 60.0,
+    )
+    elapsed_minutes = max(
+        1.0,
+        min(
+            session_minutes,
+            ((latest_at - session.open_at).total_seconds() / 60.0) + 1.0,
+        ),
+    )
+    expected_volume = average_daily_volume * elapsed_minutes / session_minutes
+    ratio = current_volume / expected_volume if expected_volume > 0 else 0.0
+    return {
+        "basis": "elapsed_session_fallback",
+        "ratio": round(ratio, 6),
+        "current_cumulative_volume": round(current_volume, 3),
+        "expected_cumulative_volume": round(expected_volume, 3),
+        "sample_count": 0,
+        "as_of_minute": points[-1]["at"],
     }
 
 
@@ -175,7 +253,8 @@ def new_us_hybrid_state(feed: dict, now: datetime) -> dict:
     return {
         "version": US_HYBRID_VERSION, "initialized_at": now.isoformat(),
         "updated_at": now.isoformat(), "revision": 0, "positions": {}, "events": [],
-        "observations": {}, "setups": {}, "last_entry_sessions": {},
+        "observations": {}, "setups": {}, "entry_candidates": {},
+        "last_entry_sessions": {},
         "legacy": {
             "strategy_version": feed.get("strategy_version"),
             "snapshot_id": feed.get("snapshot_id"), "snapshot_checksum": feed.get("snapshot_checksum"),
@@ -210,11 +289,18 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
     result["revision"] += 1
     if not calendar["is_regular"] or now < US_HYBRID_START:
         return result
+    result.setdefault("entry_candidates", {})
     session_date = str(session.session_date)
     for code, raw in raw_by_code.items():
         points, quality = verified_minutes(raw, code, now)
         observation = {"state": quality, "checked_at": now.isoformat(), "session_date": session_date}
         if not points:
+            candidate = result["entry_candidates"].get(code)
+            if candidate and candidate.get("status") == "watching":
+                candidate.update(
+                    paused_at=now.isoformat(),
+                    pause_reasons=[quality],
+                )
             result["observations"][code] = observation
             continue
         latest = points[-1]
@@ -232,6 +318,7 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
             continue
         position = result["positions"].get(code)
         setup = result["setups"].get(code) or {}
+        candidate = result["entry_candidates"].get(code)
         price = latest["close"]
         side = None
         reason = ""
@@ -261,32 +348,87 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
                 position["remaining"] = round(position["remaining"] - fraction, 4)
                 position["last_exit_at"] = latest["at"]
                 position["last_exit_price"] = price
-        elif (base_ready and setup.get("eligible")
-              and result["last_entry_sessions"].get(code) != session_date):
-            if len(points) < 2 or latest["timestamp"] - points[-2]["timestamp"] != 60:
-                continue
-            if _utc(points[-2]["at"]) < _utc(setup["armed_at"]):
-                continue
-            reference, atr = _number(setup.get("reference_close")), _number(setup.get("atr"))
-            if not reference or not atr or points[0]["at"] != session.open_at.isoformat():
-                continue
-            gap = min(0.05, 1.5 * atr / reference)
-            # Opening gap and both confirmation closes must be inside envelope.
-            if not (abs(points[0]["open"] / reference - 1.0) <= gap
-                    and all(reference <= point["close"] <= reference * (1 + gap) for point in points[-2:])):
-                continue
-            position = {
-                "code": code, "name": setup["name"], "market": setup["market"],
-                "market_cap_rank": setup.get("market_cap_rank"),
-                "entry_price": price, "entry_at": latest["at"], "entry_date": session_date,
-                "signal_date": setup["signal_date"], "remaining": 1.0, "realized_return": 0.0,
-                "public_reasons": next((deepcopy(item.get("public_reasons") or [])
-                                        for item in feed.get("public_member_signals") or []
-                                        if item.get("code") == code), []),
-            }
-            result["positions"][code] = position
-            result["last_entry_sessions"][code] = session_date
-            side, fraction, reason = "buy", 1.0, "완료 종가 후보·연속 2개 완료 분봉 확인"
+        elif base_ready and result["last_entry_sessions"].get(code) != session_date:
+            reference = _number(setup.get("reference_close"))
+            atr = _number(setup.get("atr"))
+            supportive = bool(
+                (setup.get("daily_watch") or setup.get("eligible"))
+                and _supportive_public_reasons(feed, code)
+            )
+            complete_from_open = points[0]["at"] == session.open_at.isoformat()
+            volume = (
+                _intraday_volume_participation(points, setup, session=session)
+                if complete_from_open
+                else None
+            )
+            gap = min(0.05, 1.5 * atr / reference) if reference and atr else None
+            opening_ok = bool(
+                reference and gap is not None
+                and abs(points[0]["open"] / reference - 1.0) <= gap
+            )
+            price_supported = bool(
+                reference and gap is not None
+                and reference <= price <= reference * (1 + gap)
+            )
+            if candidate and candidate.get("status") == "watching":
+                candidate["volume_participation"] = volume
+                if not supportive:
+                    candidate.update(status="cancelled", cancelled_at=now.isoformat())
+                    continue
+                if not complete_from_open or volume is None:
+                    candidate.update(
+                        paused_at=now.isoformat(),
+                        pause_reasons=["completed_path_unavailable"],
+                    )
+                    continue
+                candidate.pop("paused_at", None)
+                candidate.pop("pause_reasons", None)
+                captured_at = _utc(candidate.get("decision_minute_at"))
+                if (
+                    captured_at is not None
+                    and latest_at > captured_at
+                    and float(volume["ratio"]) >= US_CONFIRMED_VOLUME_RATIO
+                    and opening_ok
+                    and price_supported
+                    and price >= float(candidate["trigger_price"])
+                ):
+                    position = {
+                        "code": code, "name": setup["name"], "market": setup["market"],
+                        "market_cap_rank": setup.get("market_cap_rank"),
+                        "entry_price": price, "entry_at": latest["at"], "entry_date": session_date,
+                        "signal_date": session_date, "remaining": 1.0, "realized_return": 0.0,
+                        "public_reasons": next((deepcopy(item.get("public_reasons") or [])
+                                                for item in feed.get("public_member_signals") or []
+                                                if item.get("code") == code), []),
+                    }
+                    result["positions"][code] = position
+                    result["last_entry_sessions"][code] = session_date
+                    candidate.update(
+                        status="confirmed",
+                        confirmed_at=latest_end.isoformat(),
+                        confirmation_minute_at=latest["at"],
+                    )
+                    side, fraction, reason = (
+                        "buy", 1.0,
+                        "장중 예비 포착 이후 완료 1분봉·거래 참여도 확인",
+                    )
+            elif (
+                supportive
+                and complete_from_open
+                and volume is not None
+                and float(volume["ratio"]) >= US_PRELIMINARY_VOLUME_RATIO
+                and opening_ok
+                and price_supported
+            ):
+                result["entry_candidates"][code] = {
+                    "candidate_id": f"same-session-observed-entry-us-v1:{code}:{session_date}",
+                    "status": "watching",
+                    "first_observed_at": latest_end.isoformat(),
+                    "decision_minute_at": latest["at"],
+                    "trigger_price": max(reference, price),
+                    "expires_at": session.close_at.isoformat(),
+                    "volume_participation": volume,
+                }
         if side:
             event_id = f"us-hybrid-v1:{code}:{side}:{latest['timestamp']}:{session_date}"
             action = "entered" if side == "buy" else "partially_exited" if position["remaining"] else "exited"
@@ -299,7 +441,11 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
                 "price": price, "sell_fraction_original": fraction if side != "buy" else None,
                 "return_rate": position["realized_return"] if not position["remaining"] else None,
                 "source": "yahoo_chart_1m", "intraday_execution_verified": True,
+                "intraday_order_verified": True,
                 "minute_evidence": points[-2:], "strategy_version": US_HYBRID_VERSION,
+                "entry_policy_version": (
+                    US_HYBRID_EXECUTION_MODEL if side == "buy" else None
+                ),
             }
             result["events"].append(event)
             position["last_event_id"] = event_id
@@ -325,7 +471,20 @@ def refresh_us_hybrid_signals(db: Session, *, now: datetime | None = None,
     db.rollback()
     codes = {code for code, value in state["positions"].items() if value["remaining"] > 0}
     if _base_ready(feed, current):
-        codes.update(item["code"] for item in feed["hybrid_setups"] if item["eligible"])
+        codes.update(
+            item["code"]
+            for item in feed["hybrid_setups"]
+            if (item.get("daily_watch") or item.get("eligible"))
+            and item.get("reference_close")
+            and item.get("atr")
+            and item.get("average_daily_volume")
+            and _supportive_public_reasons(feed, item["code"])
+        )
+    codes.update(
+        code
+        for code, candidate in state.get("entry_candidates", {}).items()
+        if candidate.get("status") == "watching"
+    )
     raw_by_code = {}
     if us_signal_session_state(current)["is_regular"] and codes:
         fetch = loader or (lambda code: fetch_chart_range(code, range_="1d", interval="1m", include_prepost=False, refresh=True))
@@ -407,19 +566,38 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
         if code not in evidence and position.get("public_reasons"):
             evidence[code] = {"public_reasons": position["public_reasons"]}
     latest_events = {item["code"]: item for item in state["events"]}
-    codes = {code for code, setup in state["setups"].items() if setup.get("eligible") and base_ready}
+    codes = {
+        code
+        for code, setup in state["setups"].items()
+        if base_ready
+        and (setup.get("daily_watch") or setup.get("eligible"))
+        and setup.get("reference_close")
+        and setup.get("atr")
+        and setup.get("average_daily_volume")
+        and _supportive_public_reasons(feed, code)
+    }
+    codes.update(
+        code
+        for code, candidate in state.get("entry_candidates", {}).items()
+        if candidate.get("status") == "watching"
+    )
     codes.update(state["positions"])
     for code in sorted(codes):
         position = state["positions"].get(code)
         setup = state["setups"].get(code) or position or {}
         event = latest_events.get(code)
         observation = state["observations"].get(code) or {}
+        candidate = state.get("entry_candidates", {}).get(code) or {}
         observed_at = _utc(observation.get("observed_at"))
         fresh = bool(worker_fresh and calendar["is_regular"] and observed_at
                      and observation.get("state") == "fresh"
                      and 60 <= (current - observed_at).total_seconds() <= 60 + US_HYBRID_MAX_AGE_SECONDS)
         remaining = position["remaining"] if position else 0
-        action = ("partially_exited" if remaining == 0.5 else "holding" if remaining else "exited") if position else "entry_pending"
+        action = (
+            "partially_exited" if remaining == 0.5 else "holding" if remaining else "exited"
+        ) if position else (
+            "entry_watch" if candidate.get("status") == "watching" else "entry_pending"
+        )
         if position and event and event["side"] == "buy" and event["execution_date"] == str(current.date()):
             action = "entered"
         reference_available = bool(observed_at and observation.get("price") and not calendar["is_regular"])
@@ -436,6 +614,15 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
             "exit_date": str(position["last_exit_at"])[:10] if position and not remaining else None,
             "exit_price": position.get("last_exit_price") if position and not remaining else None,
             "next_confirmation": "정규장의 최신 완료 분봉과 데이터 시각을 확인하세요.",
+            "intraday_candidate": {
+                key: candidate.get(key)
+                for key in (
+                    "candidate_id", "status", "first_observed_at",
+                    "decision_minute_at", "confirmed_at", "expires_at",
+                    "paused_at", "pause_reasons", "volume_participation",
+                )
+                if candidate.get(key) is not None
+            } or None,
             "lifecycle": {"state": action, "label": LABELS[action], "latest_transition": {
                 **(event or {}), "transition_date": event.get("execution_date") if event else None,
             }},
@@ -450,7 +637,10 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
             "execution_date": event.get("execution_date") if event else None,
             "return_rate": return_rate, "display_return_rate": return_rate,
             "signal_date": event.get("execution_date") if event else setup.get("signal_date"),
-            "signal_at": event.get("signal_at") if event else setup.get("armed_at"),
+            "signal_at": (
+                event.get("signal_at") if event
+                else candidate.get("first_observed_at") or setup.get("armed_at")
+            ),
             "price_through": result.get("universe_as_of"), "as_of": state["updated_at"],
             "price": price, "is_current_holding": remaining > 0, "is_current_universe_member": code in evidence,
             "change_rate": ((price / setup["reference_close"] - 1) * 100

@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -73,3 +74,25 @@ def test_live_order_guard_fails_closed(change, reason):
     result = live_order_guard.evaluate_live_order_candidate(candidate, now=NOW)
     assert result["eligible"] is False
     assert result["reason"] == reason
+
+
+def test_us_live_order_guard_requires_fresh_completed_regular_minute():
+    now = datetime(2026, 10, 22, 10, 0, tzinfo=ZoneInfo("America/New_York"))
+    candidate = {
+        "side": "buy",
+        "execution_date": "2026-10-22",
+        "observed_at": (now - timedelta(minutes=1)).isoformat(),
+        "signal_at": now.isoformat(),
+        "intraday_execution_verified": True,
+        "intraday_order_verified": True,
+        "price": 200,
+    }
+    assert live_order_guard.evaluate_us_live_order_candidate(
+        candidate, now=now
+    )["eligible"] is True
+    assert live_order_guard.evaluate_us_live_order_candidate(
+        {**candidate, "intraday_order_verified": False}, now=now
+    )["reason"] == "minute_path_not_verified"
+    assert live_order_guard.evaluate_us_live_order_candidate(
+        candidate, now=now + timedelta(seconds=181)
+    )["reason"] == "stale_or_future_event"

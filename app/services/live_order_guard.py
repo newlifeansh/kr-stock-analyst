@@ -1,7 +1,7 @@
 """Fail-closed eligibility contract for future KR broker order adapters."""
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -89,6 +89,68 @@ def evaluate_live_order_candidate(
         "eligible": reason is None,
         "reason": reason,
         "policy_version": POLICY_VERSION,
+        "side": side or None,
+        "occurred_at": occurred_at,
+        "expires_at": (
+            occurred_at + timedelta(seconds=MAX_SIGNAL_AGE_SECONDS)
+            if occurred_at is not None
+            else None
+        ),
+    }
+
+
+def evaluate_us_live_order_candidate(
+    item: dict[str, Any] | None,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    """Require a fresh completed XNYS regular-session minute for every US order."""
+
+    from app.services.us_market_calendar import us_signal_session_state
+
+    current = now.astimezone(timezone.utc) if now.tzinfo is not None else None
+    reason = None
+    occurred_at = None
+    observed_at = None
+    side = str((item or {}).get("event_side") or (item or {}).get("side") or "")
+    state = us_signal_session_state(current) if current is not None else None
+    session = state.get("current_session") if state else None
+    if current is None:
+        reason = "naive_clock"
+    elif not state or state.get("is_regular") is not True or session is None:
+        reason = "outside_regular_session"
+    elif side not in {"buy", "partial_sell", "sell"}:
+        reason = "unsupported_side"
+    elif not isinstance(item, dict) or item.get("intraday_execution_verified") is not True:
+        reason = "execution_not_verified"
+    elif item.get("intraday_order_verified") is not True:
+        reason = "minute_path_not_verified"
+    elif _date(item.get("execution_date")) != session.session_date:
+        reason = "not_current_session"
+    else:
+        occurred_at = _timestamp(item.get("signal_at"))
+        observed_at = _timestamp(item.get("observed_at"))
+        if occurred_at is None or observed_at is None:
+            reason = "missing_event_clock"
+        elif occurred_at.astimezone(timezone.utc) != observed_at.astimezone(timezone.utc) + timedelta(minutes=1):
+            reason = "minute_not_completed"
+        elif not session.open_at <= observed_at.astimezone(timezone.utc) < session.close_at:
+            reason = "event_outside_regular_session"
+        else:
+            age = (current - occurred_at.astimezone(timezone.utc)).total_seconds()
+            if not 0 <= age <= MAX_SIGNAL_AGE_SECONDS:
+                reason = "stale_or_future_event"
+            else:
+                try:
+                    if float(item.get("price")) <= 0:
+                        reason = "invalid_price"
+                except (TypeError, ValueError):
+                    reason = "invalid_price"
+
+    return {
+        "eligible": reason is None,
+        "reason": reason,
+        "policy_version": "us-live-order-regular-session-v1",
         "side": side or None,
         "occurred_at": occurred_at,
         "expires_at": (

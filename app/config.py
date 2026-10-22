@@ -174,6 +174,22 @@ class Settings(BaseSettings):
     us_mcp_server_name: str = "미국증시 비밀노트"
     us_mcp_bearer_token: Optional[str] = None
     us_mcp_rate_limit_per_minute: int = 60
+    toss_openapi_base_url: str = "https://openapi.tossinvest.com"
+    toss_openapi_client_id: Optional[str] = None
+    toss_openapi_client_secret: Optional[str] = None
+    toss_openapi_account_seq: Optional[int] = None
+    toss_autotrade_live_enabled: bool = False
+    toss_autotrade_kr_budget_krw: int = 174_000
+    toss_autotrade_us_budget_krw: int = 406_000
+    toss_autotrade_daily_loss_limit_krw: int = 5_800
+    toss_autotrade_max_positions_per_market: int = 2
+    toss_autotrade_signal_max_age_seconds: int = 180
+    toss_autotrade_kr_signal_url: str = (
+        "https://secretnote.cloud/market/quant-signals"
+    )
+    toss_autotrade_us_signal_url: str = (
+        "https://secretnote.cloud/us/market/quant-signals"
+    )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

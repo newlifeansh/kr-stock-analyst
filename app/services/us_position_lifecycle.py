@@ -1654,7 +1654,14 @@ def build_us_position_lifecycle_feed(
         action = str(decision.get("action") or "no_signal")
         from app.services.us_hybrid_signals import build_close_setup
 
-        hybrid_setups.append(build_close_setup(member, decision, stock_bars[-1] if stock_bars else None))
+        hybrid_setups.append(
+            build_close_setup(
+                member,
+                decision,
+                stock_bars[-1] if stock_bars else None,
+                stock_bars,
+            )
+        )
         candidate_actions[code] = action
         public_member_signal = _public_member_signal(
             member,

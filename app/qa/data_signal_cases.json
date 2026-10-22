@@ -167,7 +167,7 @@
       "modes": [
         "gate"
       ],
-      "automation": "pytest 매수·부분매도·전량매도 정규장 경계, 완료 분봉 검증, 현재 거래일, 180초 신선도, 가격 fail-closed fixture. 실제 계좌 주문은 수행하지 않는다.",
+      "automation": "pytest 토스 어댑터 직접 호출·매수·부분매도·전량매도 정규장 경계, 완료 분봉 검증, 현재 거래일, 180초 신선도, 가격 fail-closed fixture. 실제 계좌 주문은 수행하지 않는다.",
       "preconditions": [
         "canonical 국내 시장 피드의 확정 이벤트를 준비한다.",
         "브로커 어댑터는 주문 생성 전에 evaluate_live_order_candidate를 호출한다.",
@@ -321,16 +321,16 @@
     },
     {
       "id": "SIG-US-HYBRID-001",
-      "title": "미국 종가 후보·장중 확정·원본 비중 부분매도·지연 차단",
+      "title": "미국 장중 예비 포착·완료 분봉 매수확정·장중 매도·지연 차단",
       "domain": "미국 하이브리드 시그널",
       "priority": "P0",
       "modes": ["gate"],
-      "automation": "pytest 신규 forward ledger·완료 분봉·프리마켓/정규장 세션·영속성·알림·공개 API 회귀, 분할 이벤트 명시 요청과 초 단위 임시 현재가 꼬리 제외 검증; 완료 분봉 시각·누락 검증은 유지하고 운영 장중 근거를 별도 보존",
-      "preconditions": ["기존 v2 모델 재현 기록과 성과는 동결 보존한다.", "검증 완료한 Top100 종가 후보와 거래소 정규장 일정이 있다."],
-      "inputs": {"strategy_version":"position-lifecycle-us-v3-hybrid1", "confirmation":"two consecutive completed 1m closes", "maximum_minute_end_age_seconds":90, "premarket_session":"04:00~09:30 America/New_York", "premarket_execution":false, "take_profit_percent":[3,5], "initial_stop_percent":4, "first_sell_original_fraction":0.5, "broker_orders":false},
-      "steps": ["XNYS 거래일 04:00부터 정규장 개장 전까지 공개 세션을 premarket으로 표시하되 정규장 실행 플래그는 열지 않는다.", "다음 정규장의 관측된 완료 분봉 두 개와 갭 제한으로 매수를 확인한다.", "후속 관측가로 +3% 절반·+5% 잔여·-4% 손실 기준을 판정한다.", "이상·지연·장외·미완성·순서 역전·분할 가격은 차단한다.", "프로세스 재시작·CAS 경합·중복 관측과 동일일 재진입을 검사한다.", "시장·관심종목 알림은 영속 이벤트 키로 중복 제거하고 180초 뒤에는 전송하지 않는다.", "구버전 성과를 새 성과와 섞지 않고 화면·상세·알림을 동일 장부에 연결한다.", "준비·대기·진입·청산 상태별 집계를 현재 장부에서 재계산하고 구버전 일봉 집계를 상속하지 않는다."],
-      "expected": ["거래일 프리마켓에는 market_session=premarket이 공개되고 is_regular=false를 유지한다.", "장 종료 전 신선한 정규장 증거만 새 확정으로 발표된다.", "갭 손실을 -4%로 잘라 계산하거나 관측되지 않은 목표가 체결을 만들지 않는다.", "기존 이력의 재발송·중복 매수·실제 주문이 없다."],
-      "failure_criteria": ["거래일 04:00~09:30 America/New_York를 closed로 표시하거나 프리마켓 관측만으로 정규장 실행을 허용한다.", "완료 일봉 replay를 장중 실행으로 표기한다.", "지연 또는 장외 가격으로 확정한다.", "손실·수익률을 목표값으로 조작한다.", "장부 손상을 초기화하거나 과거 기록을 덮어쓴다."]
+      "automation": "pytest 미국 장중 0.75배 예비 포착·1.0배 확정·장애 일시중지/복구·완료 분봉·프리마켓/정규장 세션·영속성·알림·공개 API 회귀, 분할 이벤트와 초 단위 임시 현재가 꼬리 제외 검증; v3 종가 후보 회귀 이력은 보존한다.",
+      "preconditions": ["기존 미국 v2 일봉 replay와 v3 종가 후보 기반 forward 사건은 동결 보존한다.", "검증 완료한 Top100 전일 일봉 근거, XNYS 정규장 일정, 최신 완료 1분봉을 준비한다."],
+      "inputs": {"strategy_version":"position-lifecycle-us-v3-hybrid1", "execution_model":"same-session-observed-entry-us-v1", "legacy_execution_model":"completed-close-fresh-minute-confirmation-v1", "entry_price":"newest_completed_minute_close_after_capture", "preliminary_volume_ratio":0.75, "confirmed_h1_volume_ratio":1.0, "volume_fallback":"20-session average daily volume prorated by elapsed official session minutes", "maximum_minute_end_age_seconds":90, "maximum_order_event_age_seconds":180, "premarket_session":"04:00~09:30 America/New_York", "premarket_execution":false, "take_profit_percent":[3,5], "initial_stop_percent":4, "first_sell_original_fraction":0.5, "broker_orders":false},
+      "steps": ["XNYS 거래일 04:00부터 정규장 개장 전까지 공개 세션을 premarket으로 표시하되 매수·매도 실행 플래그는 열지 않는다.", "전일 완료 일봉의 20일·60일 추세와 USD 거래대금 참여도가 우호적인 Top100 감시 종목만 정규장 완료 1분봉으로 관측한다.", "정규장 누적 거래량을 20세션 평균 일거래량의 공식 경과시간 비례값과 비교해 0.75배에서 예비 포착 시각과 고정 확인선을 한 번 저장한다.", "포착한 분봉은 매수에 사용하지 않고 이후 새 완료 1분봉에서 거래 참여도 1.0배, 가격 확인선, 갭·추격 제한을 다시 통과할 때만 매수 확정한다.", "분봉·현재가·근거 장애는 watching 후보를 취소하지 않고 일시 중지하며 복구 후 새 완료 분봉부터 재개한다.", "진입 다음 완료 분봉부터 +3% 원래 비중 절반, +5% 잔여, -4% 손실 기준을 판정하고 동일 세션 재진입을 막는다.", "이상·지연·장외·미완성·순서 역전·분할 가격과 180초를 넘은 주문 이벤트는 차단한다.", "프로세스 재시작·CAS 경합·중복 관측에서 최초 포착·확정·매도 사건 ID가 바뀌지 않는지 검사한다.", "구버전 성과를 새 성과와 섞지 않고 화면·상세·알림·실주문 어댑터를 같은 forward 장부에 연결한다."],
+      "expected": ["거래일 프리마켓에는 market_session=premarket이 공개되고 is_regular=false를 유지한다.", "정규장 거래 참여도 0.75배에서 예비 포착하고 포착 이후 새 완료 1분봉의 1.0배 조건에서만 매수를 한 번 확정한다.", "일시 입력 장애는 후보를 소멸시키지 않고 복구 뒤 새 완료 분봉에서만 진행을 재개한다.", "장 종료 전 신선한 정규장 증거만 매수·부분매도·전량매도 주문 후보로 발표된다.", "갭 손실을 -4%로 잘라 계산하거나 관측되지 않은 목표가 체결을 만들지 않는다.", "기존 일봉 replay와 종가 후보 기반 사건은 변경·재발송되지 않는다."],
+      "failure_criteria": ["거래일 04:00~09:30 America/New_York를 closed로 표시하거나 프리마켓 관측만으로 정규장 실행을 허용한다.", "첫 관측 분봉이나 포착 이전 가격으로 매수를 확정한다.", "전체 일거래량을 장초반 누적 거래량과 직접 비교하거나 0.75배 예비 기준을 1.0배로 다시 막는다.", "일시적인 데이터 장애로 후보를 취소하거나 장애 구간 가격을 소급 체결한다.", "지연·장외·미완성·180초 초과 가격으로 매수 또는 매도를 확정한다.", "손실·수익률을 목표값으로 조작하거나 같은 날 재진입한다.", "장부 손상을 초기화하거나 과거 전략 기록을 덮어쓴다."]
     },
     {
       "id": "SIG-KR-FORWARD-001",
@@ -2902,6 +2902,121 @@
         "직접 주입한 이력만 검사하거나 실제 이력 GET과 fixture가 경쟁해 검사가 비결정적이다.",
         "URL에 tab=community가 남아 있어도 최초 문서 진입이 summary 탭으로 표시되거나 인기글 모드가 유실된다."
       ]
+    },
+    {
+      "id": "EXEC-TOSS-LIVE-001",
+      "title": "토스 실계좌 30:70 시그널 자동주문과 재시작 복구",
+      "domain": "실계좌 주문 실행",
+      "priority": "P0",
+      "modes": ["gate", "live"],
+      "automation": "pytest 30:70 예산·국내/미국 신선한 당일 완료분봉 이벤트·시장별 정규장 가드·국내 20일/60일/수급 재검증·실거래 잠금·토스 계좌 헤더·주문 멱등 장부·부분체결·부분매도·일손실 중단·데몬 로그 상태변화 fixture + live 읽기 전용 preflight; live QA는 주문을 생성하지 않는다.",
+      "preconditions": [
+        "토스증권 Open API 키와 허용 IP를 등록하고 종합매매 계좌의 accountSeq를 환경변수로 지정한다.",
+        "국내·미국 시그널 API가 각 시장의 당일 검증 완료 분봉으로 생성한 ready 스냅샷을 제공한다.",
+        "실제 주문 프로세스는 단일 인스턴스로 실행하고 live QA는 계좌·잔고·환율·미체결 조회만 수행한다."
+      ],
+      "inputs": {
+        "seed_krw": 580000,
+        "kr_budget_krw": 174000,
+        "us_budget_krw": 406000,
+        "maximum_positions_per_market": 2,
+        "daily_loss_limit_krw": 5800,
+        "minimum_funding_ratio": 0.98,
+        "signal_max_age_seconds": 180,
+        "toss_idempotency_window_minutes": 10,
+        "automatic_retry_window_seconds": 480,
+        "live_switch": "TOSS_AUTOTRADE_LIVE_ENABLED=true",
+        "kr_buy_prechecks": {
+          "same_session_signal_and_execution": true,
+          "signal_time_window": "09:00~15:30 Asia/Seoul",
+          "required_public_reasons": ["trend_20d", "trend_60d", "flow"],
+          "required_reason_state": "positive",
+          "flow_semantics": "foreign+institution net buying normalized by trading value"
+        },
+        "us_order_prechecks": {
+          "regular_session": "official XNYS open <= now < official close",
+          "same_session_signal_and_execution": true,
+          "required_flags": ["intraday_execution_verified", "intraday_order_verified"],
+          "completed_minute_clock": "observed_at + 1 minute == signal_at",
+          "max_signal_age_seconds": 180
+        }
+      },
+      "steps": [
+        "환경변수에 키·accountSeq·실거래 스위치가 모두 있는지 확인하고 계좌번호는 끝 4자리만 표시한다.",
+        "토스 계좌의 전체 국내·미국 보유 평가액과 미체결 매수 예약액을 환율로 원화 환산하여 각 17만4천원·4040만6천원 한도에서 차감한다.",
+        "각 시장의 오늘 날짜이며 180초 이내인 검증 완료 매수·부분매도·전량매도 이벤트만 주문 후보로 변환한다. 국내는 entry_safety_guard, 미국은 명시적 new_entries_allowed와 공식 XNYS 정규장·완료 분봉 시각 계약으로 신규 매수를 차단한다.",
+        "국내 신규매수는 신호일과 체결일이 같은 장중 이벤트인지 확인하고, 20일 추세·60일 추세·외국인과 기관의 거래대금 정규화 수급이 모두 available=true·positive인지 주문 직전에 다시 검사한다. 전일 종가 기반 다음 세션 매수, 15:30 이후 신호, 근거 누락·중립·주의 신호는 제외하되 매도는 계속 허용한다.",
+        "주문 요청 전에 signal_event_id와 clientOrderId 및 정확한 요청 본문을 영속 장부에 커밋하고 같은 이벤트를 다시 실행한다.",
+        "토스 응답이 불명확하면 같은 clientOrderId와 본문으로 8분 안에서만 복구하고 이후에는 AMBIGUOUS_BLOCKED로 두어 자동 재전송하지 않는다.",
+        "미체결 주문과 주문 상세를 재조회하여 부분체결 증가분만 포지션에 반영하고 원래 매수 수량 기준의 부분매도 수량을 계산한다.",
+        "시장별 배분된 일손실 한도에 도달하면 신규 매수만 중단하고 기존 포지션의 매도 이벤트는 계속 허용한다.",
+        "국내 총자금의 98%와 미국 환산 총자금의 98%가 모두 확인되기 전에는 한쪽 시장만 신규 매수하지 않는다.",
+        "live QA에서는 계좌·KRW/USD 매수가능금액·USD/KRW 환율·미체결 주문을 읽고 주문 POST 호출이 없음을 증명한다."
+      ],
+      "expected": [
+        "국내 매수 노출은 17만4천원, 미국 매수 노출은 40만6천원을 넘지 않으며 다른 시장의 남은 금액을 전용하지 않는다.",
+        "같은 시그널·재시작·네트워크 재시도로 실제 주문이 중복 생성되지 않는다.",
+        "국내 신규매수는 같은 거래일 장중 확정 신호와 20일·60일·외국인·기관 수급 우호 조건이 모두 확인될 때만 생성되며, 장마감 판단을 다음 세션 주문으로 넘기지 않는다.",
+        "미국 주문은 공식 XNYS 정규장 안에서 observed_at+1분=signal_at인 당일 완료 분봉 이벤트에만 생성된다.",
+        "미검증·지연·과거 이벤트와 실거래 스위치가 꺼진 프로세스는 주문을 생성하지 않는다.",
+        "두 자금 구간 중 하나라도 미달이면 모든 신규 매수는 capital-not-funded로 차단된다.",
+        "체결 증가분과 원래 수량을 기준으로 보유 수량·실현손익·부분매도가 재현된다.",
+        "읽기 전용 live QA는 실계좌 주문을 만들거나 취소·정정하지 않는다."
+      ],
+      "failure_criteria": [
+        "국내·미국 중 하나가 승인된 30:70 한도를 넘거나 기존 보유·미체결 주문을 한도 계산에서 제외한다.",
+        "같은 이벤트가 두 개의 clientOrderId 또는 두 건의 실제 주문으로 생성된다.",
+        "10분 멱등성 보장 이후 결과 불명 주문을 자동 재전송한다.",
+        "전일 종가 신호를 다음 거래일에 매수하거나 15:30 이후 판단, 20일·60일 추세 또는 외국인·기관 정규화 수급이 누락·비우호적인 국내 종목을 주문한다.",
+        "지연·과거·미검증 시그널이나 예비 추천 순위만으로 주문한다.",
+        "미국 프리마켓·장마감 후 이벤트, 완료 분봉 경로가 없는 event_id, 180초를 넘긴 이벤트를 주문한다.",
+        "관리 장부에 없는 수량을 매도하거나 부분체결 누적값을 매 회차 새 체결처럼 더한다.",
+        "live QA 또는 preflight가 주문·취소·정정 엔드포인트를 호출하거나 키·계좌번호 전체를 출력한다."
+      ]
+    },
+    {
+        "id": "EXEC-TOSS-POSITION-GUARD-001",
+        "title": "국내·미국 관리 포지션 매도 신호 이중 확인과 단주 수익확정",
+        "domain": "실계좌 주문 실행",
+        "priority": "P0",
+        "modes": [
+            "gate",
+            "live"
+        ],
+        "automation": "pytest 국내·미국 관리 포지션·토스 잔고 현재가 2회 연속 확인·국내 단주 부분매도 제외·미국 소수점 부분매도·중복 매도 차단 fixture + live 읽기 전용 잔고·원장 대조",
+        "preconditions": [
+            "토스 실계좌 보유와 AutoTradePosition 원장에 같은 국내 또는 미국 종목의 양수 수량이 있다.",
+            "자동매매 데몬이 각 시장 공식 정규장에 30초 주기로 실행된다."
+        ],
+        "inputs": {
+            "broker_price_confirmations": 2,
+            "hard_stop_percent": -4.0,
+            "partial_profit_percent": 3.0,
+            "full_profit_percent": 5.0,
+            "single_share_partial_exit": false,
+            "market_session": {"KR": "09:00~15:30 Asia/Seoul", "US": "official XNYS regular session"}
+        },
+        "steps": [
+            "운영 피드의 검증된 매도 이벤트와 별도로 로컬 관리 포지션을 토스 잔고의 시장별 lastPrice와 대조한다.",
+            "진입가 대비 -4% 손절선과 +5% 전량 수익확정선을 계산하고 각 시장 정규장에서 두 회 연속 가격 이탈을 기록한다. 국내는 KRX 호가단위를 적용한다.",
+            "국내 원래 수량이 2주 이상이면 +3%에서 50% 부분매도 후보를 만들고 1주는 건너뛴다. 미국 소수점 보유는 원래 수량의 50%를 허용한다.",
+            "두 번째 연속 확인에서만 멱등적인 매도 이벤트를 생성하고 같은 종목에 미체결 매도가 있으면 추가 매도를 차단한다.",
+            "정규장 밖이거나 계좌 현재가·관리 원장이 없으면 주문을 만들지 않는다."
+        ],
+        "expected": [
+            "첫 가격 이탈은 candidate로 기록되고 주문은 발생하지 않는다.",
+            "두 번째 연속 이탈에서 관리 수량 이내 시장가 매도가 한 번만 제출된다.",
+            "미국 관리 포지션도 XNYS 정규장에서 두 번 연속 확인된 -4%/+3%/+5% 조건만 주문으로 전환된다.",
+            "메리츠금융지주 1주 같은 단주 포지션은 +3%에서 0주 부분매도를 만들지 않고 +5%에서 전량 매도한다.",
+            "운영 피드 매도와 로컬 포지션 가드가 동시에 발생해도 종목별 미체결 매도는 한 건이다."
+        ],
+        "failure_criteria": [
+            "한 번의 가격 관측만으로 매도하거나 정규장 밖에서 주문한다.",
+            "미국 프리마켓·애프터마켓·휴장일의 잔고 현재가로 관리 매도를 제출한다.",
+            "계좌에 없거나 관리 원장 수량을 넘는 매도를 제출한다.",
+            "1주 포지션에 0주 부분매도를 만들거나 +5% 전량 수익확정을 누락한다.",
+            "같은 종목의 운영 매도와 로컬 가드 매도가 중복 제출된다."
+        ]
     }
   ]
 }

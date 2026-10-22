@@ -95,6 +95,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-KR-LIVE-ORDER-GUARD-001": (
         "tests.test_observed_entry.test_replay_uses_close_and_excludes_pre_entry_stop_and_peak",
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_calls_live_order_guard[changes{index}]"
+          for index in range(4)),
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_rejects_orders_at_close[{side}]"
+          for side in ("buy", "partial_sell", "sell")),
         *(f"tests.test_live_order_guard.test_fresh_completed_minute_buy_and_sell_are_order_eligible[{side}]"
           for side in ("buy", "partial_sell", "sell")),
         *(f"tests.test_live_order_guard.test_no_buy_or_sell_order_is_created_outside_regular_session[{case}]"
@@ -104,6 +108,34 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
               "execution-unverified", "path-unverified", "previous-session",
               "clock-missing", "stale", "future", "price-missing",
           )),
+    ),
+    "EXEC-TOSS-LIVE-001": (
+        "tests.test_toss_autotrade.test_policy_enforces_approved_thirty_seventy_split",
+        "tests.test_toss_autotrade.test_funding_check_allows_small_fx_buffer_without_raising_order_limits",
+        "tests.test_toss_autotrade.test_signal_extraction_requires_fresh_verified_current_market_day",
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_calls_live_order_guard[changes{index}]"
+          for index in range(4)),
+        *(f"tests.test_toss_autotrade.test_domestic_broker_path_rejects_orders_at_close[{side}]"
+          for side in ("buy", "partial_sell", "sell")),
+        "tests.test_toss_autotrade.test_domestic_buy_requires_same_session_quant_prechecks",
+        "tests.test_toss_autotrade.test_domestic_sell_remains_allowed_when_buy_prechecks_are_unavailable",
+        "tests.test_toss_autotrade.test_domestic_feed_uses_entry_safety_guard_when_new_entry_flag_is_absent",
+        "tests.test_toss_autotrade.test_us_feed_still_requires_explicit_new_entry_permission",
+        "tests.test_live_order_guard.test_us_live_order_guard_requires_fresh_completed_regular_minute",
+        "tests.test_toss_autotrade.test_daemon_log_signature_ignores_small_fx_noise_but_records_state_changes",
+        "tests.test_toss_autotrade.test_live_cycle_caps_kr_and_us_orders_and_never_duplicates",
+        "tests.test_toss_autotrade.test_partial_fill_sync_drives_original_quantity_partial_sell",
+        "tests.test_toss_autotrade.test_unknown_old_submission_is_blocked_without_resend",
+        "tests.test_toss_autotrade.test_existing_account_holdings_consume_the_market_budget",
+        "tests.test_toss_autotrade.test_market_daily_loss_limit_blocks_only_new_buys",
+        "tests.test_toss_autotrade.test_new_buys_wait_until_both_thirty_seventy_sleeves_are_funded",
+        "tests.test_toss_autotrade.test_toss_client_requires_live_switch_and_sets_account_header",
+    ),
+    "EXEC-TOSS-POSITION-GUARD-001": (
+        "tests.test_toss_autotrade.test_managed_kr_position_guard_requires_two_broker_checks_before_hard_stop",
+        "tests.test_toss_autotrade.test_managed_us_position_guard_requires_two_regular_session_checks",
+        "tests.test_toss_autotrade.test_one_share_position_skips_three_percent_partial_and_exits_at_five_percent",
+        "tests.test_toss_autotrade.test_quant_sell_and_position_guard_never_submit_two_sells_for_one_symbol",
     ),
     "OPS-COST-001": (
         "tests.test_maintenance_jobs.test_linux_worker_accepts_container_pid_one_and_rejects_reparenting",
@@ -196,6 +228,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[entered]",
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[exited]",
         "tests.test_us_hybrid_signals.test_hybrid_two_fresh_minutes_enter_once_and_restart_is_idempotent",
+        "tests.test_us_hybrid_signals.test_hybrid_candidate_waits_for_h1_volume_and_survives_transient_minute_failure",
         "tests.test_us_hybrid_signals.test_hybrid_partial_then_remaining_exit_weighted_return_and_no_same_day_reentry",
         "tests.test_us_hybrid_signals.test_hybrid_profit_after_entry_does_not_read_same_minute_high",
         "tests.test_us_hybrid_signals.test_hybrid_early_close_and_dst_are_exchange_calendared",

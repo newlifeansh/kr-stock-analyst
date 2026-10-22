@@ -18,7 +18,9 @@ OPEN = datetime(2026, 10, 13, 13, 30, tzinfo=timezone.utc)
 def feed():
     setups = [{"code": "AAPL" if index == 0 else f"X{index}", "name": "Apple" if index == 0 else f"Name{index}",
                "market": "NASDAQ", "market_cap_rank": index + 1, "signal_date": "2026-10-12",
-               "eligible": index == 0, "reference_close": 100.0, "atr": 2.0, "close_exit": False}
+               "eligible": index == 0, "daily_watch": index == 0,
+               "reference_close": 100.0, "atr": 2.0,
+               "average_daily_volume": 1_000_000.0, "close_exit": False}
               for index in range(100)]
     reasons = [{"key": key, "state": "positive", "available": True, "as_of": "2026-10-12"}
                for key in ("trend_20d", "trend_60d", "flow")]
@@ -31,12 +33,13 @@ def feed():
             "performance_summary": {"old": "unchanged"}}
 
 
-def chart(prices=(100, 100.1), *, start=OPEN):
+def chart(prices=(100, 100.1), *, start=OPEN, volumes=None):
+    volume_values = list(volumes or ([10000] * len(prices)))
     return {"meta": {"symbol": "AAPL", "currency": "USD", "instrumentType": "EQUITY"},
             "timestamp": [int((start + timedelta(minutes=index)).timestamp()) for index in range(len(prices))],
             "indicators": {"quote": [{"open": list(prices), "high": [value + .1 for value in prices],
                                       "low": [value - .1 for value in prices], "close": list(prices),
-                                      "volume": [10000] * len(prices)}]}}
+                                      "volume": volume_values}]}}
 
 
 def initial():
@@ -47,7 +50,14 @@ def initial():
 
 
 def entered():
-    return hybrid.advance_us_hybrid_state(initial(), feed(), {"AAPL": chart()}, OPEN + timedelta(minutes=2, seconds=5))
+    captured = hybrid.advance_us_hybrid_state(
+        initial(), feed(), {"AAPL": chart((100,))},
+        OPEN + timedelta(minutes=1, seconds=5),
+    )
+    return hybrid.advance_us_hybrid_state(
+        captured, feed(), {"AAPL": chart()},
+        OPEN + timedelta(minutes=2, seconds=5),
+    )
 
 
 def save(db, state):
@@ -66,12 +76,55 @@ def db():
 
 
 def test_hybrid_two_fresh_minutes_enter_once_and_restart_is_idempotent():
-    state = entered()
+    candidate = hybrid.advance_us_hybrid_state(
+        initial(), feed(), {"AAPL": chart((100,), volumes=(2000,))},
+        OPEN + timedelta(minutes=1, seconds=5),
+    )
+    assert candidate["events"] == []
+    assert candidate["entry_candidates"]["AAPL"]["status"] == "watching"
+    assert candidate["entry_candidates"]["AAPL"]["volume_participation"]["ratio"] >= .75
+    state = hybrid.advance_us_hybrid_state(
+        candidate, feed(), {"AAPL": chart((100, 100.1), volumes=(2000, 4000))},
+        OPEN + timedelta(minutes=2, seconds=5),
+    )
     assert len(state["events"]) == 1
     assert state["positions"]["AAPL"]["entry_price"] == 100.1
     restarted = json.loads(hybrid._json(state))
     result = hybrid.advance_us_hybrid_state(restarted, feed(), {"AAPL": chart()}, OPEN + timedelta(minutes=2, seconds=30))
     assert result["events"] == state["events"]
+
+
+def test_hybrid_candidate_waits_for_h1_volume_and_survives_transient_minute_failure():
+    candidate = hybrid.advance_us_hybrid_state(
+        initial(), feed(), {"AAPL": chart((100,), volumes=(2000,))},
+        OPEN + timedelta(minutes=1, seconds=5),
+    )
+    below_h1 = hybrid.advance_us_hybrid_state(
+        candidate, feed(), {"AAPL": chart((100, 100.1), volumes=(2000, 2500))},
+        OPEN + timedelta(minutes=2, seconds=5),
+    )
+    assert below_h1["events"] == []
+    assert below_h1["entry_candidates"]["AAPL"]["status"] == "watching"
+
+    broken = chart((100, 100.1, 100.2), volumes=(2000, 2500, 4000))
+    broken["indicators"]["quote"][0]["close"][-1] = None
+    paused = hybrid.advance_us_hybrid_state(
+        below_h1, feed(), {"AAPL": broken},
+        OPEN + timedelta(minutes=3, seconds=5),
+    )
+    assert paused["entry_candidates"]["AAPL"]["status"] == "watching"
+    assert paused["entry_candidates"]["AAPL"]["pause_reasons"] == [
+        "completed_minute_missing"
+    ]
+
+    resumed = hybrid.advance_us_hybrid_state(
+        paused,
+        feed(),
+        {"AAPL": chart((100, 100.1, 100.2, 100.3), volumes=(2000, 2500, 4000, 4000))},
+        OPEN + timedelta(minutes=4, seconds=5),
+    )
+    assert resumed["events"][-1]["side"] == "buy"
+    assert resumed["events"][-1]["entry_policy_version"] == hybrid.US_HYBRID_EXECUTION_MODEL
 
 
 @pytest.mark.parametrize("prices,expected_side,remaining", [
@@ -148,9 +201,15 @@ def test_hybrid_partial_then_remaining_exit_weighted_return_and_no_same_day_reen
 
 
 def test_hybrid_profit_after_entry_does_not_read_same_minute_high():
+    captured = hybrid.advance_us_hybrid_state(
+        initial(), feed(), {"AAPL": chart((100,))},
+        OPEN + timedelta(minutes=1, seconds=5),
+    )
     raw = chart()
     raw["indicators"]["quote"][0]["high"][-1] = 200
-    state = hybrid.advance_us_hybrid_state(initial(), feed(), {"AAPL": raw}, OPEN + timedelta(minutes=2, seconds=5))
+    state = hybrid.advance_us_hybrid_state(
+        captured, feed(), {"AAPL": raw}, OPEN + timedelta(minutes=2, seconds=5)
+    )
     assert len(state["events"]) == 1 and state["events"][0]["side"] == "buy"
 
 
@@ -328,7 +387,11 @@ def test_hybrid_ignores_seconds_stamped_forming_tail_not_finished_misalignment()
     now = OPEN + timedelta(minutes=2, seconds=5)
     points, quality = hybrid.verified_minutes(raw, "AAPL", now)
     assert quality == "fresh" and len(points) == 2
-    state = hybrid.advance_us_hybrid_state(initial(), feed(), {"AAPL": raw}, now)
+    captured = hybrid.advance_us_hybrid_state(
+        initial(), feed(), {"AAPL": chart((100,))},
+        OPEN + timedelta(minutes=1, seconds=5),
+    )
+    state = hybrid.advance_us_hybrid_state(captured, feed(), {"AAPL": raw}, now)
     assert state["positions"]["AAPL"]["entry_price"] == 100.1
     malformed = chart()
     malformed["timestamp"][0] += 1
@@ -342,7 +405,14 @@ def test_hybrid_collector_persists_without_provider_calls_outside_session(db, mo
     result = hybrid.refresh_us_hybrid_signals(db, now=OPEN - timedelta(minutes=1), loader=forbidden)
     assert result["state"] == "ready"
     first = hybrid.read_us_hybrid_state(db)
-    result = hybrid.refresh_us_hybrid_signals(db, now=OPEN + timedelta(minutes=2, seconds=5), loader=lambda code: chart())
+    result = hybrid.refresh_us_hybrid_signals(
+        db, now=OPEN + timedelta(minutes=1, seconds=5),
+        loader=lambda code: chart((100,)),
+    )
+    assert result["state"] == "ready"
+    result = hybrid.refresh_us_hybrid_signals(
+        db, now=OPEN + timedelta(minutes=2, seconds=5), loader=lambda code: chart()
+    )
     assert result["state"] == "ready"
     second = hybrid.read_us_hybrid_state(db)
     assert len(second["events"]) == 1
