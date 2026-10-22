@@ -23,8 +23,8 @@ from app.services.signal_entry_evidence import _disclosure_evidence
 from test_quant_signals import _strategy_test_inputs, _set_entry_indicator, _daily_rows_from_bars
 from test_web_push import _settings
 
-DAY = date(2026, 10, 23)
-START = datetime(2026, 10, 23, 9, 2, tzinfo=oe.KST)
+DAY = date(2026, 10, 22)
+START = datetime(2026, 10, 22, 9, 2, tzinfo=oe.KST)
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ def setup(monkeypatch):
 
 def evidence(now):
     return {
-        "signal_date": "2026-10-22", "stock_code": "005930",
+        "signal_date": "2026-10-21", "stock_code": "005930",
         "generated_at": now.isoformat(), "quality": {"state": "ready"},
         "supportive_count": 2, "caution_count": 0, "vetoes": [],
         "required_supports": {"trend_continuation": 1, "early_turn": 2},
