@@ -37,6 +37,16 @@ def test_quote_summary_price_normalizes_independent_single_symbol_quote(monkeypa
                 "quoteSummary": {
                     "result": [
                         {
+                            "defaultKeyStatistics": {
+                                "sharesOutstanding": {
+                                    "raw": 24_146_000_000,
+                                    "fmt": "24.15B",
+                                },
+                                "impliedSharesOutstanding": {
+                                    "raw": 24_146_000_000,
+                                    "fmt": "24.15B",
+                                },
+                            },
                             "price": {
                                 "symbol": "NVDA",
                                 "quoteType": "EQUITY",
@@ -72,6 +82,8 @@ def test_quote_summary_price_normalizes_independent_single_symbol_quote(monkeypa
         "regularMarketTime": 1792440001,
         "regularMarketPrice": 217.09,
         "marketCap": 5_242_072_072_192,
+        "sharesOutstanding": 24_146_000_000,
+        "impliedSharesOutstanding": 24_146_000_000,
     }
 
 
@@ -106,6 +118,54 @@ def test_quote_summary_price_uses_yahoo_alias_when_dotted_symbol_is_incomplete(
     assert calls == ["BRK.B", "BRK-B"]
     assert quote["symbol"] == "BRK-B"
     assert quote["marketCap"] == 1_139_349_913_600
+
+
+def test_completed_session_quote_rebuilds_stale_adr_from_chart_and_shares(
+    monkeypatch,
+):
+    completed_date = date(2026, 9, 8)
+    stale_time = int(datetime(2026, 9, 4, 20, 0, tzinfo=UTC).timestamp())
+    completed_time = int(datetime(2026, 9, 8, 13, 30, tzinfo=UTC).timestamp())
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_price",
+        lambda *_args, **_kwargs: {
+            "symbol": "WDS",
+            "quoteType": "EQUITY",
+            "exchange": "NYQ",
+            "currency": "USD",
+            "regularMarketTime": stale_time,
+            "regularMarketPrice": 22.5,
+            "marketCap": 22_500,
+            "sharesOutstanding": 1_000,
+        },
+    )
+    monkeypatch.setattr(
+        us_market,
+        "fetch_chart_range",
+        lambda *_args, **_kwargs: {
+            "meta": {
+                "symbol": "WDS",
+                "instrumentType": "EQUITY",
+                "exchangeName": "NYQ",
+                "currency": "USD",
+            },
+            "timestamp": [completed_time],
+            "indicators": {"quote": [{"close": [23.71]}]},
+        },
+    )
+
+    quote = us_market.fetch_us_completed_session_quote(
+        "WDS",
+        completed_date,
+        refresh=True,
+    )
+
+    assert quote["regularMarketTime"] == completed_time
+    assert quote["regularMarketPrice"] == Decimal("23.71")
+    assert quote["marketCap"] == 23_710
+    assert quote["symbol"] == "WDS"
+    assert quote["exchange"] == "NYQ"
 
 
 class _FakeNewsResponse:

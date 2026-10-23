@@ -353,6 +353,7 @@ const elements = {
   aiSignalsBack: $("ai-signals-back"),
   aiSignalModeTabs: Array.from(document.querySelectorAll("[data-ai-signal-mode]")),
   aiSignalPerformance: $("ai-signal-performance"),
+  aiSignalPerformanceTitle: $("ai-signal-performance-title"),
   aiSignalPerformanceAsOf: $("ai-signal-performance-asof"),
   aiSignalPerformanceLead: $("ai-signal-performance-lead"),
   aiSignalPerformanceRows: $("ai-signal-performance-rows"),
@@ -1322,6 +1323,7 @@ const state = {
   aiSignalHistorySide: "all",
   aiSignalItems: [],
   aiSignalPerformanceSummary: null,
+  aiSignalMarketMetricsByScope: null,
   aiSignalFilterForwardComparison: null,
   aiSignalEntrySafetyGuard: null,
   aiSignalMarketStatus: "loading",
@@ -1854,6 +1856,7 @@ function aiSignalSnapshotSignature(items = [], payload = {}) {
     revisions,
     revision,
     completedTradeItems: payload.performance_summary?.completed_trade_items ?? null,
+    marketMetrics: payload.market_metrics_by_scope ?? null,
     items: (Array.isArray(items) ? items : []).map((item) => [
       marketScopeForItem(item),
       String(item.code || item.name || ""),
@@ -1891,12 +1894,14 @@ function setUnifiedMarketScope(marketScope) {
   document.body.dataset.marketScope = marketScope;
   if (state.view === "ai-signals" && ["kr", "us"].includes(marketScope)) {
     applyUsMarketSurface();
+    applyAiSignalMarketMetrics();
+    renderAiSignalPerformance();
     const target = new URL(window.location.href);
     target.searchParams.set("market_scope", marketScope);
     target.searchParams.delete("market");
     target.searchParams.delete("snapshot");
     window.history.replaceState(window.history.state, "", `${target.pathname}${target.search}${target.hash}`);
-    if (aiSignalHasCompleteMarketSnapshot()) renderAiSignalsPage();
+    renderAiSignalsPage();
     renderAiSignalLiveStatus();
     return;
   }
@@ -16126,6 +16131,8 @@ function combineAiSignalPayloads(watchlistPayload = {}, marketPayload = {}) {
     market_scopes_ready: marketPayload.market_scopes_ready || [],
     market_status_by_scope: marketPayload.market_status_by_scope || {},
     market_revision_by_scope: marketPayload.market_revision_by_scope || {},
+    market_scope: marketPayload.market_scope || null,
+    market_metrics_by_scope: marketPayload.market_metrics_by_scope || null,
     lifecycle_replay_version: marketPayload.lifecycle_replay_version || "",
     recent_days: marketPayload.recent_days || null,
     market_status: marketStatus,
@@ -16628,6 +16635,32 @@ function freezeAiSignalSnapshot(value, seen = new WeakSet()) {
   return Object.freeze(value);
 }
 
+function aiSignalMarketMetrics(payload = {}) {
+  return {
+    performance_summary: payload.performance_summary || null,
+    filter_forward_comparison: payload.filter_forward_comparison || null,
+    entry_safety_guard: payload.entry_safety_guard || null,
+    universe_count: Number(payload.current_universe_count) || Number(payload.universe_count) || 0,
+    execution_replay_unverified_count: Number(payload.execution_replay_unverified_count) || 0,
+  };
+}
+
+function applyAiSignalMarketMetrics() {
+  if (!state.aiSignalMarketMetricsByScope) return;
+  const scope = isUsHubContext && state.marketScope === "us" ? "us" : "kr";
+  const metrics = state.aiSignalMarketMetricsByScope[scope] || {};
+  const summary = metrics.performance_summary;
+  const foreignSummary = summary && (
+    (summary.market_scope && summary.market_scope !== scope)
+    || (summary.completed_trade_items || []).some((item) => marketScopeForItem(item) !== scope)
+  );
+  state.aiSignalPerformanceSummary = foreignSummary ? null : summary || null;
+  state.aiSignalFilterForwardComparison = metrics.filter_forward_comparison || null;
+  state.aiSignalEntrySafetyGuard = metrics.entry_safety_guard || null;
+  state.aiSignalUniverseCount = Math.max(0, Number(metrics.universe_count) || 0);
+  state.aiSignalUnverifiedCount = Math.max(0, Number(metrics.execution_replay_unverified_count) || 0);
+}
+
 function commitAiSignalSnapshot(items, payload = {}, options = {}) {
   const responseRevision = aiSignalRevisionFromPayload(payload);
   const expectedRevision = Number.isSafeInteger(Number(options.expectedRevision))
@@ -16644,18 +16677,17 @@ function commitAiSignalSnapshot(items, payload = {}, options = {}) {
     (Array.isArray(items) ? items : []).map((item) => freezeAiSignalSnapshot(item)),
   );
   state.aiSignalItems = frozenItems;
-  state.aiSignalPerformanceSummary = payload.performance_summary || null;
-  state.aiSignalFilterForwardComparison = payload.filter_forward_comparison || null;
-  state.aiSignalEntrySafetyGuard = payload.entry_safety_guard || null;
+  const metricScopes = payload.market_scopes_received || payload.market_scopes_ready || [];
+  const metricScope = payload.market_scope || metricScopes[0] || (payload.us_market_included ? "us" : "kr");
+  // A legacy combined cache has no trustworthy market binding for its summary.
+  // Wait for scoped metrics rather than carrying one country's result across tabs.
+  state.aiSignalMarketMetricsByScope = freezeAiSignalSnapshot(
+    payload.market_metrics_by_scope || (metricScopes.length > 1 ? {} : {
+      [metricScope]: aiSignalMarketMetrics(payload),
+    }),
+  );
+  applyAiSignalMarketMetrics();
   state.aiSignalMarketStatus = payload.market_status || payload.status || "ready";
-  state.aiSignalUniverseCount = Math.max(
-    0,
-    Number(payload.current_universe_count) || Number(payload.universe_count) || 0,
-  );
-  state.aiSignalUnverifiedCount = Math.max(
-    0,
-    Number(payload.execution_replay_unverified_count) || 0,
-  );
   state.aiSignalLifecycleMode = payload.us_market_included === true
     ? String(payload.lifecycle_replay_version || "")
     : "";
@@ -17192,7 +17224,7 @@ function applyStockQuantSignalLiveQuote(quote = {}, quotePayload = {}) {
 
 function renderAiSignalsSkeleton(options = {}) {
   if (!elements.aiSignalsPageList) return;
-  const marketLabel = isUsHubContext ? "한국과 미국" : "국내";
+  const marketLabel = isUsHubContext && state.marketScope === "us" ? "미국" : "국내";
   const status = el(
     "p",
     "sr-only",
@@ -17237,6 +17269,9 @@ function prepareAiSignalEntrySurface(view) {
   state.aiSignalSnapshotReceivedAt = 0;
   state.aiSignalSnapshotAsOf = "";
   state.aiSignalMarketStatus = "loading";
+  state.aiSignalMarketMetricsByScope = {};
+  applyAiSignalMarketMetrics();
+  renderAiSignalPerformance();
   state.aiSignalUniverseCount = 0;
   state.aiSignalUnverifiedCount = 0;
   state.aiSignalLifecycleMode = "";
@@ -17300,8 +17335,9 @@ function aiSignalPageFreshnessView(now = Date.now()) {
     const closed = usOnly
       ? usMarketPhase(new Date(now), state.usSectorMoves) === "closed"
       : isDomesticMarketClosed(new Date(now));
-    if (!isUsHubContext) {
-      const currentItems = currentAiSignalItems(state.aiSignalItems);
+    if (!usOnly) {
+      const currentItems = currentAiSignalItems(state.aiSignalItems)
+        .filter((item) => itemMatchesMarketScope(item, "kr"));
       const stageCounts = aiSignalStageCounts(currentItems);
       return {
         ...aiSignalCandidateScanView({
@@ -19475,17 +19511,23 @@ function aiSignalPerformanceTone(value) {
   return number >= 0 ? "positive" : "negative";
 }
 
-function aiSignalPerformanceWindowState(windowSummary = {}) {
+function aiSignalPerformanceWindowState(windowSummary = {}, shorterWindowSummary = null) {
   const completed = Math.max(0, Number(windowSummary.completed_trades) || 0);
   const average = toNumber(windowSummary.average_return);
   const empty = completed === 0;
+  const shorterCompleted = Math.max(0, Number(shorterWindowSummary?.completed_trades) || 0);
+  const sameSample = Boolean(isUsHubContext && state.marketScope === "us" && !empty && shorterWindowSummary
+    && completed === shorterCompleted);
   return {
     completed,
     average,
     empty,
-    statusState: empty ? "empty" : (windowSummary.sample_state || "limited"),
+    sameSample,
+    statusState: empty ? "empty" : sameSample ? "same-sample" : (windowSummary.sample_state || "limited"),
     statusLabel: empty
       ? "표본 없음"
+      : sameSample
+        ? "동일 표본"
       : windowSummary.sample_state === "sufficient"
         ? "표본 충족"
         : "참고 표본",
@@ -19524,6 +19566,10 @@ function formatAiSignalRate(value) {
 
 function renderAiSignalPerformance() {
   if (!elements.aiSignalPerformance || !elements.aiSignalPerformanceRows) return;
+  if (elements.aiSignalPerformanceTitle) {
+    const marketLabel = isUsHubContext && state.marketScope === "us" ? "미국" : "국내";
+    elements.aiSignalPerformanceTitle.textContent = `최근 ${marketLabel} 시그널 평균 수익률`;
+  }
   const summary = state.aiSignalPerformanceSummary;
   const windows = summary?.windows || {};
   if (!summary) {
@@ -19532,7 +19578,9 @@ function renderAiSignalPerformance() {
   }
   elements.aiSignalPerformance.hidden = false;
   if (elements.aiSignalPerformanceAsOf) {
-    const asOf = formatDate(summary.as_of);
+    const asOf = isUsHubContext && state.marketScope === "us"
+      ? formatMarketNewsDate({ published_at: summary.as_of, market_scope: "us" })
+      : formatDate(summary.as_of);
     elements.aiSignalPerformanceAsOf.textContent = asOf === "-" ? "집계 기준 확인 중" : `${asOf} 기준`;
   }
   const guard = state.aiSignalEntrySafetyGuard || {};
@@ -19550,10 +19598,11 @@ function renderAiSignalPerformance() {
             ? "완료된 미국 매도 시그널의 비용 차감 전 평균 수익률입니다."
             : "거래비용을 반영한 완료 매도 시그널의 평균 수익률입니다.";
   }
-  const rows = [[7, windows["7d"]], [15, windows["15d"]], [30, windows["30d"]]].map(([days, performanceWindow]) => {
+  const rows = [[7, windows["7d"], null], [15, windows["15d"], windows["7d"]], [30, windows["30d"], windows["15d"]]].map(([days, performanceWindow, shorterWindow]) => {
     const windowSummary = performanceWindow || {};
-    const windowState = aiSignalPerformanceWindowState(windowSummary);
+    const windowState = aiSignalPerformanceWindowState(windowSummary, shorterWindow);
     const { completed, average } = windowState;
+    const visibleAverage = windowState.empty || windowState.sameSample ? null : average;
     const row = el("div", "ai-signal-performance-row");
     const heading = el("div", "ai-signal-performance-row-heading");
     heading.append(
@@ -19566,13 +19615,12 @@ function renderAiSignalPerformance() {
     );
     const value = el(
       "strong",
-      `ai-signal-performance-value is-${aiSignalPerformanceTone(average)}`,
-      windowState.empty || average === null ? "-" : formatPercent(average),
+      `ai-signal-performance-value is-${aiSignalPerformanceTone(visibleAverage)}`,
+      visibleAverage === null ? "-" : formatPercent(visibleAverage),
     );
-    const evidenceParts = [
-      `완료 ${formatNumber(completed)}건`,
-      `승률 ${formatAiSignalRate(windowSummary.win_rate)}`,
-    ];
+    const evidenceParts = windowState.sameSample
+      ? [`완료 ${formatNumber(completed)}건`, "추가 완료 거래 없음"]
+      : [`완료 ${formatNumber(completed)}건`, `승률 ${formatAiSignalRate(windowSummary.win_rate)}`];
     const evidence = el("p", "ai-signal-performance-evidence", evidenceParts.join(" · "));
     row.append(heading, value, evidence);
     return row;
@@ -19589,9 +19637,10 @@ function renderAiSignalsPage() {
   if (!elements.aiSignalsPageList) {
     return;
   }
+  applyAiSignalMarketMetrics();
   renderAiSignalPerformance();
   const items = normalizedAiSignalItems(state.aiSignalItems)
-    .filter((item) => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope))
+    .filter((item) => itemMatchesMarketScope(item, isUsHubContext ? state.marketScope : "kr"))
     .filter((item) => (
       isRecentAiSignal(item)
       || isCurrentAiSignalHolding(item)
@@ -19643,7 +19692,7 @@ function renderAiSignalsPage() {
   );
   const completedTradeItems = hasCompletedTradeLedger
     ? aiSignalCompletedTradeItems()
-      .filter((item) => !isUsHubContext || itemMatchesMarketScope(item, state.marketScope))
+      .filter((item) => itemMatchesMarketScope(item, isUsHubContext ? state.marketScope : "kr"))
     : modeItems.filter((item) => aiSignalMatchesStage(item, "recent-sell"));
   counts["recent-sell"] = completedTradeItems.length;
   for (const tab of elements.aiSignalStageTabs) {
@@ -19808,6 +19857,7 @@ async function fetchMarketAiSignals(options = {}) {
       market_revision_by_scope: {
         [marketScope]: aiSignalRevisionFromPayload(normalizedPayload) ?? 0,
       },
+      market_metrics_by_scope: { [marketScope]: aiSignalMarketMetrics(normalizedPayload) },
       items: tagMarketItems(payload?.items, marketScope, normalizedPayload),
       preliminary_history: tagMarketItems(payload?.preliminary_history, marketScope, normalizedPayload),
     };
@@ -19860,6 +19910,7 @@ async function fetchMarketAiSignals(options = {}) {
     market_revision_by_scope: Object.fromEntries(
       payloads.map((payload) => [payload.market_scope, aiSignalRevisionFromPayload(payload) ?? 0]),
     ),
+    market_metrics_by_scope: Object.assign({}, ...payloads.map((payload) => payload.market_metrics_by_scope)),
     as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,
     signal_revision: Math.max(0, ...payloads.map((payload) => Number(payload.signal_revision) || 0)),
     recent_days: recentDays,
@@ -20145,6 +20196,9 @@ function resetHomeAiSignalsForIdentity() {
   state.aiSignalLoadSequence += 1;
   state.aiSignalItems = [];
   state.aiSignalMarketStatus = "loading";
+  state.aiSignalMarketMetricsByScope = {};
+  applyAiSignalMarketMetrics();
+  renderAiSignalPerformance();
   state.aiSignalUniverseCount = 0;
   state.aiSignalUnverifiedCount = 0;
   state.aiSignalLifecycleMode = "";

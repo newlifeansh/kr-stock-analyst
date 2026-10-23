@@ -684,7 +684,12 @@ def _retry_completed_session_bridge_quotes(
     workers = min(US_SIGNAL_UNIVERSE_QUOTE_DETAIL_RETRY_WORKERS, len(invalid))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(us_market.fetch_us_quote_price, symbol, refresh=True): symbol
+            executor.submit(
+                us_market.fetch_us_completed_session_quote,
+                symbol,
+                completed_date,
+                refresh=True,
+            ): symbol
             for symbol in invalid
         }
         for future in as_completed(futures):
