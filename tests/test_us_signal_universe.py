@@ -1115,7 +1115,7 @@ def test_prior_session_bridge_fails_closed_when_any_candidate_quote_is_missing(
     )
     monkeypatch.setattr(
         us_market,
-        "fetch_us_quote_price",
+        "fetch_us_completed_session_quote",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("missing")),
     )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
@@ -1192,11 +1192,15 @@ def test_prior_session_bridge_repairs_isolated_batch_omission_with_quote_price(
         },
     )
 
-    def fetch_quote_price(symbol, **_kwargs):
+    def fetch_quote_price(symbol, _completed_date, **_kwargs):
         detail_calls.append(symbol)
         return quotes[symbol]
 
-    monkeypatch.setattr(us_market, "fetch_us_quote_price", fetch_quote_price)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_completed_session_quote",
+        fetch_quote_price,
+    )
     monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
 
     payload = universe.build_us_signal_universe(
@@ -1219,11 +1223,15 @@ def test_prior_session_bridge_does_not_expand_detail_retry_beyond_bound(monkeypa
         lambda requested, **_kwargs: {},
     )
 
-    def fetch_quote_price(symbol, **_kwargs):
+    def fetch_quote_price(symbol, _completed_date, **_kwargs):
         detail_calls.append(symbol)
         return _quote(symbol, 1_000_000_000)
 
-    monkeypatch.setattr(us_market, "fetch_us_quote_price", fetch_quote_price)
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_completed_session_quote",
+        fetch_quote_price,
+    )
 
     quotes = universe._retry_completed_session_bridge_quotes(
         symbols,

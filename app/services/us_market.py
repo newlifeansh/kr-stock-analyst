@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from email.utils import parsedate_to_datetime
 from html import unescape
 from pathlib import Path
@@ -899,7 +899,10 @@ def _fetch_yahoo_quote_price_once(
     auth = _yahoo_auth(refresh=refresh_auth)
     response = requests.get(
         YAHOO_QUOTE_SUMMARY_URL.format(symbol=symbol),
-        params={"modules": "price", "crumb": auth.get("crumb")},
+        params={
+            "modules": "price,defaultKeyStatistics",
+            "crumb": auth.get("crumb"),
+        },
         headers=US_HEADERS,
         cookies=auth.get("cookies") if isinstance(auth.get("cookies"), dict) else None,
         timeout=15,
@@ -914,12 +917,21 @@ def _fetch_yahoo_quote_price_once(
     result = quote_summary.get("result") or []
     if not result or not isinstance(result[0].get("price"), dict):
         raise ValueError("Yahoo quote-summary price not found")
-    return {
+    normalized = {
         key: value.get("raw")
         if isinstance(value, dict) and "raw" in value
         else value
         for key, value in result[0]["price"].items()
     }
+    statistics = result[0].get("defaultKeyStatistics") or {}
+    if isinstance(statistics, dict):
+        for key in ("sharesOutstanding", "impliedSharesOutstanding"):
+            value = statistics.get(key)
+            if isinstance(value, dict) and "raw" in value:
+                normalized[key] = value.get("raw")
+            elif value not in (None, ""):
+                normalized[key] = value
+    return normalized
 
 
 def _quote_price_payload_is_usable(quote: dict[str, object]) -> bool:
@@ -962,6 +974,101 @@ def fetch_us_quote_price(
         except Exception as exc:
             last_error = exc
     raise ValueError(f"US quote price not found for {symbol}") from last_error
+
+
+def fetch_us_completed_session_quote(
+    symbol: str,
+    completed_date: date,
+    *,
+    refresh: bool = False,
+) -> dict[str, object]:
+    """Return a quote proven against one completed US session.
+
+    Yahoo can leave an ADR's quote endpoint on the prior session in one edge
+    region while its chart is current. In that case, combine the independently
+    reported share count with the exact completed-session chart close.
+    """
+
+    code = _symbol(symbol)
+    summary = fetch_us_quote_price(code, refresh=refresh)
+    observed_symbol = _symbol(str(summary.get("symbol") or ""))
+    observed_exchange = str(summary.get("exchange") or "").upper()
+    observed_currency = str(summary.get("currency") or "").upper()
+    observed_type = str(summary.get("quoteType") or "").upper()
+    try:
+        observed_date = datetime.fromtimestamp(
+            int(summary.get("regularMarketTime") or 0),
+            timezone.utc,
+        ).astimezone(NEW_YORK_TZ).date()
+    except (TypeError, ValueError, OSError):
+        observed_date = None
+    if (
+        _quote_price_payload_is_usable(summary)
+        and observed_symbol.replace("-", ".") == code.replace("-", ".")
+        and observed_exchange in {"NMS", "NGM", "NCM", "NYQ", "NASDAQ", "NYSE"}
+        and observed_currency == "USD"
+        and observed_type == "EQUITY"
+        and observed_date == completed_date
+    ):
+        return summary
+
+    chart = fetch_chart_range(
+        code,
+        range_="5d",
+        interval="1d",
+        refresh=True,
+    )
+    meta = chart.get("meta") or {}
+    timestamps = list(chart.get("timestamp") or [])
+    chart_quote = (chart.get("indicators", {}).get("quote") or [{}])[0]
+    closes = list(chart_quote.get("close") or [])
+    completed_timestamp: Optional[int] = None
+    completed_close: Optional[Decimal] = None
+    for index, timestamp in enumerate(timestamps):
+        try:
+            trade_date = datetime.fromtimestamp(
+                int(timestamp),
+                timezone.utc,
+            ).astimezone(NEW_YORK_TZ).date()
+        except (TypeError, ValueError, OSError):
+            continue
+        close = _to_decimal(_list_get(closes, index))
+        if trade_date == completed_date and close is not None and close > 0:
+            completed_timestamp = int(timestamp)
+            completed_close = close
+    if completed_timestamp is None or completed_close is None:
+        raise ValueError("Yahoo chart does not contain the completed-session close")
+
+    shares = (
+        _to_decimal(summary.get("sharesOutstanding"))
+        or _to_decimal(summary.get("impliedSharesOutstanding"))
+    )
+    if shares is None or shares <= 0:
+        summary_market_cap = _to_decimal(summary.get("marketCap"))
+        summary_price = _to_decimal(summary.get("regularMarketPrice"))
+        if (
+            summary_market_cap is not None
+            and summary_market_cap > 0
+            and summary_price is not None
+            and summary_price > 0
+        ):
+            shares = summary_market_cap / summary_price
+    if shares is None or shares <= 0:
+        raise ValueError("Yahoo quote summary does not contain a positive share count")
+
+    market_cap = int(
+        (shares * completed_close).to_integral_value(rounding=ROUND_HALF_UP)
+    )
+    return {
+        **summary,
+        "symbol": str(meta.get("symbol") or code),
+        "quoteType": str(meta.get("instrumentType") or ""),
+        "exchange": str(meta.get("exchangeName") or ""),
+        "currency": str(meta.get("currency") or ""),
+        "regularMarketTime": completed_timestamp,
+        "regularMarketPrice": completed_close,
+        "marketCap": market_cap,
+    }
 
 
 def fetch_us_quote_batch(

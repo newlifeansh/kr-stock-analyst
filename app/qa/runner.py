@@ -856,6 +856,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_quote_summary_price_normalizes_independent_single_symbol_quote",
         "tests.test_us_market."
         "test_quote_summary_price_uses_yahoo_alias_when_dotted_symbol_is_incomplete",
+        "tests.test_us_market."
+        "test_completed_session_quote_rebuilds_stale_adr_from_chart_and_shares",
         "tests.test_us_signal_universe."
         "test_prior_session_bridge_repairs_isolated_batch_omission_with_quote_price",
         "tests.test_us_signal_universe."
