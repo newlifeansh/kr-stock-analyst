@@ -151,6 +151,26 @@ def test_recommendation_worker_warmup_waits_for_every_isolated_worker(monkeypatc
     recommendations.close_recommendation_signal_workers()
 
 
+def test_recommendation_web_prewarm_evaluates_full_candidate_limit(monkeypatch):
+    observed = {}
+
+    class SessionStub:
+        def close(self):
+            observed["closed"] = True
+
+    session = SessionStub()
+
+    def build(db, *, limit, candidate_limit):
+        observed["request"] = (db, limit, candidate_limit)
+        return {"candidate_count": 100}
+
+    monkeypatch.setattr(recommendations, "_recommendation_signal_pool", object())
+    monkeypatch.setattr(recommendations, "SessionLocal", lambda: session)
+    monkeypatch.setattr(recommendations, "build_recommendations", build)
+    assert recommendations.prewarm_recommendation_signals() is True
+    assert observed == {"request": (session, 20, 100), "closed": True}
+
+
 def test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates(monkeypatch):
     items = _install_ranked_pool(monkeypatch, count=30)
     # Repeated families and sectors force all diversity passes to participate.

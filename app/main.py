@@ -177,6 +177,7 @@ from app.services.opposite_moves import build_opposite_moves, opposite_moves_com
 from app.services.recommendations import (
     build_recommendations,
     close_recommendation_signal_workers,
+    prewarm_recommendation_signals,
     warm_recommendation_signal_workers,
 )
 from app.services.stock_ai_analysis import build_stock_ai_analysis
@@ -2055,7 +2056,8 @@ async def lifespan(_: FastAPI):
             if settings.bootstrap_on_start:
                 bootstrap_task = asyncio.create_task(_run_bootstrap_task())
         if settings.runs_web_services() and not settings.us_market_enabled:
-            await asyncio.to_thread(warm_recommendation_signal_workers)
+            if await asyncio.to_thread(warm_recommendation_signal_workers):
+                await asyncio.to_thread(prewarm_recommendation_signals)
         try:
             yield
         finally:

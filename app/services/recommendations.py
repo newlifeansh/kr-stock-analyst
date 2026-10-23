@@ -8,6 +8,7 @@ from math import ceil
 from multiprocessing import get_context
 from os import getpid
 import logging
+from time import monotonic
 from threading import RLock
 from typing import Optional
 
@@ -121,6 +122,29 @@ def close_recommendation_signal_workers(*, wait: bool = False) -> None:
         _recommendation_signal_pool = None
     if pool is not None:
         pool.shutdown(wait=wait, cancel_futures=True)
+
+
+def prewarm_recommendation_signals() -> bool:
+    """Populate per-worker signal and database caches before the web is ready."""
+
+    if _recommendation_signal_pool is None:
+        return False
+    started = monotonic()
+    db = SessionLocal()
+    try:
+        payload = build_recommendations(db, limit=20, candidate_limit=100)
+        candidate_count = int(payload.get("candidate_count") or 0)
+        logger.info(
+            "Recommendation signal prewarm completed candidates=%s elapsed_seconds=%.2f",
+            candidate_count,
+            monotonic() - started,
+        )
+        return candidate_count >= 20
+    except Exception:
+        logger.exception("Recommendation signal prewarm failed")
+        return False
+    finally:
+        db.close()
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
