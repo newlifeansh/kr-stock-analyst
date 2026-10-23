@@ -174,7 +174,12 @@ from app.services.morning_money_briefing import (
     money_briefing_edition,
 )
 from app.services.opposite_moves import build_opposite_moves, opposite_moves_completed_through
-from app.services.recommendations import build_recommendations
+from app.services.recommendations import (
+    build_recommendations,
+    close_recommendation_signal_workers,
+    prewarm_recommendation_signals,
+    warm_recommendation_signal_workers,
+)
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.quant_signals import (
@@ -2050,9 +2055,14 @@ async def lifespan(_: FastAPI):
                 stock_logo_task = asyncio.create_task(_run_stock_logo_sync_loop())
             if settings.bootstrap_on_start:
                 bootstrap_task = asyncio.create_task(_run_bootstrap_task())
+        if settings.runs_web_services() and not settings.us_market_enabled:
+            if await asyncio.to_thread(warm_recommendation_signal_workers):
+                await asyncio.to_thread(prewarm_recommendation_signals)
         try:
             yield
         finally:
+            if settings.runs_web_services() and not settings.us_market_enabled:
+                close_recommendation_signal_workers()
             if bootstrap_task is not None:
                 bootstrap_task.cancel()
                 with suppress(asyncio.CancelledError):

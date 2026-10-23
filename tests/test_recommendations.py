@@ -1,7 +1,9 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from copy import deepcopy
+from concurrent.futures import Future
 from dataclasses import FrozenInstanceError
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,6 +53,122 @@ def test_recommendations_replay_only_returned_candidates_without_exits(monkeypat
     assert set(calls) == {item["code"] for item in result["items"]}
     assert result["terminal_exit_excluded_count"] == 0
     assert result["candidate_count"] == result["qualified_count"] == 100
+
+
+def test_recommendations_preserve_selection_with_warmed_process_workers(monkeypatch):
+    items = _install_ranked_pool(monkeypatch)
+    submitted = []
+
+    class ReadyPool:
+        def submit(self, fn, code, **kwargs):
+            submitted.append(code)
+            future = Future()
+            future.set_result(fn(code, **kwargs))
+            return future
+
+    monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: True)
+    monkeypatch.setattr(recommendations, "_recommendation_signal_pool", ReadyPool())
+    monkeypatch.setattr(recommendations, "_load_recommendation_signal", lambda code, **_kwargs: _confirmed_entry_signal(code))
+    result = build_recommendations(None, limit=20, candidate_limit=100)
+    expected_pool = recommendations._select_diverse_recommendations(items, 40)
+    expected = recommendations._select_diverse_recommendations(expected_pool, 20)
+    assert submitted == [item["code"] for item in expected]
+    assert [item["code"] for item in result["items"]] == submitted
+    assert result["terminal_exit_excluded_count"] == 0
+
+
+def test_recommendations_recheck_only_unfinished_codes_after_worker_failure(monkeypatch):
+    _install_ranked_pool(monkeypatch)
+    calls = []
+    shutdown = []
+
+    def signal(code, **_kwargs):
+        calls.append(code)
+        return _confirmed_entry_signal(code)
+
+    class FailingPool:
+        submitted = 0
+
+        def submit(self, fn, code, **kwargs):
+            if self.submitted == 2:
+                raise RuntimeError("worker unavailable")
+            self.submitted += 1
+            future = Future()
+            future.set_result(fn(code, **kwargs))
+            return future
+
+        def shutdown(self, **kwargs):
+            shutdown.append(kwargs)
+
+    monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: True)
+    monkeypatch.setattr(recommendations, "_recommendation_signal_pool", FailingPool())
+    monkeypatch.setattr(recommendations, "_load_recommendation_signal", signal)
+    result = build_recommendations(None, limit=20, candidate_limit=100)
+    assert len(result["items"]) == 20
+    assert len(calls) == len(set(calls)) == 20
+    assert shutdown == [{"wait": True, "cancel_futures": True}]
+
+
+def test_recommendation_worker_warmup_waits_for_every_isolated_worker(monkeypatch):
+    worker_pids = iter(range(101, 107))
+    observed = {"submitted": 0, "readiness": 0, "closed": False}
+
+    class ReadyQueue:
+        def get(self, *, timeout):
+            assert timeout == 60
+            observed["readiness"] += 1
+            return next(worker_pids)
+
+        def close(self):
+            observed["closed"] = True
+
+    class ReadyContext:
+        def Queue(self):
+            return ReadyQueue()
+
+    class ReadyPool:
+        def __init__(self, *, max_workers, mp_context, initializer, initargs):
+            assert max_workers == 6
+            assert isinstance(mp_context, ReadyContext)
+            assert initializer is recommendations._warm_recommendation_signal_worker
+            assert len(initargs) == 1
+
+        def submit(self, fn):
+            observed["submitted"] += 1
+            future = Future()
+            future.set_result(100 + observed["submitted"])
+            return future
+
+        def shutdown(self, **_kwargs):
+            pass
+
+    monkeypatch.setattr(recommendations, "engine", SimpleNamespace(dialect=SimpleNamespace(name="postgresql")))
+    monkeypatch.setattr(recommendations, "get_context", lambda mode: ReadyContext() if mode == "spawn" else None)
+    monkeypatch.setattr(recommendations, "ProcessPoolExecutor", ReadyPool)
+    monkeypatch.setattr(recommendations, "_recommendation_signal_pool", None)
+    assert recommendations.warm_recommendation_signal_workers() is True
+    assert observed == {"submitted": 6, "readiness": 6, "closed": True}
+    recommendations.close_recommendation_signal_workers()
+
+
+def test_recommendation_web_prewarm_evaluates_full_candidate_limit(monkeypatch):
+    observed = {}
+
+    class SessionStub:
+        def close(self):
+            observed["closed"] = True
+
+    session = SessionStub()
+
+    def build(db, *, limit, candidate_limit):
+        observed["request"] = (db, limit, candidate_limit)
+        return {"candidate_count": 100}
+
+    monkeypatch.setattr(recommendations, "_recommendation_signal_pool", object())
+    monkeypatch.setattr(recommendations, "SessionLocal", lambda: session)
+    monkeypatch.setattr(recommendations, "build_recommendations", build)
+    assert recommendations.prewarm_recommendation_signals() is True
+    assert observed == {"request": (session, 20, 100), "closed": True}
 
 
 def test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates(monkeypatch):
