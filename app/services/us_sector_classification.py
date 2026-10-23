@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v10"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v11"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -36,6 +36,13 @@ def _cik_map(etf: str, values: str) -> dict[str, str]:
 # v10 adds ACN (SEC CIK 1467373), verified in the 2026-10-19 XLK holdings.
 # https://www.sec.gov/Archives/edgar/data/1467373/000146737326000049/0001467373-26-000049-index.htm
 # https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-xlk.xlsx
+# v11 adds NOW (SEC CIK 1373715) to XLK and ISRG (SEC CIK 1035267)
+# to XLV. Both appear in the issuer's SEC filings and the respective
+# sector fund's published holdings; Nasdaq display sectors are not used.
+# https://www.sec.gov/Archives/edgar/data/1373715/000137371526000007/0001373715-26-000007-index.htm
+# https://www.sectorspdrs.com/api/documents/by-fullname/Sector%20Documents/XLK%20-%20Technology%20Documents/Fact%20Sheet
+# https://www.sec.gov/Archives/edgar/data/1035267/000103526726000058/0001035267-26-000058-index.htm
+# https://www.ssga.com/library-content/products/factsheets/etfs/us/factsheet-us-en-xlv.pdf
 US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
     **_cik_map(
         "XLK",
@@ -45,7 +52,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         0001321655 0000707549 0000006951 0001571996 0001973239 0001327567
         0001000184 0002023554 0001596532 0000319201 0000097476 0000051143
         0001535527 0001108524 0001137789 0001835632 0000804328 0000006281
-        0000106040 0001594805 0000820313 0001467373
+        0000106040 0001594805 0000820313 0001467373 0001373715
         """,
     ),
     **_cik_map(
@@ -83,7 +90,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         """
         0000059478 0000200406 0001551152 0000310158 0000731766 0001114448
         0000901832 0000097745 0000318154 0000353278 0000001800 0000882095
-        0000078003 0000313616
+        0000078003 0000313616 0001035267
         """,
     ),
     **_cik_map(
