@@ -27,6 +27,7 @@ from app.services.ttl_cache import TTLCache
 from app.services.us_market_calendar import (
     US_SIGNAL_PUBLICATION_GRACE,
     USMarketCalendarUnavailable,
+    recent_us_market_session_dates,
     us_market_session as official_us_market_session,
 )
 
@@ -981,16 +982,24 @@ def fetch_us_completed_session_quote(
     completed_date: date,
     *,
     refresh: bool = False,
+    fallback_quote: Optional[dict[str, object]] = None,
+    prior_screen: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
     """Return a quote proven against one completed US session.
 
     Yahoo can leave an ADR's quote endpoint on the prior session in one edge
-    region while its chart is current. In that case, combine the independently
-    reported share count with the exact completed-session chart close.
+    region while its chart is current. A missing share count may be recovered
+    only from the immediately preceding Nasdaq screen when both chart closes
+    and the current batch quote independently agree with their source dates.
     """
 
     code = _symbol(symbol)
-    summary = fetch_us_quote_price(code, refresh=refresh)
+    try:
+        summary = fetch_us_quote_price(code, refresh=refresh)
+    except ValueError:
+        if not isinstance(fallback_quote, dict):
+            raise
+        summary = dict(fallback_quote)
     observed_symbol = _symbol(str(summary.get("symbol") or ""))
     observed_exchange = str(summary.get("exchange") or "").upper()
     observed_currency = str(summary.get("currency") or "").upper()
@@ -1024,6 +1033,13 @@ def fetch_us_completed_session_quote(
     closes = list(chart_quote.get("close") or [])
     completed_timestamp: Optional[int] = None
     completed_close: Optional[Decimal] = None
+    prior_close: Optional[Decimal] = None
+    prior_date: Optional[date] = None
+    if prior_screen is not None:
+        recent_sessions = recent_us_market_session_dates(completed_date, 2)
+        if len(recent_sessions) != 2:
+            raise ValueError("Prior Nasdaq screen session cannot be verified")
+        prior_date = recent_sessions[0]
     for index, timestamp in enumerate(timestamps):
         try:
             trade_date = datetime.fromtimestamp(
@@ -1036,6 +1052,8 @@ def fetch_us_completed_session_quote(
         if trade_date == completed_date and close is not None and close > 0:
             completed_timestamp = int(timestamp)
             completed_close = close
+        elif trade_date == prior_date and close is not None and close > 0:
+            prior_close = close
     if completed_timestamp is None or completed_close is None:
         raise ValueError("Yahoo chart does not contain the completed-session close")
 
@@ -1053,13 +1071,49 @@ def fetch_us_completed_session_quote(
             and summary_price > 0
         ):
             shares = summary_market_cap / summary_price
+    market_cap_derivation: Optional[str] = None
+    if (shares is None or shares <= 0) and prior_screen is not None:
+        screen_date = prior_screen.get("screen_as_of")
+        if isinstance(screen_date, str):
+            try:
+                screen_date = date.fromisoformat(screen_date)
+            except ValueError:
+                screen_date = None
+        screen_cap = _to_decimal(prior_screen.get("screen_market_cap"))
+        screen_price = _to_decimal(prior_screen.get("screen_last_price"))
+        current_price = _to_decimal(summary.get("regularMarketPrice"))
+        chart_symbol = _symbol(str(meta.get("symbol") or ""))
+        if not (
+            screen_date == prior_date
+            and screen_cap is not None and screen_cap > 0
+            and screen_price is not None and screen_price > 0
+            and prior_close is not None
+            and prior_close.quantize(Decimal("0.01"))
+            == screen_price.quantize(Decimal("0.01"))
+            and current_price is not None and current_price > 0
+            and current_price.quantize(Decimal("0.01"))
+            == completed_close.quantize(Decimal("0.01"))
+            and observed_date == completed_date
+            and observed_symbol.replace("-", ".") == code.replace("-", ".")
+            and observed_exchange in {"NMS", "NGM", "NCM", "NYQ", "NASDAQ", "NYSE"}
+            and observed_currency == "USD"
+            and observed_type == "EQUITY"
+            and chart_symbol.replace("-", ".") == code.replace("-", ".")
+            and str(meta.get("exchangeName") or "").upper()
+            in {"NMS", "NGM", "NCM", "NYQ", "NASDAQ", "NYSE"}
+            and str(meta.get("currency") or "").upper() == "USD"
+            and str(meta.get("instrumentType") or "").upper() == "EQUITY"
+        ):
+            raise ValueError("Prior Nasdaq share-count bridge evidence is incomplete")
+        shares = screen_cap / screen_price
+        market_cap_derivation = "prior_nasdaq_shares_x_yahoo_completed_close"
     if shares is None or shares <= 0:
         raise ValueError("Yahoo quote summary does not contain a positive share count")
 
     market_cap = int(
         (shares * completed_close).to_integral_value(rounding=ROUND_HALF_UP)
     )
-    return {
+    repaired = {
         **summary,
         "symbol": str(meta.get("symbol") or code),
         "quoteType": str(meta.get("instrumentType") or ""),
@@ -1069,6 +1123,9 @@ def fetch_us_completed_session_quote(
         "regularMarketPrice": completed_close,
         "marketCap": market_cap,
     }
+    if market_cap_derivation is not None:
+        repaired["marketCapDerivation"] = market_cap_derivation
+    return repaired
 
 
 def fetch_us_quote_batch(
