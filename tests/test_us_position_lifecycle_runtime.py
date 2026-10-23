@@ -757,6 +757,24 @@ def test_sector_v9_snapshot_is_preserved_until_v10_rebuild(snapshot_db):
     assert row.payload == frozen_payload
 
 
+def test_sector_v10_snapshot_is_preserved_until_v11_rebuild(snapshot_db):
+    generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
+    lifecycle.save_us_position_lifecycle_snapshot(snapshot_db, _complete_feed(), generated_at=generated_at)
+    row = snapshot_db.get(MarketQuantSignalSnapshot, lifecycle.US_POSITION_LIFECYCLE_SNAPSHOT_KEY)
+    payload = json.loads(row.payload)
+    payload["sector_classification_version"] = "us-sector-etf-cik-v10"
+    frozen_payload = json.dumps(payload)
+    row.payload = frozen_payload
+    snapshot_db.commit()
+    loaded = lifecycle.load_us_position_lifecycle_snapshot(snapshot_db, now=generated_at)
+    assert loaded["source_sector_classification_version"] == "us-sector-etf-cik-v10"
+    assert loaded["sector_classification_version"] == lifecycle.US_SECTOR_ETF_CLASSIFICATION_VERSION
+    assert loaded["schema_upgrade_required"] is True
+    assert loaded["new_entries_allowed"] is False
+    assert loaded["items"] == []
+    assert row.payload == frozen_payload
+
+
 def test_sector_classification_version_change_requires_fail_closed_upgrade(
     snapshot_db,
 ) -> None:

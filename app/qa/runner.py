@@ -998,6 +998,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_dashboard_us_intraday_cache_policy_uses_safe_server_session_source",
     ),
     "DATA-US-EVIDENCE-001": (
+        "tests.test_us_position_lifecycle_fail_closed."
+        "test_reviewed_now_isrg_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed.test_reviewed_acn_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed.test_reviewed_bud_tjx_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle."
@@ -1246,6 +1248,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_personal_us_mcp_remote_health_fails_closed_without_token",
     ),
     "SIG-US-MIGRATION-001": (
+        "tests.test_us_position_lifecycle_runtime.test_sector_v10_snapshot_is_preserved_until_v11_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v9_snapshot_is_preserved_until_v10_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v8_snapshot_is_preserved_until_v9_rebuild",
         "tests.test_app."
