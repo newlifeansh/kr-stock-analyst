@@ -16598,7 +16598,7 @@ function aiSignalLifecycleIsActive(now = new Date()) {
 }
 
 function aiSignalSnapshotRefreshAge(now = new Date()) {
-  if (state.aiSignalLifecycleMode === "completed-close-fresh-minute-confirmation-v1"
+  if (["completed-close-fresh-minute-confirmation-v1", "same-session-observed-entry-us-v1"].includes(state.aiSignalLifecycleMode)
       && aiSignalLifecycleIsActive(now)) return 30_000;
   return aiSignalLifecycleIsActive(now) ? AI_SIGNAL_ACTIVE_REFRESH_MS : AI_SIGNAL_CLOSED_REFRESH_MS;
 }
@@ -17407,9 +17407,11 @@ function renderAiSignalLiveStatus() {
     elements.aiSignalModelDisclaimer.hidden = !(
       showStatus
       && isUsHubContext
-      && ["us-next-open-model-replay-v1", "completed-close-fresh-minute-confirmation-v1"].includes(state.aiSignalLifecycleMode)
+      && ["us-next-open-model-replay-v1", "completed-close-fresh-minute-confirmation-v1", "same-session-observed-entry-us-v1"].includes(state.aiSignalLifecycleMode)
     );
-    if (state.aiSignalLifecycleMode === "completed-close-fresh-minute-confirmation-v1") {
+    if (state.aiSignalLifecycleMode === "same-session-observed-entry-us-v1") {
+      elements.aiSignalModelDisclaimer.textContent = "미국 장중 시그널: 전일 완료 일봉의 Top100 후보를 정규장 1분봉으로 관측합니다. 거래 참여도 0.75배에서 예비 포착하고 이후 새 완료 분봉의 1.0배 조건에서 매수를 확정합니다. +3% 절반·+5% 잔여 매도, 초기 손실 기준 -4%. 지연 시세와 장외 거래는 확정하지 않으며 실제 계좌 주문이 아닙니다.";
+    } else if (state.aiSignalLifecycleMode === "completed-close-fresh-minute-confirmation-v1") {
       elements.aiSignalModelDisclaimer.textContent = "미국 장중 시그널: 완료 종가로 후보를 정하고 최신 정규장 1분봉으로 매수·매도를 확인합니다. +3% 절반·+5% 잔여 매도, 초기 손실 기준 -4%. 지연 시세는 확정하지 않으며 실제 계좌 주문이 아닙니다.";
     }
   }

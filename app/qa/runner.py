@@ -2763,7 +2763,8 @@ def _valid_us_runtime_contract(feed: dict, expected_version: str) -> bool:
                     and feed.get("rollout_mode") == "hybrid_forward"
                     and feed.get("execution_enabled") is False
                     and feed.get("signal_execution_enabled") is True
-                    and feed.get("execution_model") == "completed-close-fresh-minute-confirmation-v1"
+                    and feed.get("execution_model") == "same-session-observed-entry-us-v1"
+                    and feed.get("lifecycle_replay_version") == "same-session-observed-entry-us-v1"
                     and feed.get("daily_setup_ready") is True
                     and feed.get("collector_fresh") is True)
     return bool(feed.get("rollout_mode") == "model_replay"

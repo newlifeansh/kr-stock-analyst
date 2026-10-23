@@ -1558,8 +1558,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20261022us158"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261022us158&amp;build=20261022us158"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261024us159"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261024us159&amp;build=20261024us159"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -1849,7 +1849,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261022us158"}
+    assert version.json() == {"version": "20261024us159"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -1858,9 +1858,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261022us158" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261024us159" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20261022us158")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20261024us159")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -1874,12 +1874,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20261022us158"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20261024us159"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20261022us158' in worker.text
-    assert '"/dashboard-app-v170.js?v=20261022us158"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20261024us159' in worker.text
+    assert '"/dashboard-app-v170.js?v=20261024us159"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -3602,8 +3602,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20261022us158"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261022us158&amp;build=20261022us158"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261024us159"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261024us159&amp;build=20261024us159"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()
@@ -4221,7 +4221,10 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert 'identity.append(el("small", "", "시장 신호"));' in source
     assert 'label: usModelReplay ? "전략 매수 확정" : "확정 매수"' in source
     assert 'id="ai-signal-model-disclaimer"' in shell
-    assert '["us-next-open-model-replay-v1", "completed-close-fresh-minute-confirmation-v1"].includes(state.aiSignalLifecycleMode)' in source
+    assert '["us-next-open-model-replay-v1", "completed-close-fresh-minute-confirmation-v1", "same-session-observed-entry-us-v1"].includes(state.aiSignalLifecycleMode)' in source
+    assert '["completed-close-fresh-minute-confirmation-v1", "same-session-observed-entry-us-v1"].includes(state.aiSignalLifecycleMode)' in source
+    assert 'state.aiSignalLifecycleMode === "same-session-observed-entry-us-v1"' in source
+    assert '거래 참여도 0.75배에서 예비 포착하고 이후 새 완료 분봉의 1.0배 조건에서 매수를 확정합니다.' in source
     assert 'return { key: "holding", label: "보유 중", tone: "hold", signalDate' not in source
     assert '"전량 매도 확정 · 전략 버전 통일" : "전량 매도 확정"' in source
     assert "function aiSignalTransitionKey" in source
@@ -4268,6 +4271,26 @@ def test_home_shows_top_five_category_rankings_and_links_to_market_top_fifty_pag
     assert "min-height: 44px;" in surge_filter_styles
     assert "scroll-snap-type: x proximity;" in surge_filter_styles
     assert '.home-surge-sector-filters button:focus-visible' in surge_filter_styles
+
+
+@pytest.mark.qa_gate
+def test_us_hybrid_signal_refresh_runs_every_thirty_seconds_during_session():
+    source = (Path(__file__).parents[1] / "app/static/dashboard/app.js").read_text()
+    refresh_function = source[source.index("function aiSignalSnapshotRefreshAge("):source.index("function aiSignalSnapshotStaleAge(")]
+    script = """
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const source = process.argv[1];
+for (const mode of ['same-session-observed-entry-us-v1', 'completed-close-fresh-minute-confirmation-v1']) {
+  const context = { state: { aiSignalLifecycleMode: mode }, aiSignalLifecycleIsActive: () => true,
+    AI_SIGNAL_ACTIVE_REFRESH_MS: 60000, AI_SIGNAL_CLOSED_REFRESH_MS: 300000 };
+  vm.runInNewContext(source, context);
+  assert.equal(context.aiSignalSnapshotRefreshAge(), 30000);
+  context.aiSignalLifecycleIsActive = () => false;
+  assert.equal(context.aiSignalSnapshotRefreshAge(), 300000);
+}
+"""
+    subprocess.run(["node", "-e", script, refresh_function], check=True)
 
 
 def test_ai_signal_home_preview_opens_full_list_before_stock_detail():
