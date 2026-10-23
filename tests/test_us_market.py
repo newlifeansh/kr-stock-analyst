@@ -168,6 +168,69 @@ def test_completed_session_quote_rebuilds_stale_adr_from_chart_and_shares(
     assert quote["exchange"] == "NYQ"
 
 
+def test_completed_session_quote_uses_verified_prior_screen_when_yahoo_omits_shares(
+    monkeypatch,
+):
+    completed_date = date(2026, 9, 8)
+    prior_time = int(datetime(2026, 9, 4, 13, 30, tzinfo=UTC).timestamp())
+    completed_time = int(datetime(2026, 9, 8, 13, 30, tzinfo=UTC).timestamp())
+    incomplete_quote = {
+        "symbol": "WDS",
+        "quoteType": "EQUITY",
+        "exchange": "NYQ",
+        "currency": "USD",
+        "regularMarketTime": completed_time,
+        "regularMarketPrice": Decimal("23.71"),
+    }
+    screen = {
+        "screen_as_of": "2026-09-04",
+        "screen_last_price": Decimal("22.50"),
+        "screen_market_cap": Decimal("22500"),
+    }
+    chart = {
+        "meta": {
+            "symbol": "WDS",
+            "instrumentType": "EQUITY",
+            "exchangeName": "NYQ",
+            "currency": "USD",
+        },
+        "timestamp": [prior_time, completed_time],
+        "indicators": {"quote": [{"close": [22.5000001, 23.7099999]}]},
+    }
+    monkeypatch.setattr(
+        us_market,
+        "fetch_us_quote_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("cap missing")),
+    )
+    monkeypatch.setattr(us_market, "fetch_chart_range", lambda *_args, **_kwargs: chart)
+
+    quote = us_market.fetch_us_completed_session_quote(
+        "WDS", completed_date, refresh=True,
+        fallback_quote=incomplete_quote, prior_screen=screen,
+    )
+
+    assert quote["marketCap"] == 23_710
+    assert quote["marketCapDerivation"] == "prior_nasdaq_shares_x_yahoo_completed_close"
+    assert quote["regularMarketTime"] == completed_time
+    assert quote["regularMarketPrice"] == Decimal("23.7099999")
+
+    for invalid_screen, invalid_quote, invalid_chart in (
+        ({**screen, "screen_as_of": "2026-09-03"}, incomplete_quote, chart),
+        ({**screen, "screen_last_price": Decimal("22.49")}, incomplete_quote, chart),
+        (screen, {**incomplete_quote, "symbol": "OTHER"}, chart),
+        (screen, {**incomplete_quote, "regularMarketPrice": 23.69}, chart),
+        (screen, incomplete_quote, {**chart, "meta": {**chart["meta"], "currency": "AUD"}}),
+    ):
+        monkeypatch.setattr(
+            us_market, "fetch_chart_range", lambda *_args, **_kwargs: invalid_chart,
+        )
+        with pytest.raises(ValueError, match="evidence is incomplete"):
+            us_market.fetch_us_completed_session_quote(
+                "WDS", completed_date, refresh=True,
+                fallback_quote=invalid_quote, prior_screen=invalid_screen,
+            )
+
+
 class _FakeNewsResponse:
     content = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
     <rss><channel><item><title>엔비디아 실적 전망</title><link>https://example.test/nvda</link>

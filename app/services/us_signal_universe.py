@@ -25,8 +25,8 @@ from app.models import MarketRankingSnapshot
 from app.services.ttl_cache import TTLCache
 
 
-US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v5"
-US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v3"
+US_SIGNAL_UNIVERSE_VERSION = "us-market-cap-top100-v6"
+US_SIGNAL_UNIVERSE_AUDIT_VERSION = "us-market-cap-source-audit-v4"
 US_SIGNAL_UNIVERSE_LIMIT = 100
 US_SIGNAL_UNIVERSE_CATEGORY = "us_signal_universe"
 NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks"
@@ -611,6 +611,7 @@ def _align_candidates_to_completed_session(
                 ),
                 "quote_as_of": quote_date,
                 "quote_market_cap": _decimal_text(market_cap),
+                "market_cap_derivation": quote.get("marketCapDerivation"),
             }
         )
 
@@ -628,7 +629,7 @@ def _align_candidates_to_completed_session(
         aligned,
         quotes,
         alignment,
-        "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool",
+        "completed_market_cap_validated_against_prior_nasdaq_candidate_pool",
         exclusions,
     )
 
@@ -661,6 +662,7 @@ def _completed_session_bridge_quote_is_valid(
 def _retry_completed_session_bridge_quotes(
     symbols: list[str],
     completed_date: date,
+    prior_candidates: Optional[dict[str, dict[str, Any]]] = None,
 ) -> dict[str, dict[str, Any]]:
     """Retry a bounded set of invalid batch quotes through an independent endpoint."""
 
@@ -689,6 +691,8 @@ def _retry_completed_session_bridge_quotes(
                 symbol,
                 completed_date,
                 refresh=True,
+                fallback_quote=quotes.get(symbol),
+                prior_screen=(prior_candidates or {}).get(symbol),
             ): symbol
             for symbol in invalid
         }
@@ -1146,6 +1150,7 @@ def _normalized_quote_observation(
         "exchange": str(quote.get("exchange") or "").strip().upper() or None,
         "currency": str(quote.get("currency") or "").strip().upper() or None,
         "market_cap": _decimal_text(quote.get("marketCap")),
+        "market_cap_derivation": quote.get("marketCapDerivation"),
         "regular_market_price": _decimal_text(quote.get("regularMarketPrice")),
         "regular_market_time": normalized_market_time,
         "quote_date": (
@@ -1401,7 +1406,7 @@ def _source_audit_is_valid(
             or screen_as_of != sessions[0]
             or alignment.get("adjusted_candidate_count") != source_candidate_count
             or ranking_authority
-            != "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool"
+            != "completed_market_cap_validated_against_prior_nasdaq_candidate_pool"
             or validated_quote_count != source_candidate_count
         ):
             return False
@@ -1915,6 +1920,7 @@ def build_us_signal_universe(
                 quote_retry_loader=lambda symbols: _retry_completed_session_bridge_quotes(
                     symbols,
                     completed_date,
+                    {str(item["code"]): item for item in candidates},
                 ),
             )
         )

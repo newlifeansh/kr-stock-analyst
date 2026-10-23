@@ -1089,7 +1089,7 @@ def test_prior_completed_session_screener_uses_complete_yahoo_market_cap_bridge(
     }
     assert (
         payload["boundary_evidence"]["ranking_authority"]
-        == "yahoo_market_cap_validated_against_prior_nasdaq_candidate_pool"
+        == "completed_market_cap_validated_against_prior_nasdaq_candidate_pool"
     )
     assert universe._snapshot_payload_is_valid(payload) is True
 
@@ -1210,6 +1210,48 @@ def test_prior_session_bridge_repairs_isolated_batch_omission_with_quote_price(
     assert payload["status"] == "ready"
     assert payload["universe_as_of"].isoformat() == "2026-09-08"
     assert detail_calls == [missing_code]
+
+
+def test_prior_session_bridge_supplies_screen_and_batch_quote_for_cap_repair(
+    monkeypatch,
+):
+    candidates = _candidates(101)
+    for item in candidates:
+        item["screen_as_of"] = "2026-09-04"
+    repair_code = str(candidates[50]["code"])
+    candidates[50]["screen_last_price"] = Decimal("22.50")
+    candidates[50]["screen_market_cap"] = Decimal("22500")
+    quotes = {
+        str(item["code"]): _quote(str(item["code"]), 2_000_000_000 - index)
+        for index, item in enumerate(candidates)
+    }
+    incomplete = dict(quotes[repair_code])
+    incomplete.pop("marketCap")
+    incomplete["regularMarketPrice"] = Decimal("23.71")
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_batch",
+        lambda symbols, **_kwargs: {
+            code: incomplete if code == repair_code else quotes[code]
+            for code in symbols
+        },
+    )
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+    observed = []
+
+    def recover(symbol, _completed_date, **kwargs):
+        observed.append((symbol, kwargs["fallback_quote"], kwargs["prior_screen"]))
+        return quotes[symbol]
+
+    monkeypatch.setattr(us_market, "fetch_us_completed_session_quote", recover)
+
+    payload = universe.build_us_signal_universe(
+        now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert len(observed) == 1
+    assert observed[0] == (repair_code, incomplete, candidates[50])
 
 
 def test_prior_session_bridge_does_not_expand_detail_retry_beyond_bound(monkeypatch):
@@ -1594,7 +1636,7 @@ def test_new_universe_version_migrates_around_invalid_prior_version_row(
 ):
     sqlite_db.add(
         MarketRankingSnapshot(
-            snapshot_id="us-market-cap-top100-v4:2026-09-08",
+            snapshot_id="us-market-cap-top100-v5:2026-09-08",
             category=universe.US_SIGNAL_UNIVERSE_CATEGORY,
             payload="{invalid-prior-version",
             captured_at=datetime(2026, 9, 9, 1, 0),
@@ -1620,11 +1662,11 @@ def test_new_universe_version_migrates_around_invalid_prior_version_row(
         now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
     )
 
-    assert universe.US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v5"
+    assert universe.US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v6"
     assert payload["status"] == "ready"
     assert sqlite_db.get(
         MarketRankingSnapshot,
-        "us-market-cap-top100-v5:2026-09-08",
+        "us-market-cap-top100-v6:2026-09-08",
     ) is not None
 
 
