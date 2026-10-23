@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from functools import lru_cache
 import re
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
@@ -794,7 +795,12 @@ def _normalized_title(value: object) -> str:
 
 
 def _canonical_news_text(value: object) -> str:
-    text = str(value or "").casefold()
+    return _cached_canonical_news_text(str(value or ""))
+
+
+@lru_cache(maxsize=8192)
+def _cached_canonical_news_text(value: str) -> str:
+    text = value.casefold()
     replacements = (
         (r"k[- ]?뷰티|화장품", " 화장품 "),
         (r"삼전닉스|삼성전자|(?:sk)?하이닉스", " 반도체 "),
@@ -814,14 +820,19 @@ def _canonical_news_text(value: object) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _meaningful_news_tokens(value: object) -> set[str]:
+def _meaningful_news_tokens(value: object) -> frozenset[str]:
+    return _cached_meaningful_news_tokens(str(value or ""))
+
+
+@lru_cache(maxsize=8192)
+def _cached_meaningful_news_tokens(value: str) -> frozenset[str]:
     text = _canonical_news_text(value)
     tokens = set(re.findall(r"\d+(?:\.\d+)?%?|[a-z]{2,}|[가-힣]{2,}", text))
     stopwords = {
         "속보", "종합", "단독", "기자", "관련", "대한", "통해", "가운데", "전망",
         "소식", "시장", "올해", "이번", "최근", "오늘", "어제",
     }
-    return {token for token in tokens if token not in stopwords}
+    return frozenset(token for token in tokens if token not in stopwords)
 
 
 def _summary_matches_title(title: object, summary: object) -> bool:
@@ -843,12 +854,17 @@ def _summary_matches_title(title: object, summary: object) -> bool:
 
 
 def _story_context(item: NewsItem) -> str:
+    return _cached_story_context(str(item.title or ""), str(item.summary or ""))
+
+
+@lru_cache(maxsize=4096)
+def _cached_story_context(title: str, summary: str) -> str:
     matching_summary = (
-        _clean_news_summary_text(item.summary)
-        if _summary_matches_title(item.title, item.summary)
+        _clean_news_summary_text(summary)
+        if _summary_matches_title(title, summary)
         else ""
     )
-    return _canonical_news_text(f"{item.title or ''} {matching_summary or ''}")
+    return _canonical_news_text(f"{title} {matching_summary}")
 
 
 def _titles_describe_same_story(left: NewsItem, right: NewsItem) -> bool:

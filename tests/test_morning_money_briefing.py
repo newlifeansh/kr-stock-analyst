@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.main import app, morning_money_briefing_cache
 from app.models import NewsItem
+from app.services import morning_money_briefing as morning_money
 from app.services.investor_calendar import InvestorScheduleEvent
 from app.services.morning_money_briefing import (
     CATEGORIES,
@@ -1138,6 +1139,26 @@ def test_morning_money_story_dedup_handles_live_entity_and_macro_angles():
             summary="주요국 국채 금리 급등에 코스피지수가 5% 이상 급락했어요.",
         ),
     )
+
+
+def test_morning_money_story_dedup_reuses_bounded_text_features():
+    rows = [
+        NewsItem(
+            title=f"ticker{chr(97 + index // 26)}{chr(97 + index % 26)}",
+            summary="서로 다른 종목의 독립된 기사입니다.",
+        )
+        for index in range(80)
+    ]
+    before = morning_money._cached_story_context.cache_info()
+
+    selected = morning_money._deduplicate_stories(rows)
+
+    after = morning_money._cached_story_context.cache_info()
+    assert len(selected) == 80
+    assert {id(row) for row in selected} == {id(row) for row in rows}
+    assert after.hits - before.hits >= 3000
+    assert after.misses - before.misses <= len(rows)
+    assert after.maxsize == 4096
 
 
 def test_morning_money_real_estate_deal_is_not_misclassified_as_retirement_investing():
