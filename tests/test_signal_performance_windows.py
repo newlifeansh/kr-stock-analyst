@@ -1,9 +1,39 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
+import subprocess
 
 from app.services import us_position_lifecycle as lifecycle
 from app.services.us_market import build_us_quant_signals
 from app.services.public_signal import public_market_signal_payload
+
+
+def test_us_performance_display_hides_only_repeated_window_samples():
+    source_path = Path(__file__).resolve().parents[1] / "app/static/dashboard/app.js"
+    script = r"""
+const assert = require('node:assert/strict');
+const source = require('node:fs').readFileSync(process.argv[1], 'utf8');
+const begin = source.indexOf('function aiSignalPerformanceWindowState(');
+const end = source.indexOf('function aiSignalCandidateScanView(', begin);
+assert.ok(begin >= 0 && end > begin);
+const section = source.slice(begin, end);
+const toNumber = value => value == null ? null : Number(value);
+const build = isUs => new Function('toNumber', 'isUsHubContext',
+  `${section}\nreturn aiSignalPerformanceWindowState;`)(toNumber, isUs);
+const us = build(true);
+const kr = build(false);
+const seven = { completed_trades: 3, average_return: 4.13, sample_state: 'limited' };
+const fifteen = { ...seven };
+const thirty = { ...seven };
+assert.equal(us(seven, null).sameSample, false);
+assert.equal(us(fifteen, seven).statusLabel, '동일 표본');
+assert.equal(us(thirty, fifteen).sameSample, true);
+assert.equal(us({ ...thirty, completed_trades: 4 }, fifteen).sameSample, false);
+assert.equal(us({ completed_trades: 0, average_return: null }, seven).statusLabel, '표본 없음');
+assert.equal(us({ completed_trades: 2, average_return: 1 }, { completed_trades: 0 }).sameSample, false);
+assert.equal(kr(fifteen, seven).sameSample, false);
+"""
+    subprocess.run(["node", "-e", script, str(source_path)], check=True, capture_output=True, text=True)
 
 
 def test_us_performance_windows_exclude_partial_future_invalid_and_duplicates():
