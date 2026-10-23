@@ -66,6 +66,27 @@ from app.services.market_calendar import KST, is_korea_regular_market_session
 
 
 @pytest.mark.qa_gate
+def test_us_live_runtime_contract_requires_current_intraday_execution_model() -> None:
+    from app.qa.runner import _valid_us_runtime_contract
+
+    feed = {
+        "strategy_version": "position-lifecycle-us-v3-hybrid1",
+        "rollout_mode": "hybrid_forward",
+        "execution_enabled": False,
+        "signal_execution_enabled": True,
+        "execution_model": "same-session-observed-entry-us-v1",
+        "lifecycle_replay_version": "same-session-observed-entry-us-v1",
+        "daily_setup_ready": True,
+        "collector_fresh": True,
+    }
+    version = "position-lifecycle-us-v3-hybrid1"
+    assert _valid_us_runtime_contract(feed, version)
+    assert not _valid_us_runtime_contract({**feed, "execution_model": "completed-close-fresh-minute-confirmation-v1"}, version)
+    assert not _valid_us_runtime_contract({**feed, "lifecycle_replay_version": "completed-close-fresh-minute-confirmation-v1"}, version)
+    assert not _valid_us_runtime_contract({**feed, "collector_fresh": False}, version)
+
+
+@pytest.mark.qa_gate
 def test_market_feed_duplicate_check_distinguishes_partial_and_final_sell() -> None:
     partial = {
         "code": "066570",
@@ -2173,7 +2194,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261022us158",
+                "us_dashboard_version": "20261024us159",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2181,7 +2202,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261022us158",
+                "us_dashboard_version": "20261024us159",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2444,11 +2465,11 @@ class FakeReadOnlyApi:
                 "daily_setup_ready": True,
                 "collector_fresh": True,
                 "signal_execution_enabled": True,
-                "execution_model": "completed-close-fresh-minute-confirmation-v1",
+                "execution_model": "same-session-observed-entry-us-v1",
                 "execution_enabled": False,
                 "stateful_lifecycle_replay_enabled": True,
                 "reentry_runtime_enabled": True,
-                "lifecycle_replay_version": "completed-close-fresh-minute-confirmation-v1",
+                "lifecycle_replay_version": "same-session-observed-entry-us-v1",
                 "stateful_lifecycle_replay_complete": True,
                 "stateful_lifecycle_replay_eligible_count": 98,
                 "stateful_lifecycle_replay_completed_count": 98,
@@ -2501,11 +2522,11 @@ class FakeReadOnlyApi:
                 "daily_setup_ready": True,
                 "collector_fresh": True,
                 "signal_execution_enabled": True,
-                "execution_model": "completed-close-fresh-minute-confirmation-v1",
+                "execution_model": "same-session-observed-entry-us-v1",
                 "execution_enabled": False,
                 "stateful_lifecycle_replay_enabled": True,
                 "reentry_runtime_enabled": True,
-                "lifecycle_replay_version": "completed-close-fresh-minute-confirmation-v1",
+                "lifecycle_replay_version": "same-session-observed-entry-us-v1",
                 "new_entries_allowed": True,
                 "recommendation_model_version": (
                     "us-independent-recommendation-v1"
@@ -2796,7 +2817,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261022us158"}, self._meta(path)
+            return {"version": "20261024us159"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2843,11 +2864,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261022us158" />'
+                '<link href="/assets/dashboard/styles.css?v=20261024us159" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261022us158"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261024us159"></script>'
                 '</body></html>',
                 self._meta(path),
             )
