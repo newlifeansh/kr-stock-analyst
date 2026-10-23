@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from math import ceil
+from multiprocessing import get_context
+from os import getpid
+import logging
 from threading import RLock
 from typing import Optional
 
@@ -12,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.models import DailyPrice, StockMaster
 from app.services.market_calendar import latest_completed_korea_market_session_date
 from app.services.market_rankings import _base_item, _row_value
@@ -57,6 +60,67 @@ WEIGHTS = {
 MARKET_CAP_UNIVERSE_LIMIT = 100
 KST = timezone(timedelta(hours=9))
 UNIVERSE_CACHE_TTL_SECONDS = 300
+RECOMMENDATION_SIGNAL_PROCESS_WORKERS = 6
+_recommendation_signal_pool: ProcessPoolExecutor | None = None
+_recommendation_signal_pool_lock = RLock()
+logger = logging.getLogger(__name__)
+
+
+def _warm_recommendation_signal_worker(ready_queue=None) -> int:
+    # The XKRX calendar is expensive to construct. Build it before this worker
+    # receives a recommendation, rather than racing six cold calculations.
+    from app.services.market_calendar import _scheduled_krx_calendar
+
+    _scheduled_krx_calendar()
+    worker_pid = getpid()
+    if ready_queue is not None:
+        ready_queue.put(worker_pid)
+    return worker_pid
+
+
+def warm_recommendation_signal_workers() -> bool:
+    """Prepare isolated signal workers only for the production Postgres web role."""
+
+    global _recommendation_signal_pool
+    if engine.dialect.name != "postgresql":
+        return False
+    with _recommendation_signal_pool_lock:
+        if _recommendation_signal_pool is not None:
+            return True
+        context = get_context("spawn")
+        ready_queue = context.Queue()
+        pool = ProcessPoolExecutor(
+            max_workers=RECOMMENDATION_SIGNAL_PROCESS_WORKERS,
+            mp_context=context,
+            initializer=_warm_recommendation_signal_worker,
+            initargs=(ready_queue,),
+        )
+        try:
+            futures = [pool.submit(getpid)
+                       for _ in range(RECOMMENDATION_SIGNAL_PROCESS_WORKERS)]
+            worker_pids = {ready_queue.get(timeout=60)
+                           for _ in range(RECOMMENDATION_SIGNAL_PROCESS_WORKERS)}
+            for future in futures:
+                future.result(timeout=60)
+            if len(worker_pids) != RECOMMENDATION_SIGNAL_PROCESS_WORKERS:
+                raise RuntimeError("Recommendation worker pool did not start every worker")
+        except Exception:
+            pool.shutdown(wait=False, cancel_futures=True)
+            logger.exception("Recommendation signal process pool warmup failed")
+            return False
+        finally:
+            ready_queue.close()
+        _recommendation_signal_pool = pool
+        return True
+
+
+def close_recommendation_signal_workers(*, wait: bool = False) -> None:
+    global _recommendation_signal_pool
+    with _recommendation_signal_pool_lock:
+        pool = _recommendation_signal_pool
+        _recommendation_signal_pool = None
+    if pool is not None:
+        pool.shutdown(wait=wait, cancel_futures=True)
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
 RECOMMENDATION_SIGNAL_SNAPSHOT_MAX_FUTURE_SKEW_SECONDS = 60
 MAX_RECOMMENDATIONS_PER_SECTOR = 2
@@ -1245,16 +1309,41 @@ def build_recommendations(
                         if str(item["code"]) not in signals_by_code
                         and str(item["code"]) not in pending][:8 - len(pending)]
         if threaded and len(pending) > 1:
-            with ThreadPoolExecutor(max_workers=min(8, len(pending))) as executor:
-                futures = {
-                    executor.submit(
-                        _load_recommendation_signal, code,
-                        live_quote=live_quotes.get(code),
-                        ensure_signal_history=ensure_signal_history,
-                    ): code for code in pending
-                }
-                for future in as_completed(futures):
-                    signals_by_code[futures[future]] = future.result()
+            process_pool = _recommendation_signal_pool
+            if process_pool is not None:
+                futures = {}
+                try:
+                    for code in pending:
+                        future = process_pool.submit(
+                            _load_recommendation_signal, code,
+                            live_quote=live_quotes.get(code),
+                            ensure_signal_history=ensure_signal_history,
+                        )
+                        futures[future] = code
+                    for future in as_completed(futures):
+                        signals_by_code[futures[future]] = future.result()
+                except Exception:
+                    logger.exception("Recommendation signal process pool failed; retrying remaining codes in threads")
+                    close_recommendation_signal_workers(wait=True)
+                    for future, code in futures.items():
+                        if code in signals_by_code or future.cancelled():
+                            continue
+                        try:
+                            signals_by_code[code] = future.result()
+                        except Exception:
+                            continue
+            remaining = [code for code in pending if code not in signals_by_code]
+            if remaining:
+                with ThreadPoolExecutor(max_workers=min(8, len(remaining))) as executor:
+                    futures = {
+                        executor.submit(
+                            _load_recommendation_signal, code,
+                            live_quote=live_quotes.get(code),
+                            ensure_signal_history=ensure_signal_history,
+                        ): code for code in remaining
+                    }
+                    for future in as_completed(futures):
+                        signals_by_code[futures[future]] = future.result()
         else:
             for code in pending:
                 signals_by_code[code] = _load_recommendation_signal_in_session(
