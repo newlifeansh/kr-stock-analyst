@@ -12016,7 +12016,7 @@ async function authorizeInviteCode(inviteCode) {
       return { ok: false, message: "입력 횟수가 많습니다. 15분 후 다시 시도해주세요." };
     }
     if (!response.ok) {
-      return { ok: false, message: "초대 코드를 확인해주세요." };
+      return { ok: false, message: "초대 코드가 만료되었거나 변경되었습니다. 최신 코드를 입력해주세요." };
     }
     state.inviteAuthorized = true;
     updateInviteField();
@@ -12616,7 +12616,7 @@ async function initializeWatchlistIdentity() {
     state.watchlistGroups = readWatchlistGroups();
     renderWatchlistGroupTabs();
     setWatchlistIdStatus("로컬 저장 중");
-    showLoginGate(savedId ? "서비스 이용을 위해 초대 코드를 입력해주세요." : "");
+    showLoginGate(savedId ? "인증이 만료되었거나 코드가 변경되었습니다. 최신 초대 코드를 입력해주세요." : "");
   }
 }
 
@@ -14378,9 +14378,12 @@ function registerDashboardServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
+  const hadControllerBeforeRegistration = Boolean(navigator.serviceWorker.controller);
   let refreshing = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) {
+    // The first install already loaded this shell from the network. Reloading
+    // here can discard an invite code or ID while the user signs in.
+    if (!hadControllerBeforeRegistration || refreshing) {
       return;
     }
     refreshing = true;
