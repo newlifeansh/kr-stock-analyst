@@ -1,8 +1,8 @@
-const DASHBOARD_SW_VERSION = "20261022v586";
-const DASHBOARD_BUILD_VERSION = "20261022v586";
+const DASHBOARD_SW_VERSION = "20261024v587";
+const DASHBOARD_BUILD_VERSION = "20261024v587";
 const STATIC_CACHE = `secret-note-static-${DASHBOARD_SW_VERSION}-${DASHBOARD_BUILD_VERSION}`;
 const STATIC_ASSETS = [
-  "/assets/dashboard/styles.css?v=20261022v586&build=20261022v586",
+  "/assets/dashboard/styles.css?v=20261024v587&build=20261024v587",
   "/assets/staging/adaptive-theme.js?v=20260828-tds-adaptive-v77-shortcuts",
   "/assets/staging/dark-theme.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170-chart-fallback-v171-ai-response-visual-fold-v174",
   "/assets/staging/toss-fidelity.css?v=20260828-tds-adaptive-v77-shortcuts-contextual-safe-area-v128-stock-search-v129-ai-response-v130-home-signal-action-v131-notification-sheet-v132-ai-signal-spacing-v133-chart-pattern-integrity-v134-ai-stock-response-v135-morning-preliminary-v136-multi-signal-response-v137-discovery-search-contrast-v138-ai-signal-basis-stack-v140-ai-response-beginner-v141-semantic-focus-v142-header-action-icons-v143-gpt-page-summary-v144-gpt-briefing-v145-plain-language-detail-v146-investor-action-copy-v147-investor-situation-loading-v148-position-guide-v149-position-input-v150-live-quote-decision-plan-v151-manual-refresh-holding-map-v152-notification-consent-v153-us-ranking-v154-public-signal-v155-signal-summary-v157-ai-signal-market-toggle-v158-feed-market-toggle-v159-watchlist-compact-v160-stable-loading-v161-ai-signal-landing-v165-recommendation-overview-v166-recommendation-evidence-v169-domestic-market-v170-chart-fallback-v171-ai-response-visual-fold-v174",
@@ -36,7 +36,9 @@ self.addEventListener("activate", (event) => {
           return undefined;
         }
         const currentBuild = url.searchParams.get("app_build");
-        if (currentBuild === DASHBOARD_BUILD_VERSION) {
+        // A page without an app_build was just served with versioned assets.
+        // Let its login form stay in place during this worker's first install.
+        if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION) {
           return undefined;
         }
         url.searchParams.set("app_build", DASHBOARD_BUILD_VERSION);

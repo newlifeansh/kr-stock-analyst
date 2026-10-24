@@ -201,6 +201,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_market_recommendations_do_not_serve_non_empty_in_process_cache",
         "tests.test_app.test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window",
     ),
+    "SIG-UI-037": (
+        "tests.test_dashboard_login_lifecycle.test_first_service_worker_install_preserves_login_and_updates_stale_builds",
+    ),
     "SIG-UI-036": (
         "tests.test_opposite_moves.test_opposite_moves_only_returns_stable_top_market_cap_inverse_candidate",
         "tests.test_opposite_moves.test_opposite_moves_fills_missing_slots_from_ranks_101_to_200",
