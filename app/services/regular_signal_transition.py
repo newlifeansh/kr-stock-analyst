@@ -260,7 +260,7 @@ def publish_forward_metadata(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def collect_forward_session(db: Session, provider, *, now: datetime, universe_limit: int = 150) -> dict[str, Any]:
-    """Incremental, bounded evidence collection before publishing the next close."""
+    """Backfill the current and recently ranked signal universe."""
     from app.services import quant_signals as qs
     from app.services.regular_session_prices import collect_regular_session_prices
     from sqlalchemy import func
@@ -273,6 +273,22 @@ def collect_forward_session(db: Session, provider, *, now: datetime, universe_li
     latest_rank_date = db.scalar(select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap > 0))
     codes = list(db.scalars(select(DailyPrice.code).where(DailyPrice.trade_date == latest_rank_date,
                       DailyPrice.market_cap > 0).order_by(DailyPrice.market_cap.desc()).limit(universe_limit)))
+    # The feed also replays recent members after they leave today's Top N.
+    # Collect their dated evidence as well or their replay can never recover.
+    ranked_history = select(
+        DailyPrice.code.label("code"),
+        func.row_number().over(
+            partition_by=DailyPrice.trade_date,
+            order_by=(DailyPrice.market_cap.desc(), DailyPrice.code),
+        ).label("market_cap_rank"),
+    ).where(
+        DailyPrice.trade_date >= max(REGULAR_FORWARD_START, completed - timedelta(days=90)),
+        DailyPrice.trade_date <= completed,
+        DailyPrice.market_cap > 0,
+    ).subquery()
+    codes.extend(db.scalars(select(ranked_history.c.code).where(
+        ranked_history.c.market_cap_rank <= universe_limit,
+    ).distinct()))
     for days in (30, 90):
         codes.extend(qs._market_signal_retention_state(db, universe_limit=universe_limit, limit=0, recent_days=days))
     cohort = _load(db, f"{REGULAR_FORWARD_VERSION}:shadow-cohort:100")

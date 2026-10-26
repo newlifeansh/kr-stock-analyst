@@ -18,6 +18,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.services import live_order_guard, observed_entry as oe, quant_signals as qs, web_push
+from app.services.regular_price_replay import RegularPriceEnvelope
 from app.services.public_signal import public_quant_signal_payload
 from app.services.signal_entry_evidence import _disclosure_evidence
 from test_quant_signals import _strategy_test_inputs, _set_entry_indicator, _daily_rows_from_bars
@@ -89,6 +90,133 @@ def test_preliminary_volume_gate_is_distinct_from_confirmed_h1_gate():
     assert qs._entry_setup_kind(bar, indicator) is None
     indicator["volume_ratio"] = oe.CONFIRMED_VOLUME_RATIO
     assert qs._entry_setup_kind(bar, indicator) == "trend_continuation"
+
+
+def test_morning_chart_probe_uses_elapsed_volume_only_to_fetch(setup, monkeypatch):
+    db, stock, bars, indicator = setup
+    indicator["volume_ratio"] = 0.1
+    monkeypatch.setattr(oe, "_same_time_volume_context", lambda *args, **kwargs: {
+        "basis": "historical_same_minute", "ratio": 0.8,
+        "current_cumulative_volume": 800, "expected_cumulative_volume": 1000,
+        "sample_count": 20, "as_of_minute": kwargs["minute_at"].isoformat(),
+    })
+    daily = _daily_rows_from_bars(stock.code, bars)
+    quote = dict(trade_date=DAY, trade_date_verified=True, quote_source="kis_rest",
+                 market_venue="KRX", market_division="J", price=101, open=101,
+                 high=101, low=101, volume=1000, observed_at=START)
+    initial = qs.build_quant_signal_payload(
+        stock, daily, live_quote=quote, now=START,
+        lifecycle_start_date=qs.REGULAR_FORWARD_START,
+    )
+    assert initial["current"]["action"] not in {"entry_watch", "entry_pending"}
+    assert qs._observed_entry_chart_probe(bars, quote, START)
+    chart_calls = []
+
+    def chart(_code):
+        chart_calls.append(_code)
+        return ([{
+            "trade_date": DAY.strftime("%Y%m%d"), "trade_time": "090100",
+            "open": 101, "high": 101, "low": 101, "price": 101, "volume": 1000,
+        }], START)
+
+    captured = qs._market_stock_payload_with_intraday_path(
+        db, stock, daily, bars, quote, {}, None, START, chart, None,
+        verified_paths={}, lifecycle_start_date=qs.REGULAR_FORWARD_START,
+        observe_entry=True, entry_universe_eligible=lambda _: True,
+        observation_universe_rank=3,
+        fresh_entry_evidence=lambda: evidence(START),
+    )
+    assert chart_calls == [stock.code]
+    assert captured["current"]["observed_entry"]["status"] == "watching"
+    assert captured["events"] == []
+
+
+def test_extended_observation_can_precede_daily_entry_approval(setup):
+    _, _, bars, _ = setup
+    liquid = [replace(bar, trading_value=25_000_000_000) for bar in bars]
+    illiquid = [replace(bar, trading_value=10_000_000_000) for bar in bars]
+    day = bars[-1].trade_date
+    assert qs._extended_market_signal_qualification(
+        liquid, {"action": "entry_watch"}, required_price_date=day,
+    )["allowed"] is False
+    assert qs._extended_observed_entry_qualification(
+        liquid, required_price_date=day,
+    )["allowed"] is True
+    assert qs._extended_observed_entry_qualification(
+        illiquid, required_price_date=day,
+    )["allowed"] is False
+
+
+def test_extended_observed_candidate_is_published_before_buy_approval(monkeypatch):
+    from app.models import DailyPrice
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 10, 27, 10, tzinfo=oe.KST)
+    prior = date(2026, 10, 26)
+    days = []
+    cursor = prior
+    while len(days) < 20:
+        if cursor.weekday() < 5:
+            days.append(cursor)
+        cursor -= timedelta(days=1)
+    days.reverse()
+    with Session(engine, autoflush=False) as db:
+        for code, cap in (("000001", 200), ("000002", 100)):
+            db.add(StockMaster(code=code, name=code, market="KOSPI", is_active=True))
+            db.add_all([
+                DailyPrice(
+                    code=code, trade_date=day, open=100, high=102, low=99,
+                    close=101, volume=1_000_000, trading_value=25_000_000_000,
+                    market_cap=cap,
+                )
+                for day in days
+            ])
+        db.commit()
+        monkeypatch.setattr(qs, "MARKET_SIGNAL_CORE_UNIVERSE_LIMIT", 1)
+        monkeypatch.setattr(qs, "MARKET_SIGNAL_UNIVERSE_LIMIT", 2)
+        monkeypatch.setattr(qs, "latest_completed_korea_market_session_date", lambda _: prior)
+        monkeypatch.setattr(qs, "is_korea_market_session_date", lambda *_: True)
+        monkeypatch.setattr(qs, "freeze_legacy_market_publication",
+                            lambda *_: {"payload": {"items": []}})
+        monkeypatch.setattr(qs, "prepare_forward_inputs",
+                            lambda _db, _code, rows, **_: (RegularPriceEnvelope(rows, rows, {}), {}))
+        monkeypatch.setattr(qs, "forward_entry_timeline", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr(qs, "build_relative_strength_context",
+                            lambda *_args, **_kwargs: {})
+
+        def payload(_db, stock, *_args, **_kwargs):
+            if stock.code != "000002":
+                return {"events": [], "current": None, "price_through": prior}
+            assert _kwargs["entry_universe_eligible"]({
+                "current": {"action": "entry_watch", "entry_confirmation": {"allowed": False}},
+            }) is True
+            return {
+                "events": [], "price_through": prior,
+                "current": {
+                    "action": "entry_watch", "position_open": False,
+                    "live_observation": True, "price": 101, "score": 70,
+                    "as_of": now, "reasons": ["당일 예비 포착"],
+                    "entry_confirmation": {"allowed": False},
+                    "observed_entry": {
+                        "status": "watching", "policy_version": oe.POLICY_VERSION,
+                        "first_observed_at": now.isoformat(),
+                    },
+                },
+            }
+
+        monkeypatch.setattr(qs, "_market_stock_payload_with_intraday_path", payload)
+        feed = qs.load_market_quant_signal_feed(
+            db, universe_limit=2, limit=0, recent_days=30, now=now,
+        )
+        item = next(item for item in feed["items"] if item["code"] == "000002")
+        assert item["is_preliminary"] is True
+        assert item["market_cap_rank"] == 2
+        assert item["extended_universe_qualified"] is False
+        assert item["observed_entry"]["status"] == "watching"
+        assert item["execution_date"] is None
+        assert feed["extended_qualified_count"] == 0
+    engine.dispose()
 
 
 def test_intraday_volume_uses_finalized_same_minute_history_before_daily_fallback():
