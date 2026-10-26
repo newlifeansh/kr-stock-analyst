@@ -126,6 +126,34 @@ def test_forward_collection_does_not_call_sources_before_first_close(db):
     assert transition.collect_forward_session(db, Provider(), now=datetime(2026,10,13,9,tzinfo=qs.KST))["attempted"] == 0
 
 
+def test_forward_collection_keeps_recent_members_after_rank_exit(db, monkeypatch):
+    from app.services import regular_session_prices
+
+    previous, current = date(2026, 10, 23), date(2026, 10, 26)
+    for day, first_cap, second_cap in (
+        (previous, 200, 100), (current, 100, 200),
+    ):
+        db.add_all([
+            DailyPrice(code="000001", trade_date=day, market_cap=first_cap),
+            DailyPrice(code="000002", trade_date=day, market_cap=second_cap),
+        ])
+    db.flush()
+    captured = {}
+
+    def collect(_db, _provider, **kwargs):
+        captured.update(kwargs)
+        return {"attempted": 0, "state": "ready"}
+
+    monkeypatch.setattr(regular_session_prices, "collect_regular_session_prices", collect)
+    transition.collect_forward_session(
+        db, object(), now=datetime(2026, 10, 27, 8, tzinfo=qs.KST),
+        universe_limit=1,
+    )
+    assert captured["codes"] == ["000001", "000002"]
+    assert captured["start"] == transition.REGULAR_FORWARD_START
+    assert captured["end"] == current
+
+
 def test_forward_market_feed_preserves_published_returns_without_legacy_alerts(db):
     stock = StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True)
     db.add(stock)

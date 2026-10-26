@@ -3424,6 +3424,40 @@ def _fresh_kis_intraday_quote_for_market_alert(
     )
 
 
+def _observed_entry_chart_probe(
+    confirmed: list[PriceBar],
+    quote: dict[str, Any],
+    now: datetime,
+) -> bool:
+    """Nominate a chart fetch using a same-time volume upper estimate.
+
+    A live quote has only cumulative volume. Comparing it to a whole-day
+    average suppresses otherwise valid morning candidates before their
+    completed minutes can be inspected. This estimate only fetches a chart;
+    observed_entry.observe still applies the verified same-minute volume,
+    ordered prices, and independent evidence before recording a candidate.
+    """
+    bars, live = _live_execution_bars(confirmed, quote, now)
+    if not live or len(bars) < MIN_HISTORY_ROWS:
+        return False
+    current = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    elapsed = max(
+        1.0,
+        min(390.0, (current - datetime.combine(current.date(), time(9), KST)).total_seconds() / 60.0),
+    )
+    indicators = _indicator_rows(bars)
+    indicator = dict(indicators[-1])
+    indicator["volume_ratio"] = max(
+        float(indicator.get("volume_ratio") or 0.0),
+        float(indicator.get("volume_ratio") or 0.0) * 390.0 / elapsed,
+    )
+    recent = [*indicators[:-1], indicator][-CHASE_MOMENTUM_LOOKBACK_BARS:]
+    return bool(
+        _entry_setup_kind(bars[-1], indicator, recent_indicators=recent)
+        or _pre_entry_signal(bars[-1], indicator, recent_indicators=recent)
+    )
+
+
 def _keyword_score(text: str) -> int:
     score = sum(1 for word in POSITIVE_WORDS if word in text)
     score -= sum(1 for word in NEGATIVE_WORDS if word in text)
@@ -5526,6 +5560,25 @@ def _extended_market_signal_qualification(
     }
 
 
+def _extended_observed_entry_qualification(
+    bars: list[PriceBar], *, required_price_date: Optional[date]
+) -> dict[str, Any]:
+    """Eligibility to *observe* a rank 101–150 candidate before it exists.
+
+    Independent entry evidence is checked when a later completed minute
+    confirms the candidate. Requiring an already approved entry_pending state
+    here makes a same-day observation impossible for the extended universe.
+    """
+    qualification = _extended_market_signal_qualification(
+        bars, None, required_price_date=required_price_date,
+    )
+    qualification["allowed"] = bool(
+        qualification["complete_price"] and qualification["liquidity_ready"]
+    )
+    qualification["basis"] = "same_day_observation"
+    return qualification
+
+
 def _extended_market_signal_event_qualification(
     event: dict[str, Any],
     bars: list[PriceBar],
@@ -5752,6 +5805,10 @@ def _market_stock_payload_with_intraday_path(
     watching_entry = (
         observed_entries.get(current_time.date(), {}).get("status") == "watching"
     )
+    can_observe_entry = bool(
+        observe_entry and current_time.date() >= observed_entry.EFFECTIVE_DATE
+        and entry_universe_eligible and entry_universe_eligible(payload)
+    )
     should_fetch = bool(
         intraday_chart_loader is not None
         and forming_quote
@@ -5762,9 +5819,12 @@ def _market_stock_payload_with_intraday_path(
             or (lifecycle_start_date is not None and (
                 (payload.get("current") or {}).get("position_open")
                 or (payload.get("current") or {}).get("action") == "entry_pending"
-                or (observe_entry and current_time.date() >= observed_entry.EFFECTIVE_DATE
-                    and (payload.get("current") or {}).get("action") == "entry_watch"
-                    and entry_universe_eligible and entry_universe_eligible(payload))
+                or (can_observe_entry and (
+                    (payload.get("current") or {}).get("action") == "entry_watch"
+                    or _observed_entry_chart_probe(
+                        confirmed_stock_bars, forming_quote, current_time,
+                    )
+                ))
                 or observed_entries.get(current_time.date(), {}).get("status") == "watching"
             ))
         )
@@ -6205,8 +6265,8 @@ def load_market_quant_signal_feed(
                 entry_universe_eligible=lambda candidate: bool(
                     code in current_universe_codes and current_rank_by_code.get(code)
                     and (current_rank_by_code[code] <= core_universe_limit
-                         or _extended_market_signal_qualification(
-                             confirmed_stock_bars, candidate.get("current"),
+                         or _extended_observed_entry_qualification(
+                             confirmed_stock_bars,
                              required_price_date=required_price_date,
                          )["allowed"])
                 ),
@@ -6263,6 +6323,9 @@ def load_market_quant_signal_feed(
             confirmed_stock_bars,
             current,
             required_price_date=required_price_date,
+        )
+        current_extended_observation = _extended_observed_entry_qualification(
+            confirmed_stock_bars, required_price_date=required_price_date,
         )
         if is_current_extended and current_extended_qualification["allowed"]:
             extended_qualified_codes.add(code)
@@ -6335,6 +6398,11 @@ def load_market_quant_signal_feed(
                 lifecycle_tracked = False
 
         current_action = str((current or {}).get("action") or "")
+        observed_candidate = bool(
+            current and (current.get("observed_entry") or {}).get("status") == "watching"
+            and (current.get("observed_entry") or {}).get("policy_version")
+            == observed_entry.POLICY_VERSION
+        )
         retained_pending_entry = bool(
             previous_tracking
             and previous_tracking.get("action") in {"entry_watch", "entry_pending"}
@@ -6355,6 +6423,8 @@ def load_market_quant_signal_feed(
         preliminary_allowed = bool(
             is_current_core
             or (is_current_extended and current_extended_qualification["allowed"])
+            or (is_current_extended and observed_candidate
+                and current_extended_observation["allowed"])
             or retained_pending_entry
             or retained_open_signal
             or (
