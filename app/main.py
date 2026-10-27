@@ -339,6 +339,8 @@ us_position_lifecycle_refresh_lock = Lock()
 entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
 MARKET_SIGNAL_DETAIL_RECENT_DAYS = 90
+MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS = 30
+MARKET_SIGNAL_DETAIL_REFRESH_SECONDS = 5 * 60
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
 MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 US_MARKET_QUANT_SIGNAL_RATE_LIMIT_PER_MINUTE = 30
@@ -1193,8 +1195,10 @@ def _refresh_market_quant_signal_snapshot(
         market_quant_signal_refresh_lock.release()
 
 
-def _refresh_market_quant_signal_views_snapshot() -> Optional[dict[str, Any]]:
-    """Keep the 30-day alert feed and 90-day detail view on one quote frame."""
+def _refresh_market_quant_signal_views_snapshot(
+    *, refresh_detail: bool = True,
+) -> Optional[dict[str, Any]]:
+    """Publish the 30-day alert feed first; refresh detail when scheduled."""
 
     shared_quotes = None
     if not settings.market_quant_signal_source_url:
@@ -1221,6 +1225,8 @@ def _refresh_market_quant_signal_views_snapshot() -> Optional[dict[str, Any]]:
     current = _refresh_market_quant_signal_snapshot(live_quotes=shared_quotes)
     if current is None:
         return None
+    if not refresh_detail:
+        return current
     detail = _refresh_market_quant_signal_snapshot(
         recent_days=MARKET_SIGNAL_DETAIL_RECENT_DAYS,
         live_quotes=shared_quotes,
@@ -1672,6 +1678,7 @@ def _suppress_stale_preliminary_market_signals(payload: dict[str, Any]) -> dict[
 
 async def _run_market_quant_signal_refresh_loop() -> None:
     last_premarket_refresh_date: Optional[date] = None
+    last_detail_refresh_at: Optional[float] = None
     logger.info("Market quant signal refresh loop started")
     while True:
         interval_seconds = 300
@@ -1685,24 +1692,40 @@ async def _run_market_quant_signal_refresh_loop() -> None:
             )
             if _quant_signal_quote_refresh_active(now) or premarket_refresh:
                 started_at = time_module.monotonic()
-                logger.info("Market quant signal refresh started: as_of=%s", now.isoformat())
-                refreshed = await asyncio.to_thread(_refresh_market_quant_signal_views_snapshot)
+                refresh_detail = bool(
+                    premarket_refresh
+                    or last_detail_refresh_at is None
+                    or started_at - last_detail_refresh_at >= MARKET_SIGNAL_DETAIL_REFRESH_SECONDS
+                )
+                logger.info(
+                    "Market quant signal refresh started: as_of=%s detail=%s",
+                    now.isoformat(), refresh_detail,
+                )
+                refreshed = await asyncio.to_thread(
+                    _refresh_market_quant_signal_views_snapshot,
+                    refresh_detail=refresh_detail,
+                )
                 if refreshed is None:
                     # A busy lock or failed refresh must not leave the market
                     # feed stale for another full scan interval.
                     logger.warning("Market quant signal refresh did not complete; retrying in 30s")
-                    interval_seconds = 30
+                    interval_seconds = MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS
                 else:
+                    if refresh_detail:
+                        last_detail_refresh_at = time_module.monotonic()
                     logger.info(
-                        "Market quant signal refresh completed: duration_seconds=%.1f snapshot_generated_at=%s",
+                        "Market quant signal refresh completed: duration_seconds=%.1f snapshot_generated_at=%s detail=%s",
                         time_module.monotonic() - started_at,
                         refreshed.get("snapshot_generated_at"),
+                        refresh_detail,
                     )
                     if premarket_refresh:
                         last_premarket_refresh_date = now.date()
+                    if _quant_signal_quote_refresh_active(datetime.now(KST)):
+                        interval_seconds = MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("Market quant signal refresh loop failed; retrying in 30s")
-            interval_seconds = 30
+            interval_seconds = MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS
         await asyncio.sleep(interval_seconds)
 
 

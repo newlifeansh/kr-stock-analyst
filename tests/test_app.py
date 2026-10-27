@@ -1376,7 +1376,7 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
     attempts = []
     intervals = []
 
-    def refresh():
+    def refresh(**kwargs):
         attempts.append(True)
         if len(attempts) == 1:
             if first_result == "exception":
@@ -1402,7 +1402,7 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
         asyncio.run(main_module._run_market_quant_signal_refresh_loop())
 
     assert len(attempts) == 2
-    assert intervals == [30, 300]
+    assert intervals == [30, 30]
     assert "retrying in 30s" in caplog.text
     assert "Market quant signal refresh loop started" in caplog.text
     assert "Market quant signal refresh started" in caplog.text
@@ -1475,12 +1475,61 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
     assert scopes == [(30, quotes), (90, quotes)]
     assert scopes[0][1] is scopes[1][1]
 
+    scopes.clear()
+    scans.clear()
+    assert main_module._refresh_market_quant_signal_views_snapshot(
+        refresh_detail=False
+    ) == {"status": "ready"}
+    assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
+    assert scopes == [(30, quotes)]
+
     monkeypatch.setattr(
         main_module,
         "_refresh_market_quant_signal_snapshot",
         lambda **kwargs: None if kwargs.get("recent_days") == 90 else {"status": "ready"},
     )
     assert main_module._refresh_market_quant_signal_views_snapshot() is None
+
+
+@pytest.mark.qa_gate
+def test_market_quant_signal_refresh_loop_prioritizes_candidate_scans(monkeypatch):
+    from app import main as main_module
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 10, 10, tzinfo=tz)
+
+    elapsed = [0.0]
+    detail_runs = []
+    sleep_intervals = []
+
+    def refresh(*, refresh_detail):
+        detail_runs.append(refresh_detail)
+        elapsed[0] += 70
+        return {"status": "ready", "snapshot_generated_at": "2026-10-08T01:10:00+00:00"}
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_five_scans(seconds):
+        sleep_intervals.append(seconds)
+        elapsed[0] += seconds
+        if len(sleep_intervals) == 5:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module.time_module, "monotonic", lambda: elapsed[0])
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_views_snapshot", refresh)
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_five_scans)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop())
+
+    assert detail_runs == [True, False, False, False, True]
+    assert sleep_intervals == [30] * 5
 
 
 @pytest.mark.qa_gate
