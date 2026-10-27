@@ -71,6 +71,7 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-KR-OBSERVED-ENTRY-001": (
+        "tests.test_app.test_market_quant_signal_refresh_loop_prioritizes_candidate_scans",
         "tests.test_observed_entry.test_preliminary_volume_gate_is_distinct_from_confirmed_h1_gate",
         "tests.test_observed_entry.test_intraday_volume_uses_finalized_same_minute_history_before_daily_fallback",
         "tests.test_observed_entry.test_capture_then_later_closed_minute_confirms_once_across_restart",
@@ -679,6 +680,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_stock_community_popular_timeout_exits_loading_and_force_retry_bypasses_cache",
     ),
     "SIG-KR-SNAPSHOT-CACHE-001": (
+        "tests.test_app.test_market_quant_signal_refresh_loop_prioritizes_candidate_scans",
         "tests.test_app."
         "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-53-False]",
         "tests.test_app."
