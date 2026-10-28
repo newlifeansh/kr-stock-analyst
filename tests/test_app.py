@@ -1486,6 +1486,12 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
     assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
     assert scopes == [(30, quotes, False)]
 
+    quote_sink = []
+    assert main_module._refresh_market_quant_signal_views_snapshot(
+        refresh_detail=False, quote_sink=quote_sink
+    ) == {"status": "ready"}
+    assert quote_sink == [quotes]
+
     monkeypatch.setattr(
         main_module,
         "_refresh_market_quant_signal_snapshot",
@@ -1536,6 +1542,131 @@ def test_market_quant_signal_refresh_loop_prioritizes_candidate_scans(monkeypatc
         (False, True), (True, True),
     ]
     assert sleep_intervals == [30] * 5
+
+
+@pytest.mark.qa_gate
+def test_market_quant_signal_detail_queue_does_not_hold_candidate_loop(monkeypatch):
+    from app import main as main_module
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 10, 10, tzinfo=tz)
+
+    calls = []
+    intervals = []
+    detail_quotes = asyncio.Queue(maxsize=1)
+
+    def refresh(*, refresh_detail, reuse_regular_preflight, quote_sink):
+        calls.append((refresh_detail, reuse_regular_preflight))
+        quote_sink.append({"scan": len(calls)})
+        return {"status": "ready"}
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_three_scans(seconds):
+        intervals.append(seconds)
+        if len(intervals) == 3:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_views_snapshot", refresh)
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_three_scans)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop(
+            detail_quotes=detail_quotes
+        ))
+
+    assert calls == [(False, False), (False, True), (False, True)]
+    assert intervals == [30, 30, 30]
+    assert detail_quotes.get_nowait() == {"scan": 3}
+
+
+@pytest.mark.qa_gate
+def test_market_quant_signal_detail_worker_uses_separate_scope(monkeypatch):
+    from app import main as main_module
+
+    calls = []
+    queue = asyncio.Queue(maxsize=1)
+    queue.put_nowait({"005930": {"price": 100}})
+
+    async def run_inline(function, *args, **kwargs):
+        calls.append((function, kwargs))
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_detail_refresh_loop(queue))
+
+    assert calls == [(
+        main_module._refresh_market_quant_signal_snapshot,
+        {"recent_days": 90, "live_quotes": {"005930": {"price": 100}},
+         "reuse_regular_preflight": True},
+    )]
+
+
+@pytest.mark.qa_gate
+def test_market_signal_reuses_published_same_phase_preflight_after_restart(monkeypatch):
+    from app import main as main_module
+
+    published = {
+        "execution_model": main_module.EXECUTION_MODEL,
+        "snapshot_generated_at": "2026-10-08T00:05:00+00:00",
+    }
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(
+        main_module, "load_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: published,
+    )
+    now = datetime(2026, 10, 8, 10, 10, tzinfo=ZoneInfo("Asia/Seoul"))
+    assert main_module._market_signal_reusable_preflight_key(now) == (now.date(), "regular")
+    published["snapshot_generated_at"] = "2026-10-08T06:41:00+00:00"
+    assert main_module._market_signal_reusable_preflight_key(now) is None
+    published["snapshot_generated_at"] = "2026-10-07T00:05:00+00:00"
+    assert main_module._market_signal_reusable_preflight_key(now) is None
+
+
+@pytest.mark.qa_gate
+def test_market_signal_restart_skips_redundant_preflight_and_starts_retry(monkeypatch):
+    from app import main as main_module
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 8, 10, 10, tzinfo=tz)
+
+    calls = []
+    ready = asyncio.Event()
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def stop_after_publication(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
+    monkeypatch.setattr(main_module, "is_korea_regular_market_session", lambda _now: True)
+    monkeypatch.setattr(
+        main_module, "_market_signal_reusable_preflight_key",
+        lambda now: (now.date(), "regular"),
+    )
+    monkeypatch.setattr(
+        main_module, "_refresh_market_quant_signal_views_snapshot",
+        lambda **kwargs: calls.append(kwargs["reuse_regular_preflight"]) or {"status": "ready"},
+    )
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_publication)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop(ready))
+
+    assert calls == [True]
+    assert ready.is_set()
 
 
 @pytest.mark.qa_gate
