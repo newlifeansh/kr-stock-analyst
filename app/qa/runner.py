@@ -254,6 +254,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_hybrid_signals.test_hybrid_send_rechecks_age_at_delivery_not_scan_start",
     ),
     "SIG-KR-FORWARD-001": (
+        "tests.test_app.test_regular_price_retry_waits_for_first_publication",
         "tests.test_regular_signal_transition.test_forward_baseline_is_immutable_and_detects_tampering",
         "tests.test_regular_signal_transition.test_forward_publication_preserves_return_but_never_realerts_or_claims_a_holding",
         "tests.test_regular_signal_transition.test_forward_inputs_never_fall_back_to_display_ohlc",
@@ -680,6 +681,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_stock_community_popular_timeout_exits_loading_and_force_retry_bypasses_cache",
     ),
     "SIG-KR-SNAPSHOT-CACHE-001": (
+        "tests.test_app.test_regular_price_preflight_restarts_at_close",
+        "tests.test_app.test_regular_price_retry_waits_for_first_publication",
+        "tests.test_quote_stream_scaling.test_detail_refresh_reuses_successful_canonical_regular_preflight",
         "tests.test_app.test_market_quant_signal_refresh_loop_prioritizes_candidate_scans",
         "tests.test_app."
         "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-53-False]",
