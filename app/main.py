@@ -341,6 +341,7 @@ MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
 MARKET_SIGNAL_DETAIL_RECENT_DAYS = 90
 MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS = 30
 MARKET_SIGNAL_DETAIL_REFRESH_SECONDS = 5 * 60
+MARKET_SIGNAL_REGULAR_EVIDENCE_RETRY_SECONDS = 5 * 60
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
 MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 US_MARKET_QUANT_SIGNAL_RATE_LIMIT_PER_MINUTE = 30
@@ -1092,6 +1093,7 @@ def _refresh_market_quant_signal_snapshot(
     limit: int = 0,
     recent_days: int = 30,
     live_quotes: Optional[dict[str, dict[str, Any]]] = None,
+    reuse_regular_preflight: bool = False,
 ) -> Optional[dict[str, Any]]:
     if not market_quant_signal_refresh_lock.acquire(blocking=False):
         return None
@@ -1110,7 +1112,7 @@ def _refresh_market_quant_signal_snapshot(
                 "Market quant signal preflight completed: duration_seconds=%.1f",
                 time_module.monotonic() - started_at,
             )
-            if kis_rest_provider.is_configured():
+            if kis_rest_provider.is_configured() and not reuse_regular_preflight:
                 from app.services.regular_signal_transition import collect_forward_session
 
                 regular = collect_forward_session(db, kis_rest_provider, now=current_time, universe_limit=universe_limit)
@@ -1142,6 +1144,21 @@ def _refresh_market_quant_signal_snapshot(
                         "continuing the healthy-code scan: unverified=%s",
                         len(regular["unverified"]),
                     )
+                sealed = finalize_open_intraday_paths_for_session(
+                    db,
+                    current_time,
+                    lambda code: kis_rest_provider.fetch_intraday_chart(
+                        code,
+                        max_points=391,
+                        market_division="J",
+                        now=current_time,
+                    ),
+                )
+                if sealed["pending"]:
+                    logger.info("Market quant signal minute path finalization: %s", sealed)
+            elif kis_rest_provider.is_configured():
+                # A failed prior-session path must still be retried on every
+                # publication; only the expensive price backfill is reused.
                 sealed = finalize_open_intraday_paths_for_session(
                     db,
                     current_time,
@@ -1196,7 +1213,7 @@ def _refresh_market_quant_signal_snapshot(
 
 
 def _refresh_market_quant_signal_views_snapshot(
-    *, refresh_detail: bool = True,
+    *, refresh_detail: bool = True, reuse_regular_preflight: bool = False,
 ) -> Optional[dict[str, Any]]:
     """Publish the 30-day alert feed first; refresh detail when scheduled."""
 
@@ -1222,7 +1239,10 @@ def _refresh_market_quant_signal_views_snapshot(
                 shared_quotes.expected_symbols,
             )
             return None
-    current = _refresh_market_quant_signal_snapshot(live_quotes=shared_quotes)
+    current = _refresh_market_quant_signal_snapshot(
+        live_quotes=shared_quotes,
+        reuse_regular_preflight=reuse_regular_preflight,
+    )
     if current is None:
         return None
     if not refresh_detail:
@@ -1230,6 +1250,7 @@ def _refresh_market_quant_signal_views_snapshot(
     detail = _refresh_market_quant_signal_snapshot(
         recent_days=MARKET_SIGNAL_DETAIL_RECENT_DAYS,
         live_quotes=shared_quotes,
+        reuse_regular_preflight=True,
     )
     if detail is None:
         logger.warning("Market quant signal 90-day detail refresh did not complete")
@@ -1676,9 +1697,58 @@ def _suppress_stale_preliminary_market_signals(payload: dict[str, Any]) -> dict[
     return result
 
 
-async def _run_market_quant_signal_refresh_loop() -> None:
+def _market_signal_regular_preflight_key(now: datetime) -> tuple[date, str]:
+    current = now.astimezone(KST)
+    phase = (
+        "premarket" if current.time() < time(9, 0)
+        else "postclose" if current.time() >= time(15, 40)
+        else "regular"
+    )
+    return current.date(), phase
+
+
+def _retry_market_quant_signal_regular_evidence() -> None:
+    """Retry isolated completed-session prices without blocking candidate scans."""
+    if not kis_rest_provider.is_configured():
+        return
+    from app.services.regular_signal_transition import collect_forward_session
+
+    with SessionLocal() as db:
+        result = collect_forward_session(
+            db, kis_rest_provider, now=datetime.now(KST),
+            universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+        )
+        if result.get("unverified") or result.get("deferred"):
+            logger.warning(
+                "Regular signal price evidence retry: attempted=%s ready=%s "
+                "bounded=%s deferred=%s unverified=%s",
+                result.get("attempted"), result.get("ready"),
+                result.get("bounded"), result.get("deferred"),
+                len(result.get("unverified") or []),
+            )
+
+
+async def _run_market_quant_signal_regular_evidence_retry_loop(
+    ready: asyncio.Event,
+) -> None:
+    while True:
+        await ready.wait()
+        await asyncio.sleep(MARKET_SIGNAL_REGULAR_EVIDENCE_RETRY_SECONDS)
+        now = datetime.now(KST)
+        if not ready.is_set() or not is_korea_regular_market_session(now):
+            continue
+        try:
+            await asyncio.to_thread(_retry_market_quant_signal_regular_evidence)
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Regular signal price evidence retry failed")
+
+
+async def _run_market_quant_signal_refresh_loop(
+    regular_evidence_ready: Optional[asyncio.Event] = None,
+) -> None:
     last_premarket_refresh_date: Optional[date] = None
     last_detail_refresh_at: Optional[float] = None
+    last_regular_preflight_key: Optional[tuple[date, str]] = None
     logger.info("Market quant signal refresh loop started")
     while True:
         interval_seconds = 300
@@ -1691,6 +1761,10 @@ async def _run_market_quant_signal_refresh_loop() -> None:
                 and last_premarket_refresh_date != now.date()
             )
             if _quant_signal_quote_refresh_active(now) or premarket_refresh:
+                preflight_key = _market_signal_regular_preflight_key(now)
+                reuse_regular_preflight = last_regular_preflight_key == preflight_key
+                if not reuse_regular_preflight and regular_evidence_ready is not None:
+                    regular_evidence_ready.clear()
                 started_at = time_module.monotonic()
                 refresh_detail = bool(
                     premarket_refresh
@@ -1704,6 +1778,7 @@ async def _run_market_quant_signal_refresh_loop() -> None:
                 refreshed = await asyncio.to_thread(
                     _refresh_market_quant_signal_views_snapshot,
                     refresh_detail=refresh_detail,
+                    reuse_regular_preflight=reuse_regular_preflight,
                 )
                 if refreshed is None:
                     # A busy lock or failed refresh must not leave the market
@@ -1711,6 +1786,13 @@ async def _run_market_quant_signal_refresh_loop() -> None:
                     logger.warning("Market quant signal refresh did not complete; retrying in 30s")
                     interval_seconds = MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS
                 else:
+                    if not reuse_regular_preflight:
+                        last_regular_preflight_key = preflight_key
+                        if (
+                            regular_evidence_ready is not None
+                            and is_korea_regular_market_session(datetime.now(KST))
+                        ):
+                            regular_evidence_ready.set()
                     if refresh_detail:
                         last_detail_refresh_at = time_module.monotonic()
                     logger.info(
@@ -2042,6 +2124,7 @@ async def lifespan(_: FastAPI):
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
+    market_regular_evidence_retry_task: asyncio.Task | None = None
     closing_auction_capture_task: asyncio.Task | None = None
     us_position_lifecycle_task: asyncio.Task | None = None
     us_hybrid_task: asyncio.Task | None = None
@@ -2061,7 +2144,13 @@ async def lifespan(_: FastAPI):
                 _run_complete_snapshot_schedule_loop()
             )
             intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
-            market_quant_signal_task = asyncio.create_task(_run_market_quant_signal_refresh_loop())
+            regular_evidence_ready = asyncio.Event()
+            market_quant_signal_task = asyncio.create_task(
+                _run_market_quant_signal_refresh_loop(regular_evidence_ready)
+            )
+            market_regular_evidence_retry_task = asyncio.create_task(
+                _run_market_quant_signal_regular_evidence_retry_loop(regular_evidence_ready)
+            )
             closing_auction_capture_task = asyncio.create_task(
                 _run_market_closing_auction_capture_loop()
             )
@@ -2098,6 +2187,10 @@ async def lifespan(_: FastAPI):
                 market_quant_signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await market_quant_signal_task
+            if market_regular_evidence_retry_task is not None:
+                market_regular_evidence_retry_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await market_regular_evidence_retry_task
             if closing_auction_capture_task is not None:
                 closing_auction_capture_task.cancel()
                 with suppress(asyncio.CancelledError):

@@ -1377,7 +1377,7 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
     intervals = []
 
     def refresh(**kwargs):
-        attempts.append(True)
+        attempts.append(kwargs["reuse_regular_preflight"])
         if len(attempts) == 1:
             if first_result == "exception":
                 raise RuntimeError("transient refresh failure")
@@ -1401,7 +1401,7 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(main_module._run_market_quant_signal_refresh_loop())
 
-    assert len(attempts) == 2
+    assert attempts == [False, False]
     assert intervals == [30, 30]
     assert "retrying in 30s" in caplog.text
     assert "Market quant signal refresh loop started" in caplog.text
@@ -1465,14 +1465,17 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
     )
 
     def refresh(**kwargs):
-        scopes.append((kwargs.get("recent_days", 30), kwargs["live_quotes"]))
+        scopes.append((
+            kwargs.get("recent_days", 30), kwargs["live_quotes"],
+            kwargs.get("reuse_regular_preflight", False),
+        ))
         return {"status": "ready"}
 
     monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
 
     assert main_module._refresh_market_quant_signal_views_snapshot() == {"status": "ready"}
     assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
-    assert scopes == [(30, quotes), (90, quotes)]
+    assert scopes == [(30, quotes, False), (90, quotes, True)]
     assert scopes[0][1] is scopes[1][1]
 
     scopes.clear()
@@ -1481,7 +1484,7 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
         refresh_detail=False
     ) == {"status": "ready"}
     assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
-    assert scopes == [(30, quotes)]
+    assert scopes == [(30, quotes, False)]
 
     monkeypatch.setattr(
         main_module,
@@ -1501,11 +1504,11 @@ def test_market_quant_signal_refresh_loop_prioritizes_candidate_scans(monkeypatc
             return datetime(2026, 10, 8, 10, 10, tzinfo=tz)
 
     elapsed = [0.0]
-    detail_runs = []
+    scan_scopes = []
     sleep_intervals = []
 
-    def refresh(*, refresh_detail):
-        detail_runs.append(refresh_detail)
+    def refresh(*, refresh_detail, reuse_regular_preflight):
+        scan_scopes.append((refresh_detail, reuse_regular_preflight))
         elapsed[0] += 70
         return {"status": "ready", "snapshot_generated_at": "2026-10-08T01:10:00+00:00"}
 
@@ -1528,8 +1531,88 @@ def test_market_quant_signal_refresh_loop_prioritizes_candidate_scans(monkeypatc
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(main_module._run_market_quant_signal_refresh_loop())
 
-    assert detail_runs == [True, False, False, False, True]
+    assert scan_scopes == [
+        (True, False), (False, True), (False, True),
+        (False, True), (True, True),
+    ]
     assert sleep_intervals == [30] * 5
+
+
+@pytest.mark.qa_gate
+def test_regular_price_preflight_restarts_at_close(monkeypatch):
+    from app import main as main_module
+
+    phase = [datetime(2026, 10, 8, 15, 29, tzinfo=ZoneInfo("Asia/Seoul"))]
+    scans = []
+
+    class PhaseDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return phase[0].astimezone(tz) if tz else phase[0]
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def advance(seconds):
+        if len(scans) == 1:
+            phase[0] = datetime(2026, 10, 8, 15, 40, tzinfo=ZoneInfo("Asia/Seoul"))
+        elif len(scans) == 2:
+            phase[0] = datetime(2026, 10, 8, 15, 41, tzinfo=ZoneInfo("Asia/Seoul"))
+        else:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", PhaseDatetime)
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
+    monkeypatch.setattr(
+        main_module, "_refresh_market_quant_signal_views_snapshot",
+        lambda **kwargs: scans.append(kwargs["reuse_regular_preflight"]) or {"status": "ready"},
+    )
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", advance)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop())
+
+    assert scans == [False, False, True]
+
+
+@pytest.mark.qa_gate
+def test_regular_price_retry_waits_for_first_publication(monkeypatch):
+    from app import main as main_module
+
+    calls = []
+    ready = asyncio.Event()
+    original_sleep = asyncio.sleep
+
+    async def sleep_once(seconds):
+        assert seconds == main_module.MARKET_SIGNAL_REGULAR_EVIDENCE_RETRY_SECONDS
+        calls.append("waited")
+
+    async def run_inline(function, *args, **kwargs):
+        calls.append("retry")
+        function(*args, **kwargs)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module.asyncio, "sleep", sleep_once)
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module, "is_korea_regular_market_session", lambda _now: True)
+    monkeypatch.setattr(
+        main_module, "_retry_market_quant_signal_regular_evidence",
+        lambda: calls.append("collected"),
+    )
+
+    async def exercise():
+        task = asyncio.create_task(
+            main_module._run_market_quant_signal_regular_evidence_retry_loop(ready)
+        )
+        await original_sleep(0)
+        assert calls == []
+        ready.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+    assert calls == ["waited", "retry", "collected"]
 
 
 @pytest.mark.qa_gate

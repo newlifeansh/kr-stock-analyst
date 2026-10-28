@@ -3,10 +3,56 @@ import time
 from datetime import datetime, timedelta
 from threading import Lock
 
+import pytest
 from fastapi import BackgroundTasks, Response
 from fastapi.testclient import TestClient
 
 import app.main as main_module
+
+
+@pytest.mark.qa_gate
+def test_detail_refresh_reuses_successful_canonical_regular_preflight(monkeypatch):
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("the detail scope must not repeat the canonical regular preflight")
+
+    calls = []
+    payload = {"status": "ready", "items": []}
+    monkeypatch.setattr(main_module, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        main_module, "_repair_market_quant_signal_ohlc",
+        lambda *_args, **kwargs: calls.append(("repair", kwargs["recent_days"])) or 0,
+    )
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        "app.services.regular_signal_transition.collect_forward_session", unexpected
+    )
+    monkeypatch.setattr(
+        main_module, "finalize_open_intraday_paths_for_session",
+        lambda *_args, **_kwargs: calls.append(("finalize", 90)) or {"pending": 0},
+    )
+    monkeypatch.setattr(
+        main_module, "_build_market_quant_signal_payload",
+        lambda *_args, **_kwargs: calls.append(("build", 90)) or payload,
+    )
+    monkeypatch.setattr(
+        main_module, "save_market_quant_signal_snapshot",
+        lambda *_args, **_kwargs: calls.append(("save", 90)) or payload,
+    )
+    monkeypatch.setattr(main_module.market_quant_signal_cache, "set", lambda *_args: None)
+
+    assert main_module._refresh_market_quant_signal_snapshot(
+        recent_days=90, live_quotes={}, reuse_regular_preflight=True
+    ) is payload
+    assert calls == [
+        ("repair", 90), ("finalize", 90), ("build", 90), ("save", 90),
+    ]
 
 
 def test_concurrent_clients_share_one_public_quote_fetch(monkeypatch):
