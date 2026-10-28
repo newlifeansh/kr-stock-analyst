@@ -681,6 +681,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_stock_community_popular_timeout_exits_loading_and_force_retry_bypasses_cache",
     ),
     "SIG-KR-SNAPSHOT-CACHE-001": (
+        "tests.test_app.test_market_quant_signal_detail_queue_does_not_hold_candidate_loop",
+        "tests.test_app.test_market_quant_signal_detail_worker_uses_separate_scope",
+        "tests.test_app.test_market_signal_reuses_published_same_phase_preflight_after_restart",
+        "tests.test_app.test_market_signal_restart_skips_redundant_preflight_and_starts_retry",
         "tests.test_app.test_regular_price_preflight_restarts_at_close",
         "tests.test_app.test_regular_price_retry_waits_for_first_publication",
         "tests.test_quote_stream_scaling.test_detail_refresh_reuses_successful_canonical_regular_preflight",

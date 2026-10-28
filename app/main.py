@@ -335,6 +335,7 @@ MORNING_MONEY_HISTORY_CACHE_SECONDS = 120
 OPPOSITE_MOVES_CACHE_SECONDS = 6 * 60 * 60
 complete_snapshot_runtime: Optional[SnapshotRuntime] = None
 market_quant_signal_refresh_lock = RLock()
+market_quant_signal_detail_refresh_lock = RLock()
 us_position_lifecycle_refresh_lock = Lock()
 entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
@@ -1095,7 +1096,12 @@ def _refresh_market_quant_signal_snapshot(
     live_quotes: Optional[dict[str, dict[str, Any]]] = None,
     reuse_regular_preflight: bool = False,
 ) -> Optional[dict[str, Any]]:
-    if not market_quant_signal_refresh_lock.acquire(blocking=False):
+    refresh_lock = (
+        market_quant_signal_detail_refresh_lock
+        if recent_days == MARKET_SIGNAL_DETAIL_RECENT_DAYS
+        else market_quant_signal_refresh_lock
+    )
+    if not refresh_lock.acquire(blocking=False):
         return None
     try:
         with SessionLocal() as db:
@@ -1209,11 +1215,12 @@ def _refresh_market_quant_signal_snapshot(
         logger.exception("Market quant signal snapshot refresh failed")
         return None
     finally:
-        market_quant_signal_refresh_lock.release()
+        refresh_lock.release()
 
 
 def _refresh_market_quant_signal_views_snapshot(
     *, refresh_detail: bool = True, reuse_regular_preflight: bool = False,
+    quote_sink: Optional[list[dict[str, dict[str, Any]]]] = None,
 ) -> Optional[dict[str, Any]]:
     """Publish the 30-day alert feed first; refresh detail when scheduled."""
 
@@ -1245,6 +1252,8 @@ def _refresh_market_quant_signal_views_snapshot(
     )
     if current is None:
         return None
+    if quote_sink is not None:
+        quote_sink.append(shared_quotes or {})
     if not refresh_detail:
         return current
     detail = _refresh_market_quant_signal_snapshot(
@@ -1707,6 +1716,25 @@ def _market_signal_regular_preflight_key(now: datetime) -> tuple[date, str]:
     return current.date(), phase
 
 
+def _market_signal_reusable_preflight_key(now: datetime) -> Optional[tuple[date, str]]:
+    """A published same-phase v8 feed proves the first preflight already ran."""
+    with SessionLocal() as db:
+        snapshot = load_market_quant_signal_snapshot(
+            db, universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+            limit=0, recent_days=MARKET_SIGNAL_RECENT_DAYS,
+        )
+    if not snapshot or snapshot.get("execution_model") != EXECUTION_MODEL:
+        return None
+    try:
+        generated_at = datetime.fromisoformat(str(snapshot["snapshot_generated_at"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if generated_at.tzinfo is None:
+        return None
+    key = _market_signal_regular_preflight_key(generated_at)
+    return key if key == _market_signal_regular_preflight_key(now) else None
+
+
 def _retry_market_quant_signal_regular_evidence() -> None:
     """Retry isolated completed-session prices without blocking candidate scans."""
     if not kis_rest_provider.is_configured():
@@ -1743,12 +1771,47 @@ async def _run_market_quant_signal_regular_evidence_retry_loop(
             logger.exception("Regular signal price evidence retry failed")
 
 
+async def _run_market_quant_signal_detail_refresh_loop(
+    detail_quotes: asyncio.Queue,
+) -> None:
+    """Refresh historical detail without holding up the 30-day alert feed."""
+    last_refresh_at: Optional[float] = None
+    while True:
+        quotes = await detail_quotes.get()
+        if (
+            last_refresh_at is not None
+            and time_module.monotonic() - last_refresh_at < MARKET_SIGNAL_DETAIL_REFRESH_SECONDS
+        ):
+            continue
+        try:
+            refreshed = await asyncio.to_thread(
+                _refresh_market_quant_signal_snapshot,
+                recent_days=MARKET_SIGNAL_DETAIL_RECENT_DAYS,
+                live_quotes=quotes,
+                reuse_regular_preflight=True,
+            )
+            if refreshed is not None:
+                last_refresh_at = time_module.monotonic()
+            else:
+                logger.warning("Market quant signal 90-day detail refresh did not complete")
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Market quant signal 90-day detail refresh failed")
+
+
 async def _run_market_quant_signal_refresh_loop(
     regular_evidence_ready: Optional[asyncio.Event] = None,
+    detail_quotes: Optional[asyncio.Queue] = None,
 ) -> None:
     last_premarket_refresh_date: Optional[date] = None
     last_detail_refresh_at: Optional[float] = None
     last_regular_preflight_key: Optional[tuple[date, str]] = None
+    if regular_evidence_ready is not None:
+        try:
+            last_regular_preflight_key = await asyncio.to_thread(
+                _market_signal_reusable_preflight_key, datetime.now(KST)
+            )
+        except Exception:  # pragma: no cover - operational safeguard
+            logger.exception("Market quant signal previous preflight check failed")
     logger.info("Market quant signal refresh loop started")
     while True:
         interval_seconds = 300
@@ -1766,7 +1829,7 @@ async def _run_market_quant_signal_refresh_loop(
                 if not reuse_regular_preflight and regular_evidence_ready is not None:
                     regular_evidence_ready.clear()
                 started_at = time_module.monotonic()
-                refresh_detail = bool(
+                refresh_detail = detail_quotes is None and bool(
                     premarket_refresh
                     or last_detail_refresh_at is None
                     or started_at - last_detail_refresh_at >= MARKET_SIGNAL_DETAIL_REFRESH_SECONDS
@@ -1775,10 +1838,12 @@ async def _run_market_quant_signal_refresh_loop(
                     "Market quant signal refresh started: as_of=%s detail=%s",
                     now.isoformat(), refresh_detail,
                 )
+                quote_sink: list[dict[str, dict[str, Any]]] = []
                 refreshed = await asyncio.to_thread(
                     _refresh_market_quant_signal_views_snapshot,
                     refresh_detail=refresh_detail,
                     reuse_regular_preflight=reuse_regular_preflight,
+                    **({"quote_sink": quote_sink} if detail_quotes is not None else {}),
                 )
                 if refreshed is None:
                     # A busy lock or failed refresh must not leave the market
@@ -1788,13 +1853,17 @@ async def _run_market_quant_signal_refresh_loop(
                 else:
                     if not reuse_regular_preflight:
                         last_regular_preflight_key = preflight_key
-                        if (
-                            regular_evidence_ready is not None
-                            and is_korea_regular_market_session(datetime.now(KST))
-                        ):
-                            regular_evidence_ready.set()
+                    if (
+                        regular_evidence_ready is not None
+                        and is_korea_regular_market_session(datetime.now(KST))
+                    ):
+                        regular_evidence_ready.set()
                     if refresh_detail:
                         last_detail_refresh_at = time_module.monotonic()
+                    if detail_quotes is not None and quote_sink:
+                        if detail_quotes.full():
+                            detail_quotes.get_nowait()
+                        detail_quotes.put_nowait(quote_sink[0])
                     logger.info(
                         "Market quant signal refresh completed: duration_seconds=%.1f snapshot_generated_at=%s detail=%s",
                         time_module.monotonic() - started_at,
@@ -2124,6 +2193,7 @@ async def lifespan(_: FastAPI):
     bootstrap_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
+    market_quant_signal_detail_task: asyncio.Task | None = None
     market_regular_evidence_retry_task: asyncio.Task | None = None
     closing_auction_capture_task: asyncio.Task | None = None
     us_position_lifecycle_task: asyncio.Task | None = None
@@ -2145,8 +2215,12 @@ async def lifespan(_: FastAPI):
             )
             intraday_warmup_task = asyncio.create_task(_run_intraday_warmup_loop())
             regular_evidence_ready = asyncio.Event()
+            detail_quotes = asyncio.Queue(maxsize=1)
             market_quant_signal_task = asyncio.create_task(
-                _run_market_quant_signal_refresh_loop(regular_evidence_ready)
+                _run_market_quant_signal_refresh_loop(regular_evidence_ready, detail_quotes)
+            )
+            market_quant_signal_detail_task = asyncio.create_task(
+                _run_market_quant_signal_detail_refresh_loop(detail_quotes)
             )
             market_regular_evidence_retry_task = asyncio.create_task(
                 _run_market_quant_signal_regular_evidence_retry_loop(regular_evidence_ready)
@@ -2187,6 +2261,10 @@ async def lifespan(_: FastAPI):
                 market_quant_signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await market_quant_signal_task
+            if market_quant_signal_detail_task is not None:
+                market_quant_signal_detail_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await market_quant_signal_detail_task
             if market_regular_evidence_retry_task is not None:
                 market_regular_evidence_retry_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -4351,7 +4429,12 @@ def get_market_quant_signals(
         if payload is not None and not active_quote_refresh:
             market_quant_signal_cache.set(cache_key, payload, 300)
     if payload is None:
-        if market_quant_signal_refresh_lock.acquire(blocking=False):
+        refresh_lock = (
+            market_quant_signal_detail_refresh_lock
+            if recent_days == MARKET_SIGNAL_DETAIL_RECENT_DAYS
+            else market_quant_signal_refresh_lock
+        )
+        if refresh_lock.acquire(blocking=False):
             try:
                 generated = _build_market_quant_signal_payload(
                     db,
@@ -4368,7 +4451,7 @@ def get_market_quant_signals(
                     recent_days=recent_days,
                 )
             finally:
-                market_quant_signal_refresh_lock.release()
+                refresh_lock.release()
     if payload is None:
         background_tasks.add_task(
             _refresh_market_quant_signal_snapshot,
