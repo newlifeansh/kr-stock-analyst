@@ -10,6 +10,37 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 
 
+def test_market_signal_chart_and_quote_use_each_stock_fetch_time(monkeypatch):
+    scan_started = datetime.now(main_module.KST) - timedelta(minutes=5)
+    observed = {}
+    payload = {"status": "ready", "items": []}
+
+    monkeypatch.setattr(main_module, "load_external_market_quant_signal_feed", lambda *a, **k: None)
+    monkeypatch.setattr(main_module.kis_rest_provider, "is_configured", lambda: True)
+    monkeypatch.setattr(main_module, "is_korea_regular_market_session", lambda _: True)
+    monkeypatch.setattr(main_module.kis_rest_provider, "fetch_intraday_chart",
+                        lambda _code, **kwargs: observed.update(chart_now=kwargs["now"]) or [])
+    monkeypatch.setattr(main_module, "_fetch_kis_current_quote",
+                        lambda _code, **kwargs: observed.update(quote_now=kwargs["now"]) or {})
+
+    def build(_db, **kwargs):
+        kwargs["intraday_quote_loader"]("005930")
+        kwargs["intraday_chart_loader"]("005930")
+        return payload
+
+    monkeypatch.setattr(main_module, "load_market_quant_signal_feed", build)
+    monkeypatch.setattr(main_module, "_attach_entry_filter_forward_comparison", lambda _db, result: result)
+    monkeypatch.setattr(main_module, "apply_market_signal_reconciliations", lambda result, **_: result)
+    monkeypatch.setattr(main_module, "enrich_market_quant_signal_sectors", lambda _db, result: result)
+
+    assert main_module._build_market_quant_signal_payload(
+        object(), universe_limit=150, limit=0, recent_days=30,
+        now=scan_started, live_quotes={},
+    ) is payload
+    assert observed["quote_now"] - scan_started >= timedelta(minutes=4)
+    assert observed["chart_now"] - scan_started >= timedelta(minutes=4)
+
+
 @pytest.mark.qa_gate
 def test_detail_refresh_reuses_successful_canonical_regular_preflight(monkeypatch):
     class FakeSession:

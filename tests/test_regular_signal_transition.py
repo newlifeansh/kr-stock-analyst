@@ -41,6 +41,25 @@ def test_forward_baseline_is_immutable_and_detects_tampering(db):
         transition.frozen_legacy_price_rows(db, "005930", rows)
 
 
+def test_forward_baseline_concurrent_insert_keeps_first_verified_value(db, monkeypatch):
+    key = "krx-regular-forward-v1:prices:005930"
+    first = {"source": "first"}
+    assert transition._freeze(db, key, first) == first
+    original_load = transition._load
+    reads = 0
+
+    def miss_before_concurrent_insert(session, lookup_key):
+        nonlocal reads
+        reads += 1
+        return None if reads == 1 else original_load(session, lookup_key)
+
+    monkeypatch.setattr(transition, "_load", miss_before_concurrent_insert)
+    assert transition._freeze(db, key, {"source": "second"}) == first
+    record = db.get(QuantSignalTransitionBaseline, key)
+    assert json.loads(record.payload) == first
+    assert reads == 2
+
+
 def test_forward_publication_preserves_return_but_never_realerts_or_claims_a_holding(db):
     old = {"strategy_version":"position-lifecycle-v8.0", "items":[{
         "code":"005930", "market_cap_rank":1, "is_preliminary":False,

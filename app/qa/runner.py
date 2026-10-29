@@ -70,6 +70,11 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-KR-CANDIDATE-RELIABILITY-001": (
+        "tests.test_regular_signal_transition.test_forward_baseline_concurrent_insert_keeps_first_verified_value",
+        "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing",
+        "tests.test_quote_stream_scaling.test_market_signal_chart_and_quote_use_each_stock_fetch_time",
+    ),
     "SIG-KR-OBSERVED-ENTRY-001": (
         "tests.test_app.test_market_quant_signal_refresh_loop_prioritizes_candidate_scans",
         "tests.test_observed_entry.test_preliminary_volume_gate_is_distinct_from_confirmed_h1_gate",

@@ -1491,11 +1491,17 @@ def _build_market_quant_signal_payload(
                             code,
                             max_points=391,
                             market_division="J",
-                            now=current_time,
+                            now=datetime.now(KST),
                         ),
                         datetime.now(KST),
                     )
                 )
+                if kis_rest_provider.is_configured()
+                and is_korea_regular_market_session(current_time)
+                else None
+            ),
+            intraday_quote_loader=(
+                lambda code: _fetch_kis_current_quote(code, now=datetime.now(KST))
                 if kis_rest_provider.is_configured()
                 and is_korea_regular_market_session(current_time)
                 else None

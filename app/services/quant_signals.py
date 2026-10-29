@@ -5782,8 +5782,9 @@ def _market_stock_payload_with_intraday_path(
     lifecycle_start_date: Optional[date] = None,
     observe_entry: bool = False,
     entry_universe_eligible: Optional[Callable[[dict[str, Any]], bool]] = None,
-    fresh_entry_evidence: Optional[Callable[[], dict[str, Any]]] = None,
+    fresh_entry_evidence: Optional[Callable[[datetime], dict[str, Any]]] = None,
     observation_universe_rank: Optional[int] = None,
+    intraday_quote_loader: Optional[Callable[[str], dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     code = stock.code
     observed_entries = observed_entry.load_records(db, code, current_time) if lifecycle_start_date else {}
@@ -5830,21 +5831,32 @@ def _market_stock_payload_with_intraday_path(
         )
     )
     if should_fetch:
+        fresh_quote = None
+        if intraday_quote_loader is not None:
+            try:
+                fresh_quote = intraday_quote_loader(code)
+            except Exception:
+                fresh_quote = None
         try:
             minute_rows, chart_fetched_at = intraday_chart_loader(code)
         except Exception:
             minute_rows = []
             chart_fetched_at = None
         if minute_rows:
+            observation_time = observed_entry.timestamp(chart_fetched_at)
+            candidate_time = observation_time or current_time
+            quote_for_chart = forming_quote or {}
+            if intraday_quote_loader is not None:
+                quote_for_chart = fresh_quote if isinstance(fresh_quote, dict) else {}
             candidate_quote = {
-                **forming_quote,
+                **quote_for_chart,
                 "intraday_minutes": minute_rows,
                 "intraday_minutes_observed_at": chart_fetched_at,
             }
             if lifecycle_start_date is not None:
                 candidate_quote = regular_intraday_quote(candidate_quote)
             candidate_bars, live_execution = _live_execution_bars(
-                confirmed_stock_bars, candidate_quote, current_time
+                confirmed_stock_bars, candidate_quote, candidate_time
             )
             verified_minutes = (
                 _verified_intraday_minutes(candidate_quote, candidate_bars[-1])
@@ -5871,7 +5883,7 @@ def _market_stock_payload_with_intraday_path(
                     )
             payload = build_quant_signal_payload(
                 stock, stock_price_rows, live_quote=candidate_quote,
-                now=current_time, context=None,
+                now=candidate_time, context=None,
                 entry_evidence_by_date=evidence_timeline,
                 entry_safety_guard=entry_safety_guard,
                 historical_intraday_minutes_by_date=historical_paths,
@@ -5885,22 +5897,22 @@ def _market_stock_payload_with_intraday_path(
             if verified_minutes and observe_entry:
                 # Use the actual chart observation clock, not the start of a
                 # market-wide scan, when recording the first possible entry.
-                observed_at = observed_entry.timestamp(chart_fetched_at)
+                observed_at = observation_time
                 rows = sorted(
                     (row for row in minute_rows if not _non_trade_closing_auction_row(row)),
                     key=lambda row: str(row.get("trade_time") or "").zfill(6),
                 )
                 minute_time = str(rows[len(verified_minutes) - 1]["trade_time"]).zfill(6)
-                minute_at = datetime.combine(current_time.date(), datetime.strptime(minute_time, "%H%M%S").time(), KST)
+                minute_at = datetime.combine(candidate_time.date(), datetime.strptime(minute_time, "%H%M%S").time(), KST)
                 context = payload.get("_observed_entry_context") or {}
-                if observed_at and 0 <= (observed_at - current_time).total_seconds() <= 180:
+                if observed_at and _fresh_kis_intraday_quote_for_market_alert(candidate_quote, observed_at):
                     record = observed_entry.observe(
                         db, code, now=observed_at, bars=confirmed_stock_bars,
                         minutes=verified_minutes, minute_at=minute_at,
                         available=context.get("available") is True,
                         last_exit_index=context.get("last_exit_index"),
                         guard=entry_safety_guard,
-                        evidence=fresh_entry_evidence() if fresh_entry_evidence else None,
+                        evidence=fresh_entry_evidence(observed_at) if fresh_entry_evidence else None,
                         universe_eligible=bool(entry_universe_eligible and entry_universe_eligible(payload)),
                         universe_rank=observation_universe_rank,
                     )
@@ -5908,7 +5920,7 @@ def _market_stock_payload_with_intraday_path(
                         observed_entries[current_time.date()] = record
                         payload = build_quant_signal_payload(
                             stock, stock_price_rows, live_quote=candidate_quote,
-                            now=current_time, context=None, entry_evidence_by_date=evidence_timeline,
+                            now=candidate_time, context=None, entry_evidence_by_date=evidence_timeline,
                             entry_safety_guard=entry_safety_guard,
                             historical_intraday_minutes_by_date=historical_paths,
                             lifecycle_start_date=lifecycle_start_date, observed_entries=observed_entries,
@@ -5953,6 +5965,7 @@ def load_market_quant_signal_feed(
     historical_intraday_chart_loader: Optional[
         Callable[[str, date], list[dict[str, Any]]]
     ] = None,
+    intraday_quote_loader: Optional[Callable[[str], dict[str, Any]]] = None,
     persist_entry_safety_guard: bool = False,
 ) -> dict[str, Any]:
     """Build recent transitions for stocks that belonged to the market universe.
@@ -6270,12 +6283,13 @@ def load_market_quant_signal_feed(
                              required_price_date=required_price_date,
                          )["allowed"])
                 ),
-                fresh_entry_evidence=lambda: build_entry_evidence_payload(
+                fresh_entry_evidence=lambda observed_at: build_entry_evidence_payload(
                     db, stock, stock_price_rows, signal_date=latest_confirmed_date,
-                    now=current_time, relative_context=relative_context_by_date.get(latest_confirmed_date),
+                    now=observed_at, relative_context=relative_context_by_date.get(latest_confirmed_date),
                     flow_prices=prices_by_code.get(code, []),
                     intraday_observation=True,
                 ),
+                intraday_quote_loader=intraday_quote_loader,
             )
         except (UnverifiedIntradayPathError, UnverifiedRegularSessionPrice) as exc:
             unverified_codes.add(code)
