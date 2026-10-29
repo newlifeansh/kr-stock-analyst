@@ -124,11 +124,46 @@ def test_morning_chart_probe_uses_elapsed_volume_only_to_fetch(setup, monkeypatc
         verified_paths={}, lifecycle_start_date=qs.REGULAR_FORWARD_START,
         observe_entry=True, entry_universe_eligible=lambda _: True,
         observation_universe_rank=3,
-        fresh_entry_evidence=lambda: evidence(START),
+        fresh_entry_evidence=lambda observed_at: evidence(observed_at),
     )
     assert chart_calls == [stock.code]
     assert captured["current"]["observed_entry"]["status"] == "watching"
     assert captured["events"] == []
+
+
+def test_late_scan_rechecks_quote_at_chart_time_before_observing(setup):
+    db, stock, bars, _ = setup
+    daily = _daily_rows_from_bars(stock.code, bars)
+    chart_at = START + timedelta(minutes=5)
+    fresh_at = chart_at - timedelta(minutes=1)
+    rows = [{
+        "trade_date": DAY.strftime("%Y%m%d"),
+        "trade_time": f"09{i:02d}00",
+        "open": 101, "high": 101, "low": 101, "price": 101, "volume": 1000,
+    } for i in range(6)]
+    old_quote = dict(trade_date=DAY, trade_date_verified=True, quote_source="kis_rest",
+                     market_venue="KRX", market_division="J", price=101, open=101,
+                     high=101, low=101, volume=1000, observed_at=START)
+    fresh_quote = {**old_quote, "observed_at": fresh_at, "volume": 6000}
+    observed_evidence_at = []
+
+    def build(quote_loader=None):
+        return qs._market_stock_payload_with_intraday_path(
+            db, stock, daily, bars, old_quote, {}, None, START,
+            lambda _: (rows, chart_at), None,
+            verified_paths={}, lifecycle_start_date=qs.REGULAR_FORWARD_START,
+            observe_entry=True, entry_universe_eligible=lambda _: True,
+            observation_universe_rank=3, intraday_quote_loader=quote_loader,
+            fresh_entry_evidence=lambda at: (observed_evidence_at.append(at), evidence(at))[1],
+        )
+
+    assert build()["current"].get("observed_entry") is None
+    assert not oe.load_records(db, stock.code, START)
+    assert build(lambda _: {})["current"].get("observed_entry") is None
+    assert not oe.load_records(db, stock.code, START)
+    captured = build(lambda _: fresh_quote)
+    assert captured["current"]["observed_entry"]["status"] == "watching"
+    assert observed_evidence_at == [chart_at]
 
 
 def test_extended_observation_can_precede_daily_entry_approval(setup):
@@ -519,7 +554,7 @@ def test_canonical_builder_captures_then_confirms_and_detail_only_reads(setup):
             loader or (lambda _: (rows, now)), None,
             verified_paths={}, lifecycle_start_date=qs.REGULAR_FORWARD_START, observe_entry=publisher,
             entry_universe_eligible=lambda _: True, observation_universe_rank=3,
-            fresh_entry_evidence=lambda: evidence(now),
+            fresh_entry_evidence=lambda observed_at: evidence(observed_at),
         )
 
     build(START, 1, False)

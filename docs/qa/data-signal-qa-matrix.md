@@ -3,7 +3,7 @@
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v8.1`
 - 미국 후보 전략: `position-lifecycle-us-v3-hybrid1`
-- QA 항목: 162개
+- QA 항목: 163개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -49,6 +49,12 @@
 | QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SIG-US-HYBRID-001 | P0 | 미국 장중 예비 포착·완료 분봉 매수확정·장중 매도·지연 차단 | gate<br>pytest 미국 장중 0.75배 예비 포착·1.0배 확정·장애 일시중지/복구·완료 분봉·프리마켓/정규장 세션·영속성·알림·공개 API 회귀, 분할 이벤트와 초 단위 임시 현재가 꼬리 제외 검증; v3 종가 후보 회귀 이력은 보존한다. 새 실행 모델의 30초 화면 갱신과 고지 DOM 계약도 검사한다. | 기존 미국 v2 일봉 replay와 v3 종가 후보 기반 forward 사건은 동결 보존한다.<br>검증 완료한 Top100 전일 일봉 근거, XNYS 정규장 일정, 최신 완료 1분봉을 준비한다. | strategy_version=position-lifecycle-us-v3-hybrid1, execution_model=same-session-observed-entry-us-v1, legacy_execution_model=completed-close-fresh-minute-confirmation-v1, entry_price=newest_completed_minute_close_after_capture, preliminary_volume_ratio=0.75, confirmed_h1_volume_ratio=1.0, volume_fallback=20-session average daily volume prorated by elapsed official session minutes, maximum_minute_end_age_seconds=90, maximum_order_event_age_seconds=180, premarket_session=04:00~09:30 America/New_York, premarket_execution=False, take_profit_percent=[3, 5], initial_stop_percent=4, first_sell_original_fraction=0.5, broker_orders=False, active_ui_refresh_ms=30000, active_ui_disclaimer=0.75배 예비 포착·이후 새 완료 분봉 1.0배 확정·분할 매도·지연/장외 차단·실계좌 주문 아님 | XNYS 거래일 04:00부터 정규장 개장 전까지 공개 세션을 premarket으로 표시하되 매수·매도 실행 플래그는 열지 않는다.<br>전일 완료 일봉의 20일·60일 추세와 USD 거래대금 참여도가 우호적인 Top100 감시 종목만 정규장 완료 1분봉으로 관측한다.<br>정규장 누적 거래량을 20세션 평균 일거래량의 공식 경과시간 비례값과 비교해 0.75배에서 예비 포착 시각과 고정 확인선을 한 번 저장한다.<br>포착한 분봉은 매수에 사용하지 않고 이후 새 완료 1분봉에서 거래 참여도 1.0배, 가격 확인선, 갭·추격 제한을 다시 통과할 때만 매수 확정한다.<br>분봉·현재가·근거 장애는 watching 후보를 취소하지 않고 일시 중지하며 복구 후 새 완료 분봉부터 재개한다.<br>진입 다음 완료 분봉부터 +3% 원래 비중 절반, +5% 잔여, -4% 손실 기준을 판정하고 동일 세션 재진입을 막는다.<br>이상·지연·장외·미완성·순서 역전·분할 가격과 180초를 넘은 주문 이벤트는 차단한다.<br>프로세스 재시작·CAS 경합·중복 관측에서 최초 포착·확정·매도 사건 ID가 바뀌지 않는지 검사한다.<br>구버전 성과를 새 성과와 섞지 않고 화면·상세·알림·실주문 어댑터를 같은 forward 장부에 연결한다.<br>미국 현재 목록이 새 실행 모델을 인식해 장중 30초 갱신과 0.75배 예비·새 완료 분봉 1.0배 매수·분할 매도·지연/장외 차단·실계좌 주문 아님 고지를 표시하는지 확인한다. | 거래일 프리마켓에는 market_session=premarket이 공개되고 is_regular=false를 유지한다.<br>정규장 거래 참여도 0.75배에서 예비 포착하고 포착 이후 새 완료 1분봉의 1.0배 조건에서만 매수를 한 번 확정한다.<br>일시 입력 장애는 후보를 소멸시키지 않고 복구 뒤 새 완료 분봉에서만 진행을 재개한다.<br>장 종료 전 신선한 정규장 증거만 매수·부분매도·전량매도 주문 후보로 발표된다.<br>갭 손실을 -4%로 잘라 계산하거나 관측되지 않은 목표가 체결을 만들지 않는다.<br>기존 일봉 replay와 종가 후보 기반 사건은 변경·재발송되지 않는다.<br>새 미국 실행 모델이 장중 30초 갱신 대상이며 현재 목록의 매매 고지가 정확히 노출된다. | 거래일 04:00~09:30 America/New_York를 closed로 표시하거나 프리마켓 관측만으로 정규장 실행을 허용한다.<br>첫 관측 분봉이나 포착 이전 가격으로 매수를 확정한다.<br>전체 일거래량을 장초반 누적 거래량과 직접 비교하거나 0.75배 예비 기준을 1.0배로 다시 막는다.<br>일시적인 데이터 장애로 후보를 취소하거나 장애 구간 가격을 소급 체결한다.<br>지연·장외·미완성·180초 초과 가격으로 매수 또는 매도를 확정한다.<br>손실·수익률을 목표값으로 조작하거나 같은 날 재진입한다.<br>장부 손상을 초기화하거나 과거 전략 기록을 덮어쓴다.<br>새 실행 모델을 구버전으로 오인해 장중 갱신을 늦추거나 매매 고지를 숨긴다. |
+
+## 국내 장중 시그널 게시
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SIG-KR-CANDIDATE-RELIABILITY-001 | P0 | 동시 기준선 저장과 종목별 장중 관측 시각 | gate<br>pytest 최초 기준선 보존·동시 삽입 충돌·장시간 스캔 후 최신 KIS 현재가와 완료 분봉 재검증 fixture | 두 계산기가 같은 정규장 전환 기준선 키를 저장할 수 있다.<br>후보 스캔 시작 후 3분 이상 지나 종목별 분봉을 조회할 수 있다. | baseline_key=krx-regular-forward-v1:prices:005930, quote_source=kis_rest, quote_chart_max_gap_seconds=180, completed_minute_max_age_seconds=180 | 동일 기준선 키의 최초 저장과 뒤따른 동시 저장을 실행해 최초 값과 해시가 유지되는지 확인한다.<br>스캔 시작 5분 뒤 현재가를 다시 읽고 분봉을 받아 후보를 분봉 관측 시각의 독립 근거로 판정한다.<br>새 현재가가 없거나 현재가와 분봉의 시각 차이가 180초를 넘으면 해당 분봉으로 새 후보를 만들지 않는다. | 동시 삽입은 최초 기준선을 반환하고 전체 스캔을 실패시키지 않는다.<br>같은 시각의 현재가와 완료 분봉은 스캔 시작 후 3분이 지나도 후보가 될 수 있다.<br>오래된 현재가나 분봉은 후보와 확정 신호를 만들지 않는다. | 고유 키 충돌로 전체 게시가 실패하거나 나중 값이 기준선을 덮어쓴다.<br>스캔 시작 시각과 분봉 시각의 차이만으로 유효한 후보를 버린다.<br>180초 넘게 어긋난 현재가와 분봉으로 후보 또는 매수를 확정한다. |
 
 ## 국내 시그널 세션 전환
 

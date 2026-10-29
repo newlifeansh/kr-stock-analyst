@@ -14,6 +14,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 
 from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalTransitionBaseline, QuantSignalIntradayPathSnapshot
 from app.services.regular_session_prices import PRICE_FIELDS, UnverifiedRegularSessionPrice
@@ -43,15 +46,32 @@ def _freeze(db: Session, key: str, payload: Any) -> Any:
     if existing is not None:
         return existing
     encoded = _json(payload)
-    # The caller owns its transaction. A concurrent unique-key conflict must
-    # roll back/retry; it must never replace the winner with newer source data.
-    db.add(QuantSignalTransitionBaseline(
+    values = dict(
         baseline_key=key, policy_version=REGULAR_FORWARD_VERSION,
         payload=encoded, payload_hash=sha256(encoded.encode()).hexdigest(),
         captured_at=datetime.now(timezone.utc).replace(tzinfo=None),
-    ))
-    db.flush()
-    return json.loads(encoded)
+    )
+    dialect = db.get_bind().dialect.name
+    if dialect in {"postgresql", "sqlite"}:
+        insert = postgresql_insert if dialect == "postgresql" else sqlite_insert
+        result = db.execute(insert(QuantSignalTransitionBaseline).values(**values).on_conflict_do_nothing(
+            index_elements=[QuantSignalTransitionBaseline.baseline_key]
+        ))
+        if result.rowcount == 1:
+            return json.loads(encoded)
+    else:
+        try:
+            with db.begin_nested():
+                db.add(QuantSignalTransitionBaseline(**values))
+                db.flush()
+            return json.loads(encoded)
+        except IntegrityError:
+            pass
+    # Another writer won. Read and verify its immutable value, never replace it.
+    winner = _load(db, key)
+    if winner is None:
+        raise UnverifiedRegularSessionPrice("전환 기준선 저장 충돌 후 값을 확인할 수 없습니다")
+    return winner
 
 
 def frozen_legacy_price_rows(db: Session, code: str, rows: list[DailyPrice]) -> list[DailyPrice]:
