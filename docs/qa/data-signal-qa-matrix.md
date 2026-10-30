@@ -3,7 +3,7 @@
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v8.1`
 - 미국 후보 전략: `position-lifecycle-us-v3-hybrid1`
-- QA 항목: 164개
+- QA 항목: 165개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -491,3 +491,9 @@
 | QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SIG-UI-037 | P0 | 첫 접속 서비스 워커 설치 중 로그인 입력 유지 | gate<br>pytest가 Node VM으로 새 서비스 워커 설치·기존 빌드 갱신 경로를 실행하고 로그인 입력을 지우는 자동 이동 여부를 검사한다. | 새 브라우저에 서비스 워커 컨트롤러가 없고 국내 /dashboard 또는 공식 미국 /us 로그인 폼이 표시된다.<br>기존 서비스 워커가 있는 브라우저는 현재 빌드 또는 명시적인 이전 app_build를 사용한다. | routes=['/dashboard', '/us'], new_browser_controller=None, current_dashboard_version=20261024v587, current_us_version=20261024us160, stale_build=old, credential_rotation=만료 또는 교체된 초대 코드는 최신 코드를 다시 입력하도록 안내 | 첫 설치의 controllerchange와 activate 이벤트를 재현하고 app_build가 없는 로그인 페이지의 navigation 및 location.replace 호출을 기록한다.<br>기존 컨트롤러로 현재 빌드와 이전 빌드의 controllerchange를 각각 재현한다.<br>서비스 워커 activate에서 app_build가 없는 창, 현재 빌드 창, 이전 빌드 창을 함께 검사한다.<br>운영 브라우저에서 유효한 최신 초대 코드와 기존 QA ID로 국내·공식 미국 화면에 입장한 뒤 새로고침해 로그인 상태를 확인한다. | 첫 설치에서 로그인 페이지를 자동 이동하지 않아 입력 중인 ID와 초대 코드가 유지된다.<br>현재 빌드 창은 그대로 유지되고 명시적인 이전 빌드 창만 현재 app_build로 이동한다.<br>기존 쿠키가 무효이거나 이전 초대 코드를 입력한 경우 최신 초대 코드 안내가 표시되며 정상 인증을 임의로 우회하지 않는다.<br>최신 코드로 입장한 국내·미국 화면은 새로고침 후에도 열린다. | 첫 설치 직후 로그인 폼이 새로고침돼 입력이 사라지거나 로그인 화면으로 돌아간다.<br>현재 빌드가 반복 이동하거나 이전 빌드가 갱신되지 않는다.<br>이전 초대 코드를 다시 승인하거나 최신 코드 안내 없이 무한 재시도한다.<br>API 인증은 성공하지만 실제 브라우저의 국내 또는 미국 로그인 게이트가 닫히지 않는다. |
+
+## 국내 장중 시그널 갱신 성능
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SIG-KR-REGULAR-VALIDATION-CACHE-001 | P0 | 동일 정규장 근거 재검증의 내용 기반 재사용 | gate<br>pytest 동일 저장 근거 재계산 1회·반환값 독립성·같은 세션의 원본 및 해시 변조 차단 fixture; 운영 게시 간격은 SIG-PUSH-INTRADAY-001 live와 수집기 스냅샷 시각으로 확인 | 날짜별 KRX 정규장 근거가 별도 테이블에 해시와 함께 저장돼 있다.<br>Top150 계산은 동일 근거를 상대 강도와 체결 재생에서 반복 조회한다. | cache_scope=process_local_bounded_64_mib, identity=['basis_version', 'record_id', 'stock_code', 'trade_date', 'observed_at', 'state', 'evidence_hash', 'stored_payload_sha256'], fallback=recompute_on_any_content_change | 같은 저장 근거를 두 번 읽어 가격·거래량·경로가 같고 재계산은 한 번만 실행되는지 확인한다.<br>호출자 반환값을 변조해도 다음 읽기에 전파되지 않는지 확인한다.<br>같은 DB 세션에서 저장 원본 또는 해시를 바꾼 뒤 다시 읽으면 캐시를 우회하고 무결성 오류를 반환하는지 확인한다. | 변경되지 않은 근거만 검증 결과를 재사용하고 신호 계산 결과를 바꾸지 않는다.<br>원본·해시·상태가 바뀌면 재검증하며 불일치 근거로 신호를 확정하지 않는다. | 변조된 저장 근거가 캐시 적중으로 승인된다.<br>호출자의 반환값 수정이 다음 시그널 계산에 전파된다.<br>캐시가 무제한으로 증가한다. |

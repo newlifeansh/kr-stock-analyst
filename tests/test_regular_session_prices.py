@@ -115,6 +115,56 @@ def test_regular_loader_rejects_missing_tampered_or_conflicting_ready_records(db
         rsp.load_regular_session_evidence(db, "005930", DAY)
 
 
+def test_regular_loader_reuses_only_identical_validated_content(db, monkeypatch):
+    record = rsp.store_regular_session_evidence(db, evidence(), observed_at=OBSERVED)
+    db.commit()
+    with rsp._validated_evidence_cache_lock:
+        rsp._validated_evidence_cache.clear()
+        rsp._validated_evidence_cache_bytes = 0
+    original_payload = record.payload
+    original_hash = record.evidence_hash
+    recomputations = 0
+    original_validator = rsp.regular_session_evidence
+
+    def count_validation(*args, **kwargs):
+        nonlocal recomputations
+        recomputations += 1
+        return original_validator(*args, **kwargs)
+
+    monkeypatch.setattr(rsp, "regular_session_evidence", count_validation)
+    first = rsp.load_regular_session_evidence(db, "005930", DAY)
+    first["prices"]["close"] = -1
+    second = rsp.load_regular_session_evidence(db, "005930", DAY)
+    assert second["prices"]["close"] == 100
+    assert recomputations == 1
+
+    altered = json.loads(original_payload)
+    altered["evidence"]["prices"]["close"] = 120
+    record.payload = json.dumps(altered)
+    db.commit()
+    with pytest.raises(rsp.UnverifiedRegularSessionPrice, match="무결성"):
+        rsp.load_regular_session_evidence(db, "005930", DAY)
+    assert recomputations == 2
+
+    record.payload = original_payload
+    record.evidence_hash = "0" * len(original_hash)
+    db.commit()
+    with pytest.raises(rsp.UnverifiedRegularSessionPrice, match="무결성"):
+        rsp.load_regular_session_evidence(db, "005930", DAY)
+    assert recomputations == 3
+
+    record.evidence_hash = original_hash
+    db.commit()
+    with rsp._validated_evidence_cache_lock:
+        rsp._validated_evidence_cache.clear()
+        rsp._validated_evidence_cache_bytes = 0
+    monkeypatch.setattr(rsp, "_VALIDATED_EVIDENCE_CACHE_MAX_BYTES", 1)
+    rsp.load_regular_session_evidence(db, "005930", DAY)
+    rsp.load_regular_session_evidence(db, "005930", DAY)
+    assert recomputations == 5
+    assert rsp._validated_evidence_cache_bytes == 0
+
+
 def test_regular_prices_leave_legacy_fixtures_intact_and_never_fallback(db):
     legacy = DailyPrice(code="005930", trade_date=date(2026, 9, 11), close=95)
     missing = DailyPrice(code="005930", trade_date=DAY, close=100)

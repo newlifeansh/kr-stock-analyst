@@ -745,6 +745,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_observed_entry."
         "test_no_trade_minute_keeps_watching_without_confirming_and_next_trade_can_confirm",
     ),
+    "SIG-KR-REGULAR-VALIDATION-CACHE-001": (
+        "tests.test_regular_session_prices."
+        "test_regular_loader_reuses_only_identical_validated_content",
+        "tests.test_regular_session_prices."
+        "test_regular_loader_rejects_missing_tampered_or_conflicting_ready_records",
+    ),
     "SIG-KR-INTRADAY-REPLAY-001": (
         "tests.test_intraday_cache."
         "test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
