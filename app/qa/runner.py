@@ -706,6 +706,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[True-143-True]",
         "tests.test_app."
         "test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_collapses[False-53-True]",
+        "tests.test_app."
+        "test_market_signal_direct_refresh_cannot_publish_incomplete_live_quote_fanout",
+        "tests.test_app."
+        "test_market_signal_cold_api_reports_preparing_instead_of_publishing_missing_quotes",
         "tests.test_quant_signals."
         "test_market_quant_signal_endpoint_reads_new_collector_snapshot_during_session",
         "tests.test_quant_signals."
@@ -730,6 +734,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_v8_live_buy_waits_for_a_closed_verified_minute",
         "tests.test_quant_signals."
         "test_market_feed_only_projects_fresh_kis_intraday_execution_as_verified",
+    ),
+    "SIG-KR-NO-TRADE-MINUTE-001": (
+        "tests.test_quant_signals."
+        "test_explicit_flat_no_trade_minute_keeps_verified_path_without_a_price_touch",
+        "tests.test_quant_signals."
+        "test_no_trade_minute_cannot_fill_an_intraday_order",
+        "tests.test_quant_signals."
+        "test_v8_ordered_minutes_require_fresh_complete_chart_matching_krx_quote",
+        "tests.test_observed_entry."
+        "test_no_trade_minute_keeps_watching_without_confirming_and_next_trade_can_confirm",
     ),
     "SIG-KR-INTRADAY-REPLAY-001": (
         "tests.test_intraday_cache."

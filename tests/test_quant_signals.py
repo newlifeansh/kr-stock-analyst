@@ -1507,15 +1507,63 @@ def test_v8_ordered_minutes_require_fresh_complete_chart_matching_krx_quote():
     assert quant_signals._verified_intraday_minutes(
         {**quote, "intraday_minutes": [rows[0], {**rows[1], "trade_time": "090400"}, rows[2]]}, bar
     ) is None
+    assert not quant_signals._intraday_path_preserves_prior_touches(
+        rows[:2], [rows[0], {**rows[1], "volume": 1}, rows[2]]
+    )
+    assert not quant_signals._intraday_path_preserves_prior_touches(
+        rows[:2], [rows[0], {**rows[1], "trading_value": 1_001}, rows[2]]
+    )
     assert quant_signals._verified_intraday_minutes(
         {**quote, "intraday_minutes_observed_at": observed_at + timedelta(minutes=4)}, bar
     ) is None
     assert quant_signals._verified_intraday_minutes(
         {**quote, "intraday_minutes_observed_at": observed_at - timedelta(seconds=1)}, bar
     ) is None
-    assert quant_signals._verified_intraday_minutes(
+    assert len(quant_signals._verified_intraday_minutes(
         {**quote, "intraday_minutes": [*rows, {**rows[-1], "trade_time": "090400"}]}, bar
+    ) or []) == 2
+
+
+def test_explicit_flat_no_trade_minute_keeps_verified_path_without_a_price_touch():
+    observed_at = datetime(2026, 10, 30, 9, 3, tzinfo=quant_signals.KST)
+    bar = quant_signals.PriceBar(
+        observed_at.date(), 100, 102, 100, 102, 20, 2_020,
+    )
+    rows = [
+        {"trade_date": "20261030", "trade_time": "090000", "open": 100,
+         "high": 100, "low": 100, "price": 100, "volume": 10, "trading_value": 1_000},
+        {"trade_date": "20261030", "trade_time": "090100", "open": 100,
+         "high": 100, "low": 100, "price": 100, "volume": 0, "trading_value": 1_000},
+        {"trade_date": "20261030", "trade_time": "090200", "open": 100,
+         "high": 102, "low": 100, "price": 102, "volume": 10, "trading_value": 2_020},
+    ]
+    quote = {"observed_at": observed_at,
+             "intraday_minutes_observed_at": observed_at,
+             "intraday_minutes": rows}
+    verified = quant_signals._verified_intraday_minutes(quote, bar)
+    assert verified is not None and [minute.volume for minute in verified] == [10, 0, 10]
+    assert verified[1].trading_value == 0
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes": [rows[0], {**rows[1], "price": 101}, rows[2]]}, bar
     ) is None
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes": [rows[0], {**rows[1], "trading_value": 1_001}, rows[2]]}, bar
+    ) is None
+    assert quant_signals._verified_intraday_minutes(
+        {**quote, "intraday_minutes": [rows[0], {**rows[1], "trade_time": "090400"}, rows[2]]}, bar
+    ) is None
+
+
+def test_no_trade_minute_cannot_fill_an_intraday_order():
+    no_trade = quant_signals.PriceBar(
+        date(2026, 10, 30), 100, 100, 100, 100, 0, 0,
+    )
+    assert quant_signals._ordered_intraday_entry_execution(
+        [no_trade], {"entry_trigger_price": 100, "signal_price": 100, "atr": 2}
+    ) == (None, None)
+    assert quant_signals._ordered_intraday_exit_decisions(
+        {"peak_price": 100}, [no_trade], {}
+    ) == []
 
 
 def test_v8_simulation_executes_prior_close_signal_at_next_session_breakout(monkeypatch):

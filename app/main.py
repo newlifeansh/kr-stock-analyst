@@ -1107,6 +1107,20 @@ def _refresh_market_quant_signal_snapshot(
         with SessionLocal() as db:
             current_time = datetime.now(KST)
             started_at = time_module.monotonic()
+            if not settings.market_quant_signal_source_url:
+                if live_quotes is None:
+                    live_quotes = _market_quant_signal_live_quotes(
+                        db, universe_limit, current_time
+                    )
+                if _market_quant_signal_quote_coverage_below_floor(
+                    live_quotes, current_time
+                ):
+                    logger.warning(
+                        "Market quant signal quote coverage below publication floor: "
+                        "valid_quotes=%s symbols=%s required_percent=95; preserving snapshot",
+                        len(live_quotes), live_quotes.expected_symbols,
+                    )
+                    return None
             repaired_rows = _repair_market_quant_signal_ohlc(
                 db,
                 universe_limit=universe_limit,
@@ -1230,11 +1244,8 @@ def _refresh_market_quant_signal_views_snapshot(
             shared_quotes = _market_quant_signal_live_quotes(
                 db, MARKET_SIGNAL_UNIVERSE_LIMIT, datetime.now(KST)
             )
-        if (
-            isinstance(shared_quotes, MarketQuoteFanout)
-            and shared_quotes.expected_symbols > 0
-            and is_korea_regular_market_session(datetime.now(KST))
-            and len(shared_quotes) * 100 < shared_quotes.expected_symbols * 95
+        if _market_quant_signal_quote_coverage_below_floor(
+            shared_quotes, datetime.now(KST)
         ):
             # A transient KIS outage must not turn a partly observed Top150
             # frame into a new confirmed alert or erase previously published
@@ -1526,6 +1537,17 @@ class MarketQuoteFanout(dict[str, dict[str, Any]]):
     def __init__(self, expected_symbols: int):
         super().__init__()
         self.expected_symbols = expected_symbols
+
+
+def _market_quant_signal_quote_coverage_below_floor(
+    quotes: Optional[dict[str, dict[str, Any]]], now: datetime,
+) -> bool:
+    return bool(
+        isinstance(quotes, MarketQuoteFanout)
+        and quotes.expected_symbols > 0
+        and is_korea_regular_market_session(now)
+        and len(quotes) * 100 < quotes.expected_symbols * 95
+    )
 
 
 def _market_quant_signal_live_quotes(
@@ -4442,20 +4464,29 @@ def get_market_quant_signals(
         )
         if refresh_lock.acquire(blocking=False):
             try:
-                generated = _build_market_quant_signal_payload(
-                    db,
-                    universe_limit=universe_limit,
-                    limit=limit,
-                    recent_days=recent_days,
-                    now=datetime.now(KST),
+                current_time = datetime.now(KST)
+                live_quotes = (
+                    _market_quant_signal_live_quotes(db, universe_limit, current_time)
+                    if not settings.market_quant_signal_source_url else None
                 )
-                payload = save_market_quant_signal_snapshot(
-                    db,
-                    generated,
-                    universe_limit=universe_limit,
-                    limit=limit,
-                    recent_days=recent_days,
-                )
+                if not _market_quant_signal_quote_coverage_below_floor(
+                    live_quotes, current_time
+                ):
+                    generated = _build_market_quant_signal_payload(
+                        db,
+                        universe_limit=universe_limit,
+                        limit=limit,
+                        recent_days=recent_days,
+                        now=current_time,
+                        live_quotes=live_quotes,
+                    )
+                    payload = save_market_quant_signal_snapshot(
+                        db,
+                        generated,
+                        universe_limit=universe_limit,
+                        limit=limit,
+                        recent_days=recent_days,
+                    )
             finally:
                 refresh_lock.release()
     if payload is None:

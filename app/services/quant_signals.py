@@ -949,6 +949,8 @@ def _ordered_intraday_entry_execution(
     if trigger is None:
         return None, None
     for minute_index, minute in enumerate(minutes):
+        if minute.volume <= 0:
+            continue
         if minute.open < trigger and minute.high + 1e-9 < trigger:
             continue
         price = _intraday_entry_execution_price(minute, pending)
@@ -1286,6 +1288,8 @@ def _verified_intraday_minutes(
         return None
     parsed: list[tuple[datetime, PriceBar]] = []
     seen_times: set[str] = set()
+    previous_cumulative_value: Optional[float] = None
+    future_tail_started = False
     for row in rows:
         if not isinstance(row, dict):
             return None
@@ -1299,9 +1303,12 @@ def _verified_intraday_minutes(
             return None
         if not (time(9, 0) <= minute_at.time() <= time(15, 30)):
             return None
-        # A chart returned after the quote must not leak later trades into the
-        # earlier confirmed signal snapshot.
+        # A chart can cross a minute boundary after the quote was observed.
+        # Exclude newer rows while validating the complete earlier prefix.
         if minute_at.time() > observed_local.time():
+            future_tail_started = True
+            continue
+        if future_tail_started:
             return None
         seen_times.add(raw_time)
         if _non_trade_closing_auction_row(row):
@@ -1310,13 +1317,39 @@ def _verified_intraday_minutes(
         minute_high = _safe_number(row.get("high"))
         minute_low = _safe_number(row.get("low"))
         minute_close = _safe_number(row.get("price"))
-        minute_volume = _safe_number(row.get("volume"))
+        try:
+            minute_volume = float(row.get("volume"))
+            cumulative_value = (
+                float(row["trading_value"])
+                if row.get("trading_value") is not None else None
+            )
+        except (TypeError, ValueError):
+            return None
         if (
             not _has_complete_ohlc(minute_open, minute_high, minute_low, minute_close)
-            or minute_volume is None
-            or minute_volume <= 0
+            or not isfinite(minute_volume) or minute_volume < 0
+            or (cumulative_value is not None and (
+                not isfinite(cumulative_value) or cumulative_value < 0
+            ))
         ):
             return None
+        if minute_volume == 0:
+            # KIS includes explicit no-trade minutes with a flat carry-forward
+            # price and unchanged cumulative value. They preserve the path's
+            # clock but cannot constitute an executable price touch.
+            previous_close = parsed[-1][1].close if parsed else None
+            if (
+                previous_close is None
+                or any(abs(value - previous_close) > 1e-9 for value in (
+                    minute_open, minute_high, minute_low, minute_close
+                ))
+                or (
+                    cumulative_value is not None
+                    and previous_cumulative_value is not None
+                    and abs(cumulative_value - previous_cumulative_value) > 1e-9
+                )
+            ):
+                return None
         parsed.append(
             (
                 minute_at,
@@ -1327,11 +1360,12 @@ def _verified_intraday_minutes(
                     low=float(minute_low),
                     close=float(minute_close),
                     volume=float(minute_volume),
-                    trading_value=float(_safe_number(row.get("trading_value")) or 0),
+                    trading_value=0.0 if minute_volume == 0 else float(cumulative_value or 0),
                     closed_at=minute_at.replace(tzinfo=KST) + timedelta(minutes=1),
                 ),
             )
         )
+        previous_cumulative_value = cumulative_value
     parsed.sort(key=lambda item: item[0])
     # The latest minute can still change after a quote is observed. Confirm
     # touches only in minutes that ended before the quote's current minute.
@@ -1415,7 +1449,7 @@ def _intraday_path_preserves_prior_touches(
     for old, new in zip(previous, current):
         if any(
             _safe_number(old.get(field)) != _safe_number(new.get(field))
-            for field in ("open", "high", "low", "price")
+            for field in ("open", "high", "low", "price", "volume", "trading_value")
         ):
             return False
     return True
@@ -1874,6 +1908,8 @@ def _ordered_intraday_exit_decisions(
     shadow = dict(position)
     decisions: list[IntradayExecutionDecision] = []
     for minute in minutes:
+        if minute.volume <= 0:
+            continue
         opening = PriceBar(
             trade_date=minute.trade_date,
             open=minute.open,
