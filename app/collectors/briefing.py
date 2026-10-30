@@ -378,12 +378,15 @@ class KisRestBriefingProvider:
             if self._token == rejected_token:
                 self._token = None
                 self._token_expires_at = None
-        if engine.dialect.name == "postgresql":
-            invalidate_rejected_shared_token(
-                SessionLocal, identity=identity,
-                app_secret=self.settings.kis_app_secret or "",
-                rejected_token=rejected_token,
-            )
+            # _ensure_token uses this same lock while reading the shared row.
+            # Keep it held until eviction completes so another local request
+            # cannot repopulate the rejected bearer between the two caches.
+            if engine.dialect.name == "postgresql":
+                invalidate_rejected_shared_token(
+                    SessionLocal, identity=identity,
+                    app_secret=self.settings.kis_app_secret or "",
+                    rejected_token=rejected_token,
+                )
 
     def _wait_for_request_slot(self) -> None:
         interval = max(0, int(self.settings.kis_rest_min_interval_ms)) / 1000

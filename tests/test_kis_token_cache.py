@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from threading import Thread
 from types import SimpleNamespace
 
 import pytest
@@ -147,6 +148,40 @@ def test_kis_expired_token_500_refreshes_once_and_retries_original_request(monke
     assert used == ["Bearer expired-token", "Bearer replacement-token"]
     assert issued == [1]
     assert provider._ensure_token() == "replacement-token"
+
+
+def test_expired_token_eviction_keeps_local_lock_until_shared_cache_is_cleared(monkeypatch):
+    monkeypatch.setattr(briefing, "engine", SimpleNamespace(
+        dialect=SimpleNamespace(name="postgresql")
+    ))
+    provider = KisRestBriefingProvider(Settings(
+        kis_app_key="concurrent-key", kis_app_secret="concurrent-secret",
+    ))
+    provider._token = "expired-token"
+    provider._token_expires_at = datetime.utcnow() + timedelta(hours=1)
+    identity = provider._token_identity()
+    briefing._KIS_TOKEN_CACHE[identity] = (provider._token, provider._token_expires_at)
+    lock_attempts = []
+
+    def invalidate(*_args, **kwargs):
+        def try_local_lock():
+            acquired = briefing._KIS_TOKEN_CACHE_LOCK.acquire(blocking=False)
+            lock_attempts.append(acquired)
+            if acquired:
+                briefing._KIS_TOKEN_CACHE_LOCK.release()
+
+        thread = Thread(target=try_local_lock)
+        thread.start()
+        thread.join(timeout=1)
+        assert not thread.is_alive()
+        assert kwargs["rejected_token"] == "expired-token"
+        return True
+
+    monkeypatch.setattr(briefing, "invalidate_rejected_shared_token", invalidate)
+    provider._forget_rejected_token("expired-token")
+    assert lock_attempts == [False]
+    assert identity not in briefing._KIS_TOKEN_CACHE
+    assert provider._token is None
 
 
 def test_kis_non_auth_500_keeps_bounded_transport_retries(monkeypatch):
