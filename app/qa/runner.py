@@ -72,11 +72,14 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-KR-CANDIDATE-RELIABILITY-001": (
         "tests.test_regular_signal_transition.test_forward_baseline_concurrent_insert_keeps_first_verified_value",
-        "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing",
+        "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing[0]",
+        "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing[4]",
         "tests.test_quote_stream_scaling.test_market_signal_chart_and_quote_use_each_stock_fetch_time",
     ),
     "SIG-KR-OBSERVED-ENTRY-001": (
         "tests.test_app.test_market_quant_signal_refresh_loop_prioritizes_candidate_scans",
+        "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing[0]",
+        "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing[4]",
         "tests.test_observed_entry.test_preliminary_volume_gate_is_distinct_from_confirmed_h1_gate",
         "tests.test_observed_entry.test_intraday_volume_uses_finalized_same_minute_history_before_daily_fallback",
         "tests.test_observed_entry.test_capture_then_later_closed_minute_confirms_once_across_restart",
