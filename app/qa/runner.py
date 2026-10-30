@@ -751,6 +751,14 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_session_prices."
         "test_regular_loader_rejects_missing_tampered_or_conflicting_ready_records",
     ),
+    "SIG-KR-INTRADAY-PANIC-STRENGTH-001": (
+        "tests.test_signal_entry_evidence."
+        "test_intraday_panic_exception_requires_fresh_relative_strength_and_flow",
+        "tests.test_observed_entry."
+        "test_capture_then_later_closed_minute_confirms_once_across_restart",
+        "tests.test_observed_entry."
+        "test_unpublished_preliminary_cannot_confirm",
+    ),
     "SIG-KR-INTRADAY-REPLAY-001": (
         "tests.test_intraday_cache."
         "test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",

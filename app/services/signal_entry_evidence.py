@@ -31,6 +31,8 @@ KST = ZoneInfo("Asia/Seoul")
 ENTRY_EVIDENCE_STRATEGY_VERSION = "position-lifecycle-v7.0"
 ENTRY_EVIDENCE_POLICY_VERSION = "independent-entry-confirmation-v1"
 ENTRY_EVIDENCE_EFFECTIVE_DATE = date(2026, 8, 21)
+INTRADAY_PANIC_EXCEPTION_EFFECTIVE_DATE = date(2026, 10, 30)
+INTRADAY_PANIC_MIN_EXCESS_RETURN = 0.10
 
 FLOW_LOOKBACK_BARS = 20
 FLOW_SHORT_BARS = 5
@@ -889,12 +891,32 @@ def build_entry_evidence_payload(
     source_checks = [price_check, market_check, flow_check, *earnings_checks, disclosure_check]
     supporting = [item["key"] for item in evidence if item.get("used_for_entry") and item.get("state") == "supportive"]
     caution = [item["key"] for item in evidence if item.get("used_for_entry") and item.get("state") == "caution"]
-    vetoes = [*market_vetoes, *disclosure_vetoes]
     critical_failures = [
         check["key"]
         for check in source_checks
         if check.get("critical") and check.get("state") != "ready"
     ]
+    # A broad market drawdown should not permanently suppress every stronger
+    # stock. This exception is forward-only and applies solely to a fresh
+    # intraday observation; closed-session decisions keep their frozen veto.
+    stock_return20 = _return_over_rows(eligible_prices, 20)
+    market_context = (shared_relative.get("market_indices") or {}).get(stock.market) or {}
+    market_return20 = _float(market_context.get("return20"))
+    panic_exception = bool(
+        intraday_observation
+        and generated_at.date() >= INTRADAY_PANIC_EXCEPTION_EFFECTIVE_DATE
+        and market_vetoes == ["시장 급락·고변동 국면"]
+        and not disclosure_vetoes
+        and not critical_failures
+        and market_context.get("state") == "ready"
+        and market_context.get("as_of") == signal_date.isoformat()
+        and stock_return20 is not None and stock_return20 > 0
+        and market_return20 is not None
+        and stock_return20 - market_return20 >= INTRADAY_PANIC_MIN_EXCESS_RETURN
+        and {"relative_strength", "flow"}.issubset(supporting)
+        and len(caution) < 2
+    )
+    vetoes = [*([] if panic_exception else market_vetoes), *disclosure_vetoes]
     independent_available = sum(
         1
         for item in evidence
@@ -913,6 +935,8 @@ def build_entry_evidence_payload(
     if independent_available < 2:
         quality_reasons.append(f"독립 근거 {independent_available}/3개만 사용 가능")
     quality_reasons.extend(vetoes)
+    if panic_exception:
+        quality_reasons.append("시장 급락 중 상대강도·수급 예외 적용")
     if not quality_reasons:
         quality_reasons.append("가격·시장·공시 최신성과 독립 근거가 확인됐습니다.")
     return {
@@ -934,6 +958,12 @@ def build_entry_evidence_payload(
         "supportive_count": len(supporting),
         "caution_count": len(caution),
         "vetoes": vetoes,
+        "market_regime_exception": {
+            "applied": panic_exception,
+            "original_vetoes": market_vetoes,
+            "basis": "positive_20d_return_and_10pp_excess_with_relative_strength_and_flow"
+            if panic_exception else None,
+        },
         "required_supports": {
             "trend_continuation": 1,
             "early_turn": 2,
@@ -987,6 +1017,8 @@ def entry_confirmation_decision(
         reason = f"주의 근거 {caution_count}개로 신규매수 보류"
     else:
         reason = f"독립 우호 근거 {supportive_count}/{required}개와 최신성 확인 완료"
+        if (payload.get("market_regime_exception") or {}).get("applied"):
+            reason += " · 시장 급락 중 강세 종목 예외"
     return {
         "allowed": allowed,
         "state": "approved" if allowed else "blocked" if vetoes else "limited",

@@ -28,6 +28,7 @@ from app.models import (
 from app.services.sector_taxonomy import investment_sector_fields
 from app.services import quant_signals
 from app.services import briefing
+from app.services import signal_entry_evidence as entry_evidence
 from app.services.signal_data_quality import (
     _http_probe,
     _probe_historical_kis_minutes,
@@ -303,6 +304,74 @@ def test_v7_hard_disclosure_and_market_panic_are_entry_vetoes():
     )
     assert decision["allowed"] is False
     assert decision["state"] == "blocked"
+
+
+def test_intraday_panic_exception_requires_fresh_relative_strength_and_flow(monkeypatch):
+    db = _session()
+    stock, prices = _seed_stock_data(db)
+    context = _relative_context(stock, panic=True)
+    # Exercise the forward policy against the older deterministic fixture
+    # without changing its frozen historical signal date.
+    monkeypatch.setattr(entry_evidence, "INTRADAY_PANIC_EXCEPTION_EFFECTIVE_DATE", SIGNAL_DATE)
+
+    closed = build_entry_evidence_payload(
+        db, stock, prices, signal_date=SIGNAL_DATE,
+        now=GENERATED_AT, relative_context=context,
+    )
+    intraday = build_entry_evidence_payload(
+        db, stock, prices, signal_date=SIGNAL_DATE,
+        now=GENERATED_AT, relative_context=context, intraday_observation=True,
+    )
+    assert closed["vetoes"] == ["시장 급락·고변동 국면"]
+    assert closed["market_regime_exception"]["applied"] is False
+    assert intraday["market_regime_exception"]["applied"] is True
+    assert intraday["market_regime_exception"]["original_vetoes"] == closed["vetoes"]
+    assert intraday["vetoes"] == []
+    assert {"relative_strength", "flow"}.issubset(intraday["supportive_keys"])
+    decision = entry_confirmation_decision(intraday, "trend_continuation", signal_date=SIGNAL_DATE)
+    assert decision["allowed"]
+    assert "시장 급락" in decision["reason"]
+
+    weak_context = _relative_context(stock, panic=True)
+    weak_context["market_indices"]["KOSPI"]["return20"] = 0.10
+    weak = build_entry_evidence_payload(
+        db, stock, prices, signal_date=SIGNAL_DATE,
+        now=GENERATED_AT, relative_context=weak_context, intraday_observation=True,
+    )
+    assert weak["market_regime_exception"]["applied"] is False
+    assert weak["vetoes"] == ["시장 급락·고변동 국면"]
+
+    stale_context = _relative_context(stock, panic=True)
+    stale_context["market_indices"]["KOSPI"]["as_of"] = "2026-08-20"
+    stale = build_entry_evidence_payload(
+        db, stock, prices, signal_date=SIGNAL_DATE,
+        now=GENERATED_AT, relative_context=stale_context, intraday_observation=True,
+    )
+    assert stale["market_regime_exception"]["applied"] is False
+    assert stale["vetoes"] == ["시장 급락·고변동 국면"]
+
+    db.execute(update(InvestorFlow).values(net_buy_value=-300_000_000))
+    db.flush()
+    weak_flow = build_entry_evidence_payload(
+        db, stock, prices, signal_date=SIGNAL_DATE,
+        now=GENERATED_AT, relative_context=context, intraday_observation=True,
+    )
+    assert weak_flow["market_regime_exception"]["applied"] is False
+    assert weak_flow["vetoes"] == ["시장 급락·고변동 국면"]
+
+    db.add(DisclosureItem(
+        source="dart_api", external_id="panic-disclosure",
+        disclosure_category="major", company_name=stock.name,
+        stock_code=stock.code, report_name="주주배정 유상증자 결정",
+        published_at=datetime(2026, 8, 20, 10, 0),
+    ))
+    db.commit()
+    disclosed = build_entry_evidence_payload(
+        db, stock, prices, signal_date=SIGNAL_DATE,
+        now=GENERATED_AT, relative_context=context, intraday_observation=True,
+    )
+    assert disclosed["market_regime_exception"]["applied"] is False
+    assert any("중대 공시" in veto for veto in disclosed["vetoes"])
 
 
 def test_v7_missing_or_stale_critical_evidence_never_confirms_a_buy():
