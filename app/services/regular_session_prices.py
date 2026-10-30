@@ -6,12 +6,15 @@ fall back to an all-session daily candle. Legacy prices are never overwritten.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+from threading import Lock
 from typing import Any
 from zoneinfo import ZoneInfo
+import zlib
 
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
@@ -26,6 +29,10 @@ KST = ZoneInfo("Asia/Seoul")
 REGULAR_PRICE_BASIS = "krx-regular-session-v4-candidate"
 REGULAR_PRICE_EFFECTIVE_DATE = date(2026, 9, 14)
 REGULAR_PRICE_SOURCE = "kis_dated_minutes:FHKST03010230:J"
+_VALIDATED_EVIDENCE_CACHE_MAX_BYTES = 64 * 1024 * 1024
+_validated_evidence_cache: OrderedDict[tuple[Any, ...], bytes] = OrderedDict()
+_validated_evidence_cache_bytes = 0
+_validated_evidence_cache_lock = Lock()
 PRICE_FIELDS = ("open", "high", "low", "close", "volume", "trading_value")
 NAVER_REGULAR_COVERAGE_BASIS = (
     "naver_38_buckets_with_complete_opening_volume_anchor"
@@ -442,6 +449,7 @@ def store_regular_session_evidence(
 def load_regular_session_evidence(
     db: Session, code: str, trade_date: date, *, allow_bounded: bool = False,
 ) -> dict[str, Any]:
+    global _validated_evidence_cache_bytes
     # A default dry-run must also work before the additive table is installed.
     # Do not create schema or write anything as a side effect of a read.
     if not inspect(db.connection()).has_table(SignalSessionPrice.__tablename__):
@@ -456,10 +464,49 @@ def load_regular_session_evidence(
     accepted = []
     for record in records:
         try:
-            evidence = json.loads(record.payload)["evidence"]
-            regenerated = regular_session_evidence(code, trade_date, evidence["raw_rows"], observed_at=record.observed_at.replace(tzinfo=timezone.utc), preopen_baseline=evidence.get("preopen_baseline"), closing_auction_evidence=evidence.get("closing_auction_evidence"))
-            if not _matches_recomputed_evidence(evidence, regenerated) or sha256(_json(evidence).encode()).hexdigest() != record.evidence_hash or evidence["state"] != record.state or evidence["state"] not in states:
-                raise ValueError("integrity mismatch")
+            # The market feed reads each immutable dated record repeatedly for
+            # peer context and position replay. Recompute once per exact stored
+            # content, while a changed payload/hash/state always gets checked
+            # again (including mutations in the same SQLAlchemy session).
+            cache_key = (
+                REGULAR_PRICE_BASIS, record.id, code, trade_date.isoformat(),
+                record.observed_at.isoformat(), record.state, record.evidence_hash,
+                sha256(record.payload.encode("utf-8")).digest(),
+            )
+            with _validated_evidence_cache_lock:
+                cached = _validated_evidence_cache.get(cache_key)
+                if cached is not None:
+                    _validated_evidence_cache.move_to_end(cache_key)
+            if cached is None:
+                evidence = json.loads(record.payload)["evidence"]
+                regenerated = regular_session_evidence(
+                    code, trade_date, evidence["raw_rows"],
+                    observed_at=record.observed_at.replace(tzinfo=timezone.utc),
+                    preopen_baseline=evidence.get("preopen_baseline"),
+                    closing_auction_evidence=evidence.get("closing_auction_evidence"),
+                )
+                if (
+                    not _matches_recomputed_evidence(evidence, regenerated)
+                    or sha256(_json(evidence).encode()).hexdigest() != record.evidence_hash
+                    or evidence["state"] != record.state
+                    or evidence["state"] not in states
+                ):
+                    raise ValueError("integrity mismatch")
+                packed = zlib.compress(_json(evidence).encode("utf-8"), level=1)
+                if len(packed) <= _VALIDATED_EVIDENCE_CACHE_MAX_BYTES:
+                    with _validated_evidence_cache_lock:
+                        previous = _validated_evidence_cache.pop(cache_key, None)
+                        if previous is not None:
+                            _validated_evidence_cache_bytes -= len(previous)
+                        _validated_evidence_cache[cache_key] = packed
+                        _validated_evidence_cache_bytes += len(packed)
+                        while _validated_evidence_cache_bytes > _VALIDATED_EVIDENCE_CACHE_MAX_BYTES:
+                            _, evicted = _validated_evidence_cache.popitem(last=False)
+                            _validated_evidence_cache_bytes -= len(evicted)
+            else:
+                evidence = json.loads(zlib.decompress(cached))
+                if evidence["state"] != record.state or evidence["state"] not in states:
+                    raise ValueError("integrity mismatch")
         except (ValueError, KeyError, TypeError) as exc:
             raise UnverifiedRegularSessionPrice("정규장 가격 근거의 무결성이 깨졌습니다") from exc
         accepted.append(evidence)
