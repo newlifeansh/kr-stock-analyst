@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import SessionLocal, engine
-from app.integrations.kis_token_cache import get_or_issue_shared_token
+from app.integrations.kis_token_cache import get_or_issue_shared_token, invalidate_rejected_shared_token
 from app.collectors.disclosures import latest_disclosure_events
 from app.collectors.news import latest_news_events
 from app.integrations.opendart import fetch_opendart_json
@@ -310,12 +310,7 @@ class KisRestBriefingProvider:
         # A quality probe creates a short-lived provider while the quote and
         # collector runtimes keep long-lived providers. Reuse their token
         # within this process instead of issuing a new one for every probe.
-        identity = hashlib.sha256(
-            (
-                f"{self.settings.kis_env}\0{self.settings.kis_app_key}\0"
-                f"{self.settings.kis_app_secret}"
-            ).encode("utf-8")
-        ).hexdigest()
+        identity = self._token_identity()
         with _KIS_TOKEN_CACHE_LOCK:
             now = datetime.utcnow()
             cached = _KIS_TOKEN_CACHE.get(identity)
@@ -366,6 +361,33 @@ class KisRestBriefingProvider:
             _KIS_TOKEN_CACHE[identity] = (self._token, self._token_expires_at)
             return self._token
 
+    def _token_identity(self) -> str:
+        return hashlib.sha256(
+            (
+                f"{self.settings.kis_env}\0{self.settings.kis_app_key}\0"
+                f"{self.settings.kis_app_secret}"
+            ).encode("utf-8")
+        ).hexdigest()
+
+    def _forget_rejected_token(self, rejected_token: str) -> None:
+        identity = self._token_identity()
+        with _KIS_TOKEN_CACHE_LOCK:
+            cached = _KIS_TOKEN_CACHE.get(identity)
+            if cached and cached[0] == rejected_token:
+                _KIS_TOKEN_CACHE.pop(identity, None)
+            if self._token == rejected_token:
+                self._token = None
+                self._token_expires_at = None
+            # _ensure_token uses this same lock while reading the shared row.
+            # Keep it held until eviction completes so another local request
+            # cannot repopulate the rejected bearer between the two caches.
+            if engine.dialect.name == "postgresql":
+                invalidate_rejected_shared_token(
+                    SessionLocal, identity=identity,
+                    app_secret=self.settings.kis_app_secret or "",
+                    rejected_token=rejected_token,
+                )
+
     def _wait_for_request_slot(self) -> None:
         interval = max(0, int(self.settings.kis_rest_min_interval_ms)) / 1000
         if not interval:
@@ -389,29 +411,37 @@ class KisRestBriefingProvider:
         }
 
     def _get(self, path: str, tr_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        response = None
-        for attempt in range(len(KIS_TRANSIENT_RETRY_DELAYS) + 1):
+        transient_attempt = 0
+        token_refreshed = False
+        while True:
             self._wait_for_request_slot()
+            headers = self._headers(tr_id)
             response = requests.get(
                 f"{self._base_url()}{path}",
-                headers=self._headers(tr_id),
+                headers=headers,
                 params=params,
                 timeout=30,
             )
-            if (
-                response.status_code in KIS_TRANSIENT_HTTP_STATUSES
-                and attempt < len(KIS_TRANSIENT_RETRY_DELAYS)
-            ):
-                time_module.sleep(KIS_TRANSIENT_RETRY_DELAYS[attempt])
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            if (isinstance(payload, dict) and payload.get("msg_cd") == "EGW00123"
+                    and not token_refreshed):
+                self._forget_rejected_token(headers["authorization"].removeprefix("Bearer "))
+                token_refreshed = True
+                continue
+            if (response.status_code in KIS_TRANSIENT_HTTP_STATUSES
+                    and transient_attempt < len(KIS_TRANSIENT_RETRY_DELAYS)):
+                time_module.sleep(KIS_TRANSIENT_RETRY_DELAYS[transient_attempt])
+                transient_attempt += 1
                 continue
             response.raise_for_status()
-            payload = response.json()
+            if not isinstance(payload, dict):
+                raise RuntimeError("KIS response is not a JSON object")
             if payload.get("rt_cd") not in (None, "0"):
                 raise RuntimeError(payload.get("msg1") or payload.get("msg_cd") or "KIS request failed")
             return payload
-        assert response is not None
-        response.raise_for_status()
-        raise RuntimeError("KIS request failed")
 
     def _request_current_price(self, code: str, market_division: str = "J") -> dict[str, Any]:
         market_division = str(market_division or "J").strip().upper()

@@ -76,3 +76,33 @@ def get_or_issue_shared_token(
         row.retry_after = None
         db.commit()
         return token, expires_at
+
+
+def invalidate_rejected_shared_token(
+    session_factory: Callable[[], Session],
+    *,
+    identity: str,
+    app_secret: str,
+    rejected_token: str,
+) -> bool:
+    """Evict only the bearer rejected by KIS, preserving a newer worker's token."""
+
+    cipher = _cipher(app_secret)
+    with session_factory() as db:
+        if db.bind is not None and db.bind.dialect.name == "postgresql":
+            lock_key = int.from_bytes(bytes.fromhex(identity[:16]), "big", signed=True)
+            db.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
+        row = db.get(KisOAuthTokenCache, identity)
+        if row is None or not row.ciphertext:
+            return False
+        try:
+            stored_token = cipher.decrypt(row.ciphertext).decode("utf-8")
+        except (InvalidToken, UnicodeDecodeError):
+            stored_token = None
+        if stored_token != rejected_token:
+            return False
+        row.ciphertext = None
+        row.expires_at = None
+        row.retry_after = None
+        db.commit()
+        return True

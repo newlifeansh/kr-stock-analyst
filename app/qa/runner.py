@@ -371,6 +371,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_kis_token_cache.test_shared_kis_token_is_encrypted_and_reused_by_a_second_worker",
         "tests.test_kis_token_cache.test_shared_kis_token_failure_backoff_survives_worker_restart",
         "tests.test_kis_token_cache.test_shared_kis_token_corrupt_ciphertext_never_returns_old_bearer",
+        "tests.test_kis_token_cache.test_rejected_shared_kis_token_is_evicted_only_when_it_is_still_current",
+        "tests.test_kis_token_cache.test_kis_expired_token_500_refreshes_once_and_retries_original_request",
+        "tests.test_kis_token_cache.test_expired_token_eviction_keeps_local_lock_until_shared_cache_is_cleared",
+        "tests.test_kis_token_cache.test_kis_non_auth_500_keeps_bounded_transport_retries",
         "tests.test_kis_token_cache.test_postgres_provider_uses_shared_cache_before_token_endpoint",
     ),
     "DATA-COM-008": (
