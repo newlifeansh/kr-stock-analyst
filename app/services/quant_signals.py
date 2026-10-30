@@ -5846,10 +5846,38 @@ def _market_stock_payload_with_intraday_path(
         observe_entry and current_time.date() >= observed_entry.EFFECTIVE_DATE
         and entry_universe_eligible and entry_universe_eligible(payload)
     )
+    initial_quote_fresh = bool(
+        forming_quote
+        and _fresh_kis_intraday_quote_for_market_alert(forming_quote, current_time)
+    )
+    chart_probe = bool(
+        can_observe_entry and forming_quote
+        and (
+            not initial_quote_fresh
+            or (payload.get("current") or {}).get("action") != "entry_watch"
+        )
+        and _observed_entry_chart_probe(
+            confirmed_stock_bars, forming_quote, current_time,
+        )
+    )
+    # A Top150 pass can outlive the quote fetched at its start. A nominated
+    # candidate must still reach the per-stock fresh-quote recheck; the old
+    # quote is never used to confirm or publish an observed entry.
+    stale_quote_recheck = bool(
+        intraday_quote_loader is not None
+        and (
+            stored_live_path is not None
+            or payload.get("unverified_live_execution_candidate") is True
+            or (payload.get("current") or {}).get("position_open")
+            or (payload.get("current") or {}).get("action") == "entry_pending"
+            or watching_entry
+            or chart_probe
+        )
+    )
     should_fetch = bool(
         intraday_chart_loader is not None
         and forming_quote
-        and _fresh_kis_intraday_quote_for_market_alert(forming_quote, current_time)
+        and (initial_quote_fresh or stale_quote_recheck)
         and (
             stored_live_path is not None
             or payload.get("unverified_live_execution_candidate") is True
@@ -5858,9 +5886,7 @@ def _market_stock_payload_with_intraday_path(
                 or (payload.get("current") or {}).get("action") == "entry_pending"
                 or (can_observe_entry and (
                     (payload.get("current") or {}).get("action") == "entry_watch"
-                    or _observed_entry_chart_probe(
-                        confirmed_stock_bars, forming_quote, current_time,
-                    )
+                    or chart_probe
                 ))
                 or observed_entries.get(current_time.date(), {}).get("status") == "watching"
             ))

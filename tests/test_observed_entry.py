@@ -131,7 +131,10 @@ def test_morning_chart_probe_uses_elapsed_volume_only_to_fetch(setup, monkeypatc
     assert captured["events"] == []
 
 
-def test_late_scan_rechecks_quote_at_chart_time_before_observing(setup):
+@pytest.mark.parametrize("initial_quote_age_minutes", [0, 4])
+def test_late_scan_rechecks_quote_at_chart_time_before_observing(
+    setup, initial_quote_age_minutes,
+):
     db, stock, bars, _ = setup
     daily = _daily_rows_from_bars(stock.code, bars)
     chart_at = START + timedelta(minutes=5)
@@ -143,7 +146,8 @@ def test_late_scan_rechecks_quote_at_chart_time_before_observing(setup):
     } for i in range(6)]
     old_quote = dict(trade_date=DAY, trade_date_verified=True, quote_source="kis_rest",
                      market_venue="KRX", market_division="J", price=101, open=101,
-                     high=101, low=101, volume=1000, observed_at=START)
+                     high=101, low=101, volume=1000,
+                     observed_at=START - timedelta(minutes=initial_quote_age_minutes))
     fresh_quote = {**old_quote, "observed_at": fresh_at, "volume": 6000}
     observed_evidence_at = []
 
