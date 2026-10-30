@@ -259,6 +259,7 @@ def observe(
 
     if (
         now.tzinfo is None or minute_at.tzinfo is None or not bars or not minutes
+        or minutes[-1].volume <= 0
         or now.date() < EFFECTIVE_DATE or minute_at.date() != now.date()
         or not is_korea_market_session_date(now.date(), now)
         or not time(9, 0) <= now.time() < time(15, 30)

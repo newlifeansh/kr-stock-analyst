@@ -344,6 +344,20 @@ def test_capture_then_later_closed_minute_confirms_once_across_restart(setup):
     assert len(list(db.scalars(select(QuantSignalObservedEntry)))) == 1
 
 
+def test_no_trade_minute_keeps_watching_without_confirming_and_next_trade_can_confirm(setup):
+    first = observe(setup, minutes=[minute(102)])
+    assert first["status"] == "watching"
+    quiet = replace(minute(102), volume=0, trading_value=0)
+    assert observe(setup, START + timedelta(minutes=2),
+                   minutes=[minute(102), quiet]) is None
+    saved = oe.load_records(setup[0], "005930", START + timedelta(minutes=2))[DAY]
+    assert saved["status"] == "watching"
+    later = observe(setup, START + timedelta(minutes=3),
+                    minutes=[minute(102), quiet, minute(102)])
+    assert later["status"] == "confirmed"
+    assert later["order"]["minute_index"] == 2
+
+
 def test_no_retroactive_touch_or_unfinished_minute_confirmation(setup):
     observe(setup, minutes=[minute(102)])
     now = START + timedelta(minutes=2)

@@ -1787,6 +1787,61 @@ def test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_colla
         assert "valid_quotes=53" in caplog.text or "valid_quotes=142" in caplog.text
 
 
+@pytest.mark.qa_gate
+def test_market_signal_direct_refresh_cannot_publish_incomplete_live_quote_fanout(monkeypatch):
+    from app import main as main_module
+
+    quotes = main_module.MarketQuoteFanout(expected_symbols=150)
+    quotes.update({f"{index:06d}": {"price": 100} for index in range(53)})
+    monkeypatch.setattr(
+        main_module, "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: nullcontext(object()))
+    monkeypatch.setattr(main_module, "_market_quant_signal_live_quotes", lambda *_: quotes)
+    monkeypatch.setattr(main_module, "is_korea_regular_market_session", lambda *_: True)
+    monkeypatch.setattr(
+        main_module, "_repair_market_quant_signal_ohlc",
+        lambda *_args, **_kwargs: pytest.fail("incomplete quotes reached payload build"),
+    )
+
+    assert main_module._refresh_market_quant_signal_snapshot() is None
+
+
+@pytest.mark.qa_gate
+def test_market_signal_cold_api_reports_preparing_instead_of_publishing_missing_quotes(monkeypatch):
+    from fastapi import BackgroundTasks, Request, Response
+    from types import SimpleNamespace
+    from app import main as main_module
+
+    quotes = main_module.MarketQuoteFanout(expected_symbols=100)
+    quotes.update({f"{index:06d}": {"price": 100} for index in range(20)})
+    monkeypatch.setattr(main_module, "_enforce_rate_limit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_module, "settings",
+        type("Settings", (), {"market_quant_signal_source_url": ""})(),
+    )
+    monkeypatch.setattr(main_module, "market_quant_signal_cache", SimpleNamespace(get=lambda *_: None))
+    monkeypatch.setattr(main_module, "load_market_quant_signal_snapshot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "_market_quant_signal_live_quotes", lambda *_args: quotes)
+    monkeypatch.setattr(main_module, "is_korea_regular_market_session", lambda *_: True)
+    monkeypatch.setattr(
+        main_module, "_build_market_quant_signal_payload",
+        lambda *_args, **_kwargs: pytest.fail("incomplete quotes reached payload build"),
+    )
+    request = Request({"type": "http", "method": "GET", "path": "/market/quant-signals",
+                       "headers": [], "query_string": b"", "client": ("test", 1)})
+    tasks = BackgroundTasks()
+    payload = main_module.get_market_quant_signals(
+        request, Response(), tasks, universe_limit=100, limit=1, recent_days=30,
+        db=object(),
+    )
+
+    assert payload["status"] == "preparing"
+    assert payload["items"] == []
+    assert len(tasks.tasks) == 1
+
+
 def test_us_market_refresh_queue_is_process_single_flight(monkeypatch):
     from fastapi import BackgroundTasks
     from app import main as main_module

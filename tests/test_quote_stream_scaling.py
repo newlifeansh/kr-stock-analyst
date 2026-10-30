@@ -818,7 +818,7 @@ def test_canonical_refresh_swaps_cache_before_publishing_transformed_revision(
     monkeypatch.setattr("app.services.regular_signal_transition.collect_forward_session",
                         lambda *args, **kwargs: {"state": "ready", "attempted": 0})
 
-    result = main_module._refresh_market_quant_signal_snapshot()
+    result = main_module._refresh_market_quant_signal_snapshot(live_quotes={})
 
     assert result is stored
     assert events == ["seal", "cache", "canonicalize", "revision"]
@@ -858,7 +858,7 @@ def test_market_signal_refresh_preserves_snapshot_until_forward_evidence_is_comp
     monkeypatch.setattr(main_module, "_build_market_quant_signal_payload", unexpected)
     monkeypatch.setattr(main_module, "save_market_quant_signal_snapshot", unexpected)
 
-    assert main_module._refresh_market_quant_signal_snapshot() is None
+    assert main_module._refresh_market_quant_signal_snapshot(live_quotes={}) is None
     assert "preserving the previous market signal snapshot" in caplog.text
 
 
@@ -923,7 +923,7 @@ def test_market_signal_refresh_publishes_healthy_codes_after_complete_isolation(
         lambda *_args, **_kwargs: {"revision": 1},
     )
 
-    result = main_module._refresh_market_quant_signal_snapshot()
+    result = main_module._refresh_market_quant_signal_snapshot(live_quotes={})
 
     assert result is payload
     assert events == ["build", "save"]
