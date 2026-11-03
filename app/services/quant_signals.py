@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 import json
+import logging
 from math import isfinite, sqrt
 from statistics import median
 from typing import Any, Callable, Optional
@@ -24,6 +25,7 @@ from app.models import (
     MarketQuantSignalSnapshot,
     NewsItem,
     QuantSignalIntradayPathSnapshot,
+    QuantSignalObservedEntry,
     ResearchReport,
     StockCompanySnapshot,
     StockIntradaySnapshot,
@@ -68,6 +70,7 @@ from app.services import observed_entry
 
 
 KST = ZoneInfo("Asia/Seoul")
+logger = logging.getLogger(__name__)
 LEGACY_STRATEGY_VERSION = "position-lifecycle-legacy"
 V7_1_STRATEGY_VERSION = "position-lifecycle-v7.1"
 V7_3_STRATEGY_VERSION = "position-lifecycle-v7.3"
@@ -1434,10 +1437,69 @@ def _verified_completed_intraday_minutes(
     return verified
 
 
-def _intraday_path_preserves_prior_touches(
-    previous: list[dict[str, Any]], current: list[dict[str, Any]]
+def _nonnegative_finite_number(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) and number >= 0 else None
+
+
+def _revised_terminal_no_trade_minute(
+    previous_trade: dict[str, Any], old: dict[str, Any], new: dict[str, Any],
 ) -> bool:
-    """Only closed minutes are saved, so none may change on later reads."""
+    """KIS may later replace its last flat zero-volume minute with a trade."""
+
+    old_volume = _nonnegative_finite_number(old.get("volume"))
+    new_volume = _nonnegative_finite_number(new.get("volume"))
+    old_value = _nonnegative_finite_number(old.get("trading_value"))
+    prior_value = _nonnegative_finite_number(previous_trade.get("trading_value"))
+    new_value = _nonnegative_finite_number(new.get("trading_value"))
+    prior_close = _safe_number(previous_trade.get("price"))
+    new_ohlc = tuple(_safe_number(new.get(field)) for field in ("open", "high", "low", "price"))
+    if not (
+        str(old.get("trade_time") or "").zfill(6) < "152000"
+        and old_volume == 0 and new_volume is not None and new_volume > 0
+        and prior_close is not None
+        and all(_safe_number(old.get(field)) == prior_close for field in ("open", "high", "low", "price"))
+        and old_value is not None and old_value == prior_value
+        and new_value is not None and _has_complete_ohlc(*new_ohlc)
+        and all(isfinite(value) for value in new_ohlc)
+    ):
+        return False
+    minute_turnover = new_value - old_value
+    return new_ohlc[2] * new_volume <= minute_turnover <= new_ohlc[1] * new_volume
+
+
+def _enriched_closing_auction_turnover(
+    previous_trade: dict[str, Any], old: dict[str, Any], new: dict[str, Any],
+) -> bool:
+    """The KRX print fixes the trade; KIS may later supply its cumulative value."""
+
+    volume = _nonnegative_finite_number(old.get("volume"))
+    prior_value = _nonnegative_finite_number(previous_trade.get("trading_value"))
+    new_value = _nonnegative_finite_number(new.get("trading_value"))
+    price = _safe_number(old.get("price"))
+    return bool(
+        str(old.get("trade_time") or "").zfill(6) == "153000"
+        and _nonnegative_finite_number(old.get("trading_value")) == 0
+        and volume is not None and volume > 0
+        and price is not None and isfinite(price)
+        and prior_value is not None and new_value is not None
+        and all(
+            _safe_number(old.get(field)) == _safe_number(new.get(field))
+            for field in ("open", "high", "low", "price", "volume")
+        )
+        and abs(new_value - prior_value - volume * price) <= 1e-6
+    )
+
+
+def _intraday_path_preserves_prior_touches(
+    previous: list[dict[str, Any]], current: list[dict[str, Any]],
+    *, allow_terminal_no_trade_revision: bool = False,
+    allow_closing_auction_turnover: bool = False,
+) -> bool:
+    """Preserve executed minutes; optionally repair one unexecuted tail placeholder."""
 
     if len(current) < len(previous):
         return False
@@ -1446,10 +1508,25 @@ def _intraday_path_preserves_prior_touches(
             new.get("trade_date"), new.get("trade_time")
         ):
             return False
-    for old, new in zip(previous, current):
-        if any(
+    for index, (old, new) in enumerate(zip(previous, current)):
+        changed = any(
             _safe_number(old.get(field)) != _safe_number(new.get(field))
             for field in ("open", "high", "low", "price", "volume", "trading_value")
+        )
+        if not changed:
+            continue
+        if not (
+            index == len(previous) - 1
+            and index > 0
+            and (
+                (
+                    allow_terminal_no_trade_revision
+                    and _revised_terminal_no_trade_minute(previous[index - 1], old, new)
+                ) or (
+                    allow_closing_auction_turnover
+                    and _enriched_closing_auction_turnover(previous[index - 1], old, new)
+                )
+            )
         ):
             return False
     return True
@@ -1479,8 +1556,35 @@ def _store_verified_intraday_path(
             raise UnverifiedIntradayPathError("저장된 분봉 근거를 읽을 수 없습니다") from exc
         if not isinstance(previous, list) or not previous:
             raise UnverifiedIntradayPathError("저장된 분봉 근거가 불완전합니다")
-        if not _intraday_path_preserves_prior_touches(previous, rows):
+        watcher = db.get(QuantSignalObservedEntry, (code, trade_date))
+        allow_revision = bool(
+            not snapshot.is_final and watcher is not None
+            and watcher.status == "watching"
+            and watcher.policy_version == observed_entry.POLICY_VERSION
+        )
+        if not _intraday_path_preserves_prior_touches(
+            previous, rows, allow_terminal_no_trade_revision=allow_revision,
+            allow_closing_auction_turnover=(
+                not snapshot.is_final
+                and snapshot.source == KIS_CLOSING_AUCTION_SOURCE
+            ),
+        ):
             raise UnverifiedIntradayPathError("이전 장중 체결 근거와 새 분봉이 충돌합니다")
+        if (
+            allow_revision and len(previous) > 1
+            and _revised_terminal_no_trade_minute(
+                previous[-2], previous[-1], rows[len(previous) - 1],
+            )
+        ):
+            logger.warning(
+                "KIS no-trade tail corrected for unconfirmed entry: code=%s date=%s minute=%s",
+                code, trade_date, previous[-1].get("trade_time"),
+            )
+        elif previous[-1] != rows[len(previous) - 1]:
+            logger.info(
+                "KIS closing auction turnover verified: code=%s date=%s",
+                code, trade_date,
+            )
     stored_at = _snapshot_generated_at_utc_naive(observed_at)
     payload = json.dumps(rows, ensure_ascii=False)
     if snapshot is None:
@@ -1552,6 +1656,11 @@ def _merge_verified_closing_auction_trade(
         )
     ):
         return None
+    verified_chart_trade = closing_rows[0] if closing_rows else None
+    if len(saved) > 1 and verified_chart_trade is not None and _enriched_closing_auction_turnover(
+        saved[-2], trade, verified_chart_trade,
+    ):
+        trade = verified_chart_trade
     return sorted(
         [row for row in rows if isinstance(row, dict) and str(row.get("trade_time") or "").zfill(6) != "153000"]
         + [trade],
