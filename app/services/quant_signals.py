@@ -6427,7 +6427,10 @@ def load_market_quant_signal_feed(
             if forward_mode:
                 if code in forward_errors:
                     raise UnverifiedRegularSessionPrice(forward_errors[code])
-                _execution_envelope, forward_paths = prepare_forward_inputs(db, code, prices_by_code[code], now=current_time)
+                # The current day's independent entry evidence is valid even
+                # when an older execution path must remain quarantined. Save
+                # it before replay so a prior unsealed path cannot suppress
+                # evidence coverage for the next regular-session scan.
                 relative_context = relative_context_by_date.get(latest_confirmed_date)
                 if latest_confirmed_date is not None and latest_confirmed_date >= REGULAR_FORWARD_START:
                     if relative_context is None:
@@ -6437,6 +6440,7 @@ def load_market_quant_signal_feed(
                 evidence_timeline = forward_entry_timeline(db, stock, stock_price_rows,
                     flow_prices=prices_by_code.get(code, []), now=current_time,
                     relative_context=relative_context, latest_market_date=market_cap_date)
+                _execution_envelope, forward_paths = prepare_forward_inputs(db, code, prices_by_code[code], now=current_time)
             payload = _market_stock_payload_with_intraday_path(
                 db, stock, stock_price_rows, confirmed_stock_bars,
                 forming_quote, evidence_timeline, entry_safety_guard,

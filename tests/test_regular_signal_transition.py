@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalTransitionBaseline, StockMaster
+from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalEvidenceSnapshot, QuantSignalTransitionBaseline, StockMaster
 from app.services import regular_signal_transition as transition
 from app.services import quant_signals as qs
 from app.services.regular_session_prices import UnverifiedRegularSessionPrice, store_regular_session_evidence, regular_session_evidence
@@ -194,6 +194,43 @@ def test_forward_market_feed_preserves_published_returns_without_legacy_alerts(d
     assert all(item.get("history_frozen") for item in result["items"])
     stored = json.loads(db.get(MarketQuantSignalSnapshot, "v35:150:0:30").payload)
     assert stored == legacy
+
+
+def test_forward_feed_freezes_current_entry_evidence_before_old_path_is_quarantined(db, monkeypatch):
+    from app.services.regular_price_replay import RegularPriceEnvelope
+
+    day = date(2026, 10, 13)
+    db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+    db.add_all(history())
+    db.add(DailyPrice(
+        code="005930", trade_date=day, open=100, high=101, low=99,
+        close=100, volume=1_000, trading_value=101_000_000_000,
+        market_cap=100_000_000_000,
+    ))
+    db.commit()
+
+    def prepare(_db, code, rows, *, now, include_paths=True):
+        assert code == "005930"
+        if include_paths:
+            raise UnverifiedRegularSessionPrice("과거 체결 분봉이 미봉인입니다")
+        return RegularPriceEnvelope(rows, rows, {}), {}
+
+    monkeypatch.setattr(qs, "prepare_forward_inputs", prepare)
+    monkeypatch.setattr(qs, "build_relative_strength_context", lambda *_args, **_kwargs: {})
+    result = qs.load_market_quant_signal_feed(
+        db, universe_limit=150, limit=0, recent_days=30,
+        now=datetime(2026, 10, 13, 17, tzinfo=qs.KST),
+    )
+    db.expire_all()
+    evidence = db.scalar(select(QuantSignalEvidenceSnapshot).where(
+        QuantSignalEvidenceSnapshot.stock_code == "005930",
+        QuantSignalEvidenceSnapshot.signal_date == day,
+        QuantSignalEvidenceSnapshot.strategy_version == transition.REGULAR_FORWARD_STRATEGY_VERSION,
+    ))
+    assert evidence is not None
+    assert evidence.policy_version == transition.REGULAR_FORWARD_ENTRY_POLICY
+    assert result["execution_replay_unverified_codes"] == ["005930"]
+    assert result["items"] == []
 
 
 def test_forward_shadow_uses_same_verified_paths_and_never_promotes(db, monkeypatch):
