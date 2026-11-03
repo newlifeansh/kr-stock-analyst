@@ -170,6 +170,108 @@ def test_late_scan_rechecks_quote_at_chart_time_before_observing(
     assert observed_evidence_at == [chart_at]
 
 
+def test_missing_bulk_quote_rechecks_watching_candidate_before_confirmation(setup):
+    db, stock, bars, _ = setup
+    captured = observe(setup, minutes=[minute(102)])
+    first_row = {
+        "trade_date": DAY.strftime("%Y%m%d"), "trade_time": "090100",
+        "open": 102, "high": 102, "low": 102, "price": 102, "volume": 1000,
+    }
+    qs._store_verified_intraday_path(
+        db, stock.code, DAY, [first_row], observed_at=START, is_final=False,
+    )
+    db.flush()
+    daily = _daily_rows_from_bars(stock.code, bars)
+    chart_at = START + timedelta(minutes=2, seconds=5)
+    chart_rows = [
+        {**first_row, "trade_time": f"09{i:02d}00"}
+        for i in range(1, 4)
+    ]
+
+    def build(quote):
+        return qs._market_stock_payload_with_intraday_path(
+            db, stock, daily, bars, None, {}, None, chart_at,
+            lambda _: (chart_rows, chart_at), None,
+            verified_paths={}, lifecycle_start_date=qs.REGULAR_FORWARD_START,
+            observe_entry=True, entry_universe_eligible=lambda _: True,
+            observation_universe_rank=3,
+            intraday_quote_loader=lambda _: quote,
+            fresh_entry_evidence=lambda at: evidence(at),
+        )
+
+    missing = build({})
+    assert missing["current"]["observed_entry"]["status"] == "watching"
+    assert oe.load_records(db, stock.code, chart_at)[DAY]["status"] == "watching"
+    fresh_quote = {
+        "trade_date": DAY, "trade_date_verified": True,
+        "quote_source": "kis_rest", "market_venue": "KRX",
+        "market_division": "J", "price": 102, "open": 102,
+        "high": 102, "low": 102, "volume": 3000,
+        "observed_at": chart_at - timedelta(seconds=5),
+    }
+    recovered = build(fresh_quote)
+    saved = oe.load_records(db, stock.code, chart_at)[DAY]
+    assert recovered["current"]["observed_entry"]["status"] == "confirmed"
+    assert saved["status"] == "confirmed"
+    assert saved["first_observed_at"] == captured["first_observed_at"]
+    assert saved["order"]["minute_index"] == 2
+
+
+def test_missing_bulk_quote_rechecks_unobserved_near_ready_stock(setup, monkeypatch):
+    db, stock, bars, _ = setup
+    daily = _daily_rows_from_bars(stock.code, bars)
+    observed_at = START + timedelta(seconds=5)
+    row = {
+        "trade_date": DAY.strftime("%Y%m%d"), "trade_time": "090100",
+        "open": 102, "high": 102, "low": 102, "price": 102, "volume": 1000,
+    }
+    original_builder = qs.build_quant_signal_payload
+
+    def prior_close_watch(*args, **kwargs):
+        payload = original_builder(*args, **kwargs)
+        if kwargs.get("live_quote") is None:
+            payload["current"] = {"action": "entry_watch", "position_open": False}
+        return payload
+
+    monkeypatch.setattr(qs, "build_quant_signal_payload", prior_close_watch)
+    quote_calls = []
+    chart_calls = []
+
+    def build(quote):
+        def load_quote(code):
+            quote_calls.append(code)
+            return quote
+
+        def load_chart(code):
+            chart_calls.append(code)
+            return [row], observed_at
+
+        return qs._market_stock_payload_with_intraday_path(
+            db, stock, daily, bars, None, {}, None, observed_at,
+            load_chart, None, verified_paths={},
+            lifecycle_start_date=qs.REGULAR_FORWARD_START,
+            observe_entry=True, entry_universe_eligible=lambda _: True,
+            observation_universe_rank=3,
+            intraday_quote_loader=load_quote,
+            fresh_entry_evidence=lambda at: evidence(at),
+        )
+
+    build({})
+    assert quote_calls == [stock.code]
+    assert chart_calls == [stock.code]
+    assert oe.load_records(db, stock.code, observed_at) == {}
+    fresh_quote = {
+        "trade_date": DAY, "trade_date_verified": True,
+        "quote_source": "kis_rest", "market_venue": "KRX",
+        "market_division": "J", "price": 102, "open": 102,
+        "high": 102, "low": 102, "volume": 1000,
+        "observed_at": START,
+    }
+    captured = build(fresh_quote)
+    assert quote_calls == [stock.code, stock.code]
+    assert captured["current"]["observed_entry"]["status"] == "watching"
+
+
 def test_extended_observation_can_precede_daily_entry_approval(setup):
     _, _, bars, _ = setup
     liquid = [replace(bar, trading_value=25_000_000_000) for bar in bars]
