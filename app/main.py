@@ -341,6 +341,7 @@ entry_filter_shadow_refresh_lock = RLock()
 MARKET_QUANT_SIGNAL_ACTIVE_MAX_AGE_SECONDS = 10 * 60
 MARKET_SIGNAL_DETAIL_RECENT_DAYS = 90
 MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS = 30
+MARKET_SIGNAL_CANDIDATE_SUCCESS_PAUSE_SECONDS = 5
 MARKET_SIGNAL_DETAIL_REFRESH_SECONDS = 5 * 60
 MARKET_SIGNAL_REGULAR_EVIDENCE_RETRY_SECONDS = 5 * 60
 MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS = 6 * 60 * 60
@@ -1901,7 +1902,7 @@ async def _run_market_quant_signal_refresh_loop(
                     if premarket_refresh:
                         last_premarket_refresh_date = now.date()
                     if _quant_signal_quote_refresh_active(datetime.now(KST)):
-                        interval_seconds = MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS
+                        interval_seconds = MARKET_SIGNAL_CANDIDATE_SUCCESS_PAUSE_SECONDS
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("Market quant signal refresh loop failed; retrying in 30s")
             interval_seconds = MARKET_SIGNAL_CANDIDATE_RETRY_SECONDS
