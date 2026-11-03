@@ -196,21 +196,21 @@ def forward_basis_metadata() -> dict[str, Any]:
     }
 
 
-def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, now: datetime, include_paths: bool = True):
+def prepare_forward_envelope(db: Session, code: str, rows: list[DailyPrice], *, now: datetime):
     from app.services import quant_signals as qs
-    from app.services.regular_price_replay import regular_ordered_paths
 
     completed = qs.latest_completed_korea_market_session_date(now)
     if now.hour * 60 + now.minute >= 15 * 60 + 40 and qs.is_korea_market_session_date(now.date(), now):
         completed = now.date()
     if completed is None:
         raise UnverifiedRegularSessionPrice("최근 완료 정규장을 확인할 수 없습니다")
-    envelope = forward_price_envelope(db, code, rows, completed_through=completed)
-    if not include_paths:
-        # Peer benchmarks retain candles, not months of minute dictionaries for
-        # every stock. Execution paths are revalidated one stock at a time.
-        from app.services.regular_price_replay import RegularPriceEnvelope
-        return RegularPriceEnvelope(envelope.lower, envelope.upper, {}), {}
+    return forward_price_envelope(db, code, rows, completed_through=completed)
+
+
+def prepare_forward_paths(db: Session, code: str, envelope, *, now: datetime):
+    from app.services import quant_signals as qs
+    from app.services.regular_price_replay import regular_ordered_paths
+
     paths = regular_ordered_paths(envelope)
     for day, evidence in envelope.evidence.items():
         stored = db.get(QuantSignalIntradayPathSnapshot, (code, day))
@@ -219,7 +219,17 @@ def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, no
                 qs._store_verified_intraday_path(db, code, day, evidence["regular_rows"], observed_at=now, is_final=True)
             except qs.UnverifiedIntradayPathError as exc:
                 raise UnverifiedRegularSessionPrice(str(exc)) from exc
-    return envelope, paths
+    return paths
+
+
+def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, now: datetime, include_paths: bool = True):
+    envelope = prepare_forward_envelope(db, code, rows, now=now)
+    if not include_paths:
+        # Peer benchmarks retain candles, not months of minute dictionaries for
+        # every stock. Execution paths are revalidated one stock at a time.
+        from app.services.regular_price_replay import RegularPriceEnvelope
+        return RegularPriceEnvelope(envelope.lower, envelope.upper, {}), {}
+    return envelope, prepare_forward_paths(db, code, envelope, now=now)
 
 
 def forward_relative_context(db: Session, signal_date: date, *, now: datetime) -> dict[str, Any]:
@@ -244,10 +254,13 @@ def forward_relative_context(db: Session, signal_date: date, *, now: datetime) -
 def forward_entry_timeline(db: Session, stock, rows: list[DailyPrice], *,
                            flow_prices: list[DailyPrice], now: datetime,
                            relative_context: dict[str, Any] | None = None,
-                           latest_market_date: date | None = None):
+                           latest_market_date: date | None = None,
+                           timeline: dict[date, dict[str, Any]] | None = None):
     from app.services.signal_entry_evidence import load_entry_evidence_timeline, ensure_entry_evidence_snapshot
 
-    timeline = load_entry_evidence_timeline(db, stock.code, strategy_version=REGULAR_FORWARD_STRATEGY_VERSION)
+    timeline = timeline if timeline is not None else load_entry_evidence_timeline(
+        db, stock.code, strategy_version=REGULAR_FORWARD_STRATEGY_VERSION,
+    )
     if not rows or rows[-1].trade_date < REGULAR_FORWARD_START:
         return {}
     day = rows[-1].trade_date

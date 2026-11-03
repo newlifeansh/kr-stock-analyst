@@ -209,14 +209,25 @@ def test_forward_feed_freezes_current_entry_evidence_before_old_path_is_quaranti
     ))
     db.commit()
 
-    def prepare(_db, code, rows, *, now, include_paths=True):
+    calls = []
+    def prepare_envelope(_db, code, rows, *, now):
         assert code == "005930"
-        if include_paths:
-            raise UnverifiedRegularSessionPrice("과거 체결 분봉이 미봉인입니다")
-        return RegularPriceEnvelope(rows, rows, {}), {}
+        calls.append("envelope")
+        return RegularPriceEnvelope(rows, rows, {})
 
-    monkeypatch.setattr(qs, "prepare_forward_inputs", prepare)
-    monkeypatch.setattr(qs, "build_relative_strength_context", lambda *_args, **_kwargs: {})
+    def prepare_paths(*_args, **_kwargs):
+        calls.append("paths")
+        raise UnverifiedRegularSessionPrice("과거 체결 분봉이 미봉인입니다")
+
+    def relative_context(_db, signal_date, *, prices_by_code):
+        assert signal_date == day
+        assert list(prices_by_code) == ["005930"]
+        calls.append("peer_context")
+        return {}
+
+    monkeypatch.setattr(qs, "prepare_forward_envelope", prepare_envelope)
+    monkeypatch.setattr(qs, "prepare_forward_paths", prepare_paths)
+    monkeypatch.setattr(qs, "build_relative_strength_context", relative_context)
     result = qs.load_market_quant_signal_feed(
         db, universe_limit=150, limit=0, recent_days=30,
         now=datetime(2026, 10, 13, 17, tzinfo=qs.KST),
@@ -229,6 +240,7 @@ def test_forward_feed_freezes_current_entry_evidence_before_old_path_is_quaranti
     ))
     assert evidence is not None
     assert evidence.policy_version == transition.REGULAR_FORWARD_ENTRY_POLICY
+    assert calls == ["envelope", "peer_context", "paths"]
     assert result["execution_replay_unverified_codes"] == ["005930"]
     assert result["items"] == []
 

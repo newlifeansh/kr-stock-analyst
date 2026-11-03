@@ -756,6 +756,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_regular_loader_reuses_only_identical_validated_content",
         "tests.test_regular_session_prices."
         "test_regular_loader_rejects_missing_tampered_or_conflicting_ready_records",
+        "tests.test_observed_entry."
+        "test_extended_observed_candidate_is_published_before_buy_approval",
+        "tests.test_regular_signal_transition."
+        "test_forward_feed_freezes_current_entry_evidence_before_old_path_is_quarantined",
     ),
     "SIG-KR-INTRADAY-PANIC-STRENGTH-001": (
         "tests.test_signal_entry_evidence."

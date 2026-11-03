@@ -61,7 +61,8 @@ from app.services.position_lifecycle_core import (
 from app.services.regular_signal_transition import (
     REGULAR_FORWARD_START, REGULAR_FORWARD_STRATEGY_VERSION,
     archived_market_items, freeze_legacy_market_publication, legacy_open_codes,
-    prepare_forward_inputs, forward_entry_timeline, forward_relative_context,
+    prepare_forward_inputs, prepare_forward_envelope, prepare_forward_paths,
+    forward_entry_timeline,
     publish_forward_metadata,
     regular_intraday_quote,
 )
@@ -6367,16 +6368,7 @@ def load_market_quant_signal_feed(
     archive = freeze_legacy_market_publication(db, capped_universe_limit, capped_limit, capped_recent_days) if forward_mode else None
     legacy_holdings = legacy_open_codes(archive) if archive else set()
     items: list[dict[str, Any]] = archived_market_items(archive, as_of=current_time.date(), recent_days=capped_recent_days) if archive else []
-    forward_inputs = {}
     forward_errors = {}
-    if forward_mode:
-        for code, source_rows in prices_by_code.items():
-            try:
-                if code in legacy_holdings:
-                    raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증 대기")
-                forward_inputs[code] = prepare_forward_inputs(db, code, source_rows, now=current_time, include_paths=False)
-            except UnverifiedRegularSessionPrice as exc:
-                forward_errors[code] = str(exc)
     extended_qualified_codes: set[str] = set()
     current_extended_qualified_codes: set[str] = set()
     retained_signal_codes: set[str] = set()
@@ -6386,15 +6378,29 @@ def load_market_quant_signal_feed(
     for code, stock in stock_by_code.items():
         stock_price_rows = prices_by_code.get(code, [])
         forward_paths = None
-        if forward_mode and code in forward_inputs:
-            envelope, forward_paths = forward_inputs[code]
-            stock_price_rows = envelope.lower
+        forward_envelope = None
+        if forward_mode:
+            try:
+                if code in legacy_holdings:
+                    raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증 대기")
+                # Keep the full envelope for this stock only. Its immutable
+                # regular-session evidence is needed again after today's
+                # independent entry snapshot has been saved.
+                forward_envelope = prepare_forward_envelope(
+                    db, code, stock_price_rows, now=current_time,
+                )
+                stock_price_rows = forward_envelope.lower
+            except UnverifiedRegularSessionPrice as exc:
+                forward_errors[code] = str(exc)
         normalized_stock_bars = _normalize_prices(stock_price_rows)
         confirmed_stock_bars = _confirmed_bars(normalized_stock_bars, current_time)
         stored_forming_quote = _forming_bar_quote(normalized_stock_bars, current_time) or {}
         live_quote = current_quotes.get(code) or {}
         forming_quote = (live_quote or None) if forward_mode else ({**stored_forming_quote, **live_quote} or None)
-        evidence_timeline = load_entry_evidence_timeline(db, code)
+        evidence_timeline = load_entry_evidence_timeline(
+            db, code,
+            strategy_version=REGULAR_FORWARD_STRATEGY_VERSION,
+        ) if forward_mode else load_entry_evidence_timeline(db, code)
         latest_confirmed_date = (
             confirmed_stock_bars[-1].trade_date if confirmed_stock_bars else None
         )
@@ -6434,15 +6440,43 @@ def load_market_quant_signal_feed(
                 # it before replay so a prior unsealed path cannot suppress
                 # evidence coverage for the next regular-session scan.
                 relative_context = relative_context_by_date.get(latest_confirmed_date)
-                if latest_confirmed_date is not None and latest_confirmed_date >= REGULAR_FORWARD_START:
-                    if relative_context is None:
-                        relative_context = build_relative_strength_context(db, latest_confirmed_date,
-                            prices_by_code={key: value[0].lower for key, value in forward_inputs.items()})
-                        relative_context_by_date[latest_confirmed_date] = relative_context
-                evidence_timeline = forward_entry_timeline(db, stock, stock_price_rows,
+                if (
+                    latest_confirmed_date is not None
+                    and latest_confirmed_date >= REGULAR_FORWARD_START
+                    and latest_confirmed_date not in evidence_timeline
+                    and relative_context is None
+                ):
+                    # Only a missing current-day snapshot needs a peer
+                    # benchmark. Completed-session evidence is immutable, so
+                    # rebuilding all peer envelopes on every intraday scan
+                    # delays candidate publication without changing a result.
+                    peer_prices = {}
+                    for peer_code, peer_rows in prices_by_code.items():
+                        if peer_code in legacy_holdings:
+                            continue
+                        if peer_code == code:
+                            peer_prices[peer_code] = stock_price_rows
+                            continue
+                        try:
+                            peer_prices[peer_code] = prepare_forward_inputs(
+                                db, peer_code, peer_rows, now=current_time,
+                                include_paths=False,
+                            )[0].lower
+                        except UnverifiedRegularSessionPrice:
+                            continue
+                    relative_context = build_relative_strength_context(
+                        db, latest_confirmed_date, prices_by_code=peer_prices,
+                    )
+                    relative_context_by_date[latest_confirmed_date] = relative_context
+                evidence_timeline = forward_entry_timeline(
+                    db, stock, stock_price_rows,
                     flow_prices=prices_by_code.get(code, []), now=current_time,
-                    relative_context=relative_context, latest_market_date=market_cap_date)
-                _execution_envelope, forward_paths = prepare_forward_inputs(db, code, prices_by_code[code], now=current_time)
+                    relative_context=relative_context, latest_market_date=market_cap_date,
+                    timeline=evidence_timeline,
+                )
+                forward_paths = prepare_forward_paths(
+                    db, code, forward_envelope, now=current_time,
+                )
             payload = _market_stock_payload_with_intraday_path(
                 db, stock, stock_price_rows, confirmed_stock_bars,
                 forming_quote, evidence_timeline, entry_safety_guard,
