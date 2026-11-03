@@ -79,6 +79,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "SIG-KR-OBSERVED-ENTRY-001": (
         "tests.test_app.test_market_quant_signal_refresh_loop_prioritizes_candidate_scans",
         "tests.test_observed_entry.test_missing_bulk_quote_rechecks_watching_candidate_before_confirmation",
+        "tests.test_observed_entry.test_missing_bulk_quote_rechecks_unobserved_near_ready_stock",
         "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing[0]",
         "tests.test_observed_entry.test_late_scan_rechecks_quote_at_chart_time_before_observing[4]",
         "tests.test_observed_entry.test_preliminary_volume_gate_is_distinct_from_confirmed_h1_gate",

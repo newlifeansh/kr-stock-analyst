@@ -5979,12 +5979,13 @@ def _market_stock_payload_with_intraday_path(
             or payload.get("unverified_live_execution_candidate") is True
             or (payload.get("current") or {}).get("position_open")
             or (payload.get("current") or {}).get("action") == "entry_pending"
+            or (payload.get("current") or {}).get("action") == "entry_watch"
             or watching_entry
             or chart_probe
         )
     )
-    # A tracked candidate can recover when the bulk quote is absent.  The
-    # per-stock quote and completed chart still have to pass verification.
+    # A prior-close watch or tracked candidate can recover when the bulk
+    # quote is absent.  The per-stock quote and chart still need verification.
     should_fetch = bool(
         intraday_chart_loader is not None
         and (initial_quote_fresh or stale_quote_recheck)
