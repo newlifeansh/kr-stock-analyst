@@ -1359,6 +1359,7 @@ def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
     assert calls == [True]
 
 
+@pytest.mark.qa_gate
 @pytest.mark.parametrize("first_result", ["exception", "unavailable"])
 def test_market_quant_signal_refresh_loop_retries_without_dying(
     monkeypatch, caplog, first_result
@@ -1402,7 +1403,7 @@ def test_market_quant_signal_refresh_loop_retries_without_dying(
         asyncio.run(main_module._run_market_quant_signal_refresh_loop())
 
     assert attempts == [False, False]
-    assert intervals == [30, 30]
+    assert intervals == [30, 5]
     assert "retrying in 30s" in caplog.text
     assert "Market quant signal refresh loop started" in caplog.text
     assert "Market quant signal refresh started" in caplog.text
@@ -1521,10 +1522,10 @@ def test_market_quant_signal_refresh_loop_prioritizes_candidate_scans(monkeypatc
     async def run_inline(function, *args, **kwargs):
         return function(*args, **kwargs)
 
-    async def stop_after_five_scans(seconds):
+    async def stop_after_six_scans(seconds):
         sleep_intervals.append(seconds)
         elapsed[0] += seconds
-        if len(sleep_intervals) == 5:
+        if len(sleep_intervals) == 6:
             raise asyncio.CancelledError
 
     monkeypatch.setattr(main_module, "datetime", FixedDatetime)
@@ -1532,16 +1533,16 @@ def test_market_quant_signal_refresh_loop_prioritizes_candidate_scans(monkeypatc
     monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: True)
     monkeypatch.setattr(main_module, "_refresh_market_quant_signal_views_snapshot", refresh)
     monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
-    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_five_scans)
+    monkeypatch.setattr(main_module.asyncio, "sleep", stop_after_six_scans)
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(main_module._run_market_quant_signal_refresh_loop())
 
     assert scan_scopes == [
         (True, False), (False, True), (False, True),
-        (False, True), (True, True),
+        (False, True), (False, True), (True, True),
     ]
-    assert sleep_intervals == [30] * 5
+    assert sleep_intervals == [5] * 6
 
 
 @pytest.mark.qa_gate
@@ -1582,7 +1583,7 @@ def test_market_quant_signal_detail_queue_does_not_hold_candidate_loop(monkeypat
         ))
 
     assert calls == [(False, False), (False, True), (False, True)]
-    assert intervals == [30, 30, 30]
+    assert intervals == [5, 5, 5]
     assert detail_quotes.get_nowait() == {"scan": 3}
 
 
