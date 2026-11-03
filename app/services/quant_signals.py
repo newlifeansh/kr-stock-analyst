@@ -5983,9 +5983,10 @@ def _market_stock_payload_with_intraday_path(
             or chart_probe
         )
     )
+    # A tracked candidate can recover when the bulk quote is absent.  The
+    # per-stock quote and completed chart still have to pass verification.
     should_fetch = bool(
         intraday_chart_loader is not None
-        and forming_quote
         and (initial_quote_fresh or stale_quote_recheck)
         and (
             stored_live_path is not None
