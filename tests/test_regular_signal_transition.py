@@ -121,8 +121,12 @@ def _flat_replay_fixture(db, monkeypatch, *, conflict_date=date(2026, 10, 30),
             "event_side": "buy"} if published_event else None
     sources = {}
     for days in (30, 90):
-        payload = {"strategy_version": transition.REGULAR_FORWARD_STRATEGY_VERSION,
-                   "items": [item] if item else []}
+        payload = {
+            "strategy_version": transition.REGULAR_FORWARD_STRATEGY_VERSION,
+            "as_of": "2026-11-02T22:00:00+09:00" if stale else "2026-11-03T22:00:00+09:00",
+            "universe_as_of": "2026-11-02" if stale else "2026-11-03",
+            "items": [item] if item else [],
+        }
         key = qs.market_quant_signal_snapshot_key(150, 0, days)
         record = MarketQuantSignalSnapshot(
             cache_key=key, payload=json.dumps(payload),
@@ -258,6 +262,58 @@ def test_flat_replay_keeps_observed_entry_quarantined(db, monkeypatch):
 
 def test_flat_replay_keeps_new_path_conflict_quarantined(db, monkeypatch):
     _assert_flat_replay_quarantined(db, monkeypatch, conflict_date=date(2026, 11, 3))
+
+
+def test_flat_replay_rejects_first_activation_after_entry_day(db, monkeypatch):
+    code, envelope, timeline, _, _ = _flat_replay_fixture(db, monkeypatch)
+    with pytest.raises(UnverifiedRegularSessionPrice):
+        transition.prepare_forward_paths_with_flat_replay(
+            db, code, envelope, now=datetime(2026, 11, 5, 9, tzinfo=qs.KST),
+            evidence_timeline=timeline,
+        )
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
+
+
+def test_flat_replay_requires_new_close_if_first_activated_after_market(db, monkeypatch):
+    code, envelope, timeline, _, _ = _flat_replay_fixture(db, monkeypatch)
+    with pytest.raises(UnverifiedRegularSessionPrice, match="최신 공개"):
+        transition.prepare_forward_paths_with_flat_replay(
+            db, code, envelope, now=datetime(2026, 11, 4, 16, tzinfo=qs.KST),
+            evidence_timeline=timeline,
+        )
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
+
+
+def test_flat_replay_requires_publication_payload_to_cover_completed_close(db, monkeypatch):
+    code, envelope, timeline, _, _ = _flat_replay_fixture(db, monkeypatch)
+    for days in (30, 90):
+        record = db.get(MarketQuantSignalSnapshot, qs.market_quant_signal_snapshot_key(150, 0, days))
+        payload = json.loads(record.payload)
+        payload["as_of"] = "2026-11-03T14:30:00+09:00"
+        record.payload = json.dumps(payload)
+    db.flush()
+    with pytest.raises(UnverifiedRegularSessionPrice, match="공개된 진입"):
+        transition.prepare_forward_paths_with_flat_replay(
+            db, code, envelope, now=datetime(2026, 11, 4, 9, tzinfo=qs.KST),
+            evidence_timeline=timeline,
+        )
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
+
+
+def test_flat_replay_rejects_stale_universe_even_with_new_generation_clock(db, monkeypatch):
+    code, envelope, timeline, _, _ = _flat_replay_fixture(db, monkeypatch)
+    for days in (30, 90):
+        record = db.get(MarketQuantSignalSnapshot, qs.market_quant_signal_snapshot_key(150, 0, days))
+        payload = json.loads(record.payload)
+        payload["universe_as_of"] = "2026-11-02"
+        record.payload = json.dumps(payload)
+    db.flush()
+    with pytest.raises(UnverifiedRegularSessionPrice, match="공개된 진입"):
+        transition.prepare_forward_paths_with_flat_replay(
+            db, code, envelope, now=datetime(2026, 11, 4, 9, tzinfo=qs.KST),
+            evidence_timeline=timeline,
+        )
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
 
 
 def test_flat_replay_stock_detail_uses_same_start_and_exposes_policy(db, monkeypatch):
