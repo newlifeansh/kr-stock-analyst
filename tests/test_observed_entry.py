@@ -320,11 +320,17 @@ def test_extended_observed_candidate_is_published_before_buy_approval(monkeypatc
         monkeypatch.setattr(qs, "is_korea_market_session_date", lambda *_: True)
         monkeypatch.setattr(qs, "freeze_legacy_market_publication",
                             lambda *_: {"payload": {"items": []}})
-        monkeypatch.setattr(qs, "prepare_forward_inputs",
-                            lambda _db, _code, rows, **_: (RegularPriceEnvelope(rows, rows, {}), {}))
+        envelope_calls = []
+        def prepare_envelope(_db, code, rows, **_):
+            envelope_calls.append(code)
+            return RegularPriceEnvelope(rows, rows, {})
+        monkeypatch.setattr(qs, "prepare_forward_envelope", prepare_envelope)
+        monkeypatch.setattr(qs, "prepare_forward_paths", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr(qs, "load_entry_evidence_timeline",
+                            lambda *_args, **_kwargs: {prior: {"status": "ready"}})
         monkeypatch.setattr(qs, "forward_entry_timeline", lambda *_args, **_kwargs: {})
         monkeypatch.setattr(qs, "build_relative_strength_context",
-                            lambda *_args, **_kwargs: {})
+                            lambda *_args, **_kwargs: pytest.fail("stored evidence must not rebuild peer context"))
 
         def payload(_db, stock, *_args, **_kwargs):
             if stock.code != "000002":
@@ -357,6 +363,7 @@ def test_extended_observed_candidate_is_published_before_buy_approval(monkeypatc
         assert item["observed_entry"]["status"] == "watching"
         assert item["execution_date"] is None
         assert feed["extended_qualified_count"] == 0
+        assert envelope_calls == ["000001", "000002"]
     engine.dispose()
 
 
