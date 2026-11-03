@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalEvidenceSnapshot, QuantSignalTransitionBaseline, StockMaster
+from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalEvidenceSnapshot, QuantSignalIntradayPathSnapshot, QuantSignalObservedEntry, QuantSignalTransitionBaseline, StockMaster
 from app.services import regular_signal_transition as transition
 from app.services import quant_signals as qs
 from app.services.regular_session_prices import UnverifiedRegularSessionPrice, store_regular_session_evidence, regular_session_evidence
@@ -103,6 +103,190 @@ def test_forward_inputs_never_fall_back_to_display_ohlc(db):
     lightweight, no_paths = transition.prepare_forward_inputs(db, "005930", rows, now=now, include_paths=False)
     assert lightweight.evidence == {} and no_paths == {}
     assert [(row.trade_date, row.close) for row in lightweight.lower] == [(row.trade_date, row.close) for row in envelope.lower]
+
+
+def _flat_replay_fixture(db, monkeypatch, *, conflict_date=date(2026, 10, 30),
+                         published_event=False, stale=False, observed=False):
+    from app.services.regular_price_replay import RegularPriceEnvelope
+
+    code = "005930"
+    warmup = transition.FLAT_REPLAY_WARMUP_DATE
+    rows = history(code) + [DailyPrice(
+        code=code, trade_date=warmup, open=100, high=101, low=99,
+        close=100, volume=1000, trading_value=101_000_000_000,
+        market_cap=100_000_000_000,
+    )]
+    envelope = RegularPriceEnvelope(rows, rows, {warmup: {"regular_rows": []}})
+    item = {"code": code, "signal_date": "2026-10-30", "execution_date": "2026-10-30",
+            "event_side": "buy"} if published_event else None
+    sources = {}
+    for days in (30, 90):
+        payload = {"strategy_version": transition.REGULAR_FORWARD_STRATEGY_VERSION,
+                   "items": [item] if item else []}
+        key = qs.market_quant_signal_snapshot_key(150, 0, days)
+        record = MarketQuantSignalSnapshot(
+            cache_key=key, payload=json.dumps(payload),
+            generated_at=datetime(2026, 11, 2 if stale else 3, 13),
+        )
+        db.add(record)
+        sources[key] = record.payload
+    if observed:
+        db.add(QuantSignalObservedEntry(
+            stock_code=code, trade_date=date(2026, 10, 30),
+            policy_version="test", status="watching", payload="{}",
+            updated_at=datetime(2026, 10, 30, 1),
+        ))
+    db.flush()
+    calls = []
+
+    def paths(_db, stock_code, _envelope, *, now, min_trade_date=None):
+        assert stock_code == code and _envelope is envelope
+        calls.append(min_trade_date)
+        if min_trade_date is None:
+            raise transition.HistoricalPathConflict(conflict_date, "과거 분봉 불일치")
+        return {warmup: []}
+
+    monkeypatch.setattr(transition, "prepare_forward_paths", paths)
+    timeline = {warmup: {
+        "strategy_version": transition.REGULAR_FORWARD_STRATEGY_VERSION,
+        "policy_version": transition.REGULAR_FORWARD_ENTRY_POLICY,
+        "quality": {"state": "blocked"},
+    }}
+    return code, envelope, timeline, sources, calls
+
+
+def test_flat_replay_restarts_only_after_frozen_publications_and_flat_warmup(db, monkeypatch):
+    code, envelope, timeline, sources, calls = _flat_replay_fixture(db, monkeypatch)
+    now = datetime(2026, 11, 4, 9, tzinfo=qs.KST)
+    paths, lifecycle_start, baseline = transition.prepare_forward_paths_with_flat_replay(
+        db, code, envelope, now=now, evidence_timeline=timeline,
+    )
+    assert paths == {transition.FLAT_REPLAY_WARMUP_DATE: []}
+    assert lifecycle_start == transition.FLAT_REPLAY_WARMUP_DATE
+    assert baseline["conflict_date"] == "2026-10-30"
+    assert baseline["flat_events"] == 0 and not baseline["flat_position"]
+    assert calls == [None, transition.FLAT_REPLAY_WARMUP_DATE]
+    assert {key: db.get(MarketQuantSignalSnapshot, key).payload for key in sources} == sources
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") == baseline
+    paths_again, start_again, baseline_again = transition.prepare_forward_paths_with_flat_replay(
+        db, code, envelope, now=now, evidence_timeline=timeline,
+    )
+    assert (paths_again, start_again, baseline_again) == (paths, lifecycle_start, baseline)
+    assert calls[-1] == transition.FLAT_REPLAY_WARMUP_DATE
+
+
+def test_flat_replay_skips_old_snapshot_but_revalidates_new_paths(db, monkeypatch):
+    from app.services import regular_price_replay
+    from app.services.regular_price_replay import RegularPriceEnvelope
+
+    code = "005930"
+    old_day = date(2026, 10, 30)
+    new_day = transition.FLAT_REPLAY_WARMUP_DATE
+    old = QuantSignalIntradayPathSnapshot(
+        stock_code=code, trade_date=old_day, strategy_version="position-lifecycle-v8.1",
+        source="kis_rest", payload="frozen-old-path", is_final=True,
+        observed_at=datetime(2026, 10, 30, 7),
+    )
+    db.add(old)
+    db.flush()
+    envelope = RegularPriceEnvelope([], [], {
+        old_day: {"regular_rows": ["old"]},
+        new_day: {"regular_rows": ["new"]},
+    })
+    monkeypatch.setattr(regular_price_replay, "regular_ordered_paths",
+                        lambda _envelope: {old_day: ["old"], new_day: ["new"]})
+    checked = []
+
+    def store(_db, stock_code, day, rows, **_kwargs):
+        checked.append((stock_code, day, rows))
+        if day == old_day:
+            raise qs.UnverifiedIntradayPathError("old path differs")
+
+    monkeypatch.setattr(qs, "_store_verified_intraday_path", store)
+    with pytest.raises(transition.HistoricalPathConflict) as conflict:
+        transition.prepare_forward_paths(
+            db, code, envelope, now=datetime(2026, 11, 4, 9, tzinfo=qs.KST),
+        )
+    assert conflict.value.trade_date == old_day
+    checked.clear()
+    paths = transition.prepare_forward_paths(
+        db, code, envelope, now=datetime(2026, 11, 4, 9, tzinfo=qs.KST),
+        min_trade_date=new_day,
+    )
+    assert paths == {new_day: ["new"]}
+    assert checked == []
+    assert db.get(QuantSignalIntradayPathSnapshot, (code, old_day)).payload == "frozen-old-path"
+    db.add(QuantSignalIntradayPathSnapshot(
+        stock_code=code, trade_date=new_day, strategy_version="position-lifecycle-v8.1",
+        source="kis_rest", payload="new-path", is_final=True,
+        observed_at=datetime(2026, 11, 3, 7),
+    ))
+    db.flush()
+    transition.prepare_forward_paths(
+        db, code, envelope, now=datetime(2026, 11, 4, 9, tzinfo=qs.KST),
+        min_trade_date=new_day,
+    )
+    assert checked == [(code, new_day, ["new"])]
+
+
+def _assert_flat_replay_quarantined(db, monkeypatch, *, published_event=False,
+                                    stale=False, observed=False,
+                                    conflict_date=date(2026, 10, 30)):
+    code, envelope, timeline, _, _ = _flat_replay_fixture(
+        db, monkeypatch, conflict_date=conflict_date, published_event=published_event,
+        stale=stale, observed=observed,
+    )
+    with pytest.raises(UnverifiedRegularSessionPrice):
+        transition.prepare_forward_paths_with_flat_replay(
+            db, code, envelope, now=datetime(2026, 11, 4, 9, tzinfo=qs.KST),
+            evidence_timeline=timeline,
+        )
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
+
+
+def test_flat_replay_keeps_published_path_quarantined(db, monkeypatch):
+    _assert_flat_replay_quarantined(db, monkeypatch, published_event=True)
+
+
+def test_flat_replay_keeps_stale_publication_quarantined(db, monkeypatch):
+    _assert_flat_replay_quarantined(db, monkeypatch, stale=True)
+
+
+def test_flat_replay_keeps_observed_entry_quarantined(db, monkeypatch):
+    _assert_flat_replay_quarantined(db, monkeypatch, observed=True)
+
+
+def test_flat_replay_keeps_new_path_conflict_quarantined(db, monkeypatch):
+    _assert_flat_replay_quarantined(db, monkeypatch, conflict_date=date(2026, 11, 3))
+
+
+def test_flat_replay_stock_detail_uses_same_start_and_exposes_policy(db, monkeypatch):
+    from app.services.regular_price_replay import RegularPriceEnvelope
+
+    code = "005930"
+    rows = history(code)
+    db.add(StockMaster(code=code, name="삼성전자", market="KOSPI", is_active=True))
+    db.add_all(rows)
+    db.commit()
+    captured = {}
+    baseline = {"policy": transition.FLAT_REPLAY_POLICY,
+                "entry_date": "2026-11-04", "warmup_date": "2026-11-03"}
+    monkeypatch.setattr(qs, "prepare_forward_envelope",
+                        lambda *_args, **_kwargs: RegularPriceEnvelope(rows, rows, {}))
+    monkeypatch.setattr(qs, "forward_entry_timeline", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(qs, "prepare_forward_paths_with_flat_replay",
+                        lambda *_args, **_kwargs: ({}, transition.FLAT_REPLAY_WARMUP_DATE, baseline))
+
+    def build(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"items": [], "current": {"action": "waiting"}}
+
+    monkeypatch.setattr(qs, "_market_stock_payload_with_intraday_path", build)
+    payload = qs.load_quant_signal_payload(
+        db, code, now=datetime(2026, 11, 4, 9, tzinfo=qs.KST),
+    )
+    assert captured["lifecycle_start_date"] == transition.FLAT_REPLAY_WARMUP_DATE
+    assert payload["forward_replay_rebase"] == baseline
 
 
 def test_forward_first_day_never_executes_a_legacy_setup():
@@ -226,7 +410,7 @@ def test_forward_feed_freezes_current_entry_evidence_before_old_path_is_quaranti
         return {}
 
     monkeypatch.setattr(qs, "prepare_forward_envelope", prepare_envelope)
-    monkeypatch.setattr(qs, "prepare_forward_paths", prepare_paths)
+    monkeypatch.setattr(qs, "prepare_forward_paths_with_flat_replay", prepare_paths)
     monkeypatch.setattr(qs, "build_relative_strength_context", relative_context)
     result = qs.load_market_quant_signal_feed(
         db, universe_limit=150, limit=0, recent_days=30,

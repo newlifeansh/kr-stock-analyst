@@ -61,7 +61,7 @@ from app.services.position_lifecycle_core import (
 from app.services.regular_signal_transition import (
     REGULAR_FORWARD_START, REGULAR_FORWARD_STRATEGY_VERSION,
     archived_market_items, freeze_legacy_market_publication, legacy_open_codes,
-    prepare_forward_inputs, prepare_forward_envelope, prepare_forward_paths,
+    prepare_forward_inputs, prepare_forward_envelope, prepare_forward_paths_with_flat_replay,
     forward_entry_timeline,
     publish_forward_metadata,
     regular_intraday_quote,
@@ -5113,15 +5113,23 @@ def load_quant_signal_payload(
             archive = freeze_legacy_market_publication(db, MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 90)
             if code in legacy_open_codes(archive):
                 raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증이 필요하여 새 진입을 보류합니다")
-            envelope, paths = prepare_forward_inputs(db, code, rows, now=current_time)
+            envelope = prepare_forward_envelope(db, code, rows, now=current_time)
             timeline = forward_entry_timeline(db, stock, envelope.lower, flow_prices=rows, now=current_time)
+            paths, lifecycle_start, rebase = prepare_forward_paths_with_flat_replay(
+                db, code, envelope, now=current_time, evidence_timeline=timeline,
+            )
             result = _market_stock_payload_with_intraday_path(
                 db, stock, envelope.lower, _confirmed_bars(_normalize_prices(envelope.lower), current_time),
                 live_quote, timeline, load_entry_safety_guard(db), current_time,
                 intraday_chart_loader, historical_intraday_chart_loader,
-                verified_paths=paths, lifecycle_start_date=REGULAR_FORWARD_START,
+                verified_paths=paths, lifecycle_start_date=lifecycle_start,
             )
             publish_forward_metadata(result)
+            if rebase:
+                result["forward_replay_rebase"] = {
+                    "policy": rebase["policy"], "entry_date": rebase["entry_date"],
+                    "warmup_date": rebase["warmup_date"],
+                }
             result["legacy_history"] = [item for item in archived_market_items(
                 archive, as_of=current_time.date(), recent_days=90) if item.get("code") == code]
             if db.new or db.dirty or db.in_transaction():
@@ -6373,12 +6381,14 @@ def load_market_quant_signal_feed(
     current_extended_qualified_codes: set[str] = set()
     retained_signal_codes: set[str] = set()
     unverified_codes: set[str] = set()
+    rebased_codes: set[str] = set()
     evidence_snapshots_pending = False
     relative_context_by_date: dict[date, dict[str, Any]] = {}
     for code, stock in stock_by_code.items():
         stock_price_rows = prices_by_code.get(code, [])
         forward_paths = None
         forward_envelope = None
+        lifecycle_start = REGULAR_FORWARD_START
         if forward_mode:
             try:
                 if code in legacy_holdings:
@@ -6474,15 +6484,18 @@ def load_market_quant_signal_feed(
                     relative_context=relative_context, latest_market_date=market_cap_date,
                     timeline=evidence_timeline,
                 )
-                forward_paths = prepare_forward_paths(
+                forward_paths, lifecycle_start, rebase = prepare_forward_paths_with_flat_replay(
                     db, code, forward_envelope, now=current_time,
+                    evidence_timeline=evidence_timeline,
                 )
+                if rebase:
+                    rebased_codes.add(code)
             payload = _market_stock_payload_with_intraday_path(
                 db, stock, stock_price_rows, confirmed_stock_bars,
                 forming_quote, evidence_timeline, entry_safety_guard,
                 current_time, intraday_chart_loader,
                 historical_intraday_chart_loader,
-                **({"verified_paths": forward_paths, "lifecycle_start_date": REGULAR_FORWARD_START} if forward_mode else {}),
+                **({"verified_paths": forward_paths, "lifecycle_start_date": lifecycle_start} if forward_mode else {}),
                 observe_entry=bool(forward_mode and persist_entry_safety_guard
                                    and capped_universe_limit == MARKET_SIGNAL_UNIVERSE_LIMIT),
                 observation_universe_rank=current_rank_by_code.get(code),
@@ -6503,6 +6516,7 @@ def load_market_quant_signal_feed(
                 intraday_quote_loader=intraday_quote_loader,
             )
         except (UnverifiedIntradayPathError, UnverifiedRegularSessionPrice) as exc:
+            rebased_codes.discard(code)
             unverified_codes.add(code)
             for previous_item in previous_items_by_code.get(code, []):
                 if (
@@ -6840,6 +6854,7 @@ def load_market_quant_signal_feed(
         ),
         "execution_replay_unverified_count": len(unverified_codes),
         "execution_replay_unverified_codes": sorted(unverified_codes),
+        "execution_replay_rebased_codes": sorted(rebased_codes),
         "unverified_codes_isolated": isolated_unverified,
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,

@@ -751,6 +751,22 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_observed_entry."
         "test_no_trade_minute_keeps_watching_without_confirming_and_next_trade_can_confirm",
     ),
+    "SIG-KR-FLAT-REPLAY-001": (
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_restarts_only_after_frozen_publications_and_flat_warmup",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_skips_old_snapshot_but_revalidates_new_paths",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_keeps_published_path_quarantined",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_keeps_stale_publication_quarantined",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_keeps_observed_entry_quarantined",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_keeps_new_path_conflict_quarantined",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_stock_detail_uses_same_start_and_exposes_policy",
+    ),
     "SIG-KR-REGULAR-VALIDATION-CACHE-001": (
         "tests.test_regular_session_prices."
         "test_regular_loader_reuses_only_identical_validated_content",
