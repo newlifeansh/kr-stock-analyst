@@ -7,7 +7,7 @@ Turnover interval endpoints are calculation scenarios, never displayed amounts.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, time, timezone, timedelta
 from hashlib import sha256
 import json
 from typing import Any
@@ -235,22 +235,34 @@ def prepare_forward_paths(db: Session, code: str, envelope, *, now: datetime,
             if min_trade_date is None or day >= min_trade_date}
 
 
-def _flat_replay_publication_sources(db: Session, code: str) -> list[dict[str, Any]]:
+def _flat_replay_publication_sources(db: Session, code: str, *, now: datetime) -> list[dict[str, Any]]:
     from app.services import quant_signals as qs
 
+    completed = qs.latest_completed_korea_market_session_date(now)
+    if now.time() >= time(15, 40) and qs.is_korea_market_session_date(now.date(), now):
+        completed = now.date()
+    if completed is None or completed < FLAT_REPLAY_WARMUP_DATE:
+        raise UnverifiedRegularSessionPrice("재시작 전일의 완료 거래일을 확인할 수 없습니다")
+    close_kst = datetime.combine(completed, time(15, 40), qs.KST)
+    close_utc = close_kst.astimezone(timezone.utc).replace(tzinfo=None)
     sources = []
     for recent_days in (30, 90):
         key = qs.market_quant_signal_snapshot_key(150, 0, recent_days)
         record = db.get(MarketQuantSignalSnapshot, key)
-        # Require publications produced after the last completed warm-up
-        # close. A stale feed cannot prove that no newer transition exists.
-        if record is None or record.generated_at < datetime(2026, 11, 3, 6, 40):
+        # Both snapshots must cover the most recently completed session.
+        # A later first activation cannot silently skip a newer publication.
+        if record is None or record.generated_at < close_utc:
             raise UnverifiedRegularSessionPrice("최신 공개 시그널 이력이 없어 재시작을 보류합니다")
         try:
             payload = json.loads(record.payload)
             items = payload["items"]
             if not isinstance(items, list) or payload.get("strategy_version") != REGULAR_FORWARD_STRATEGY_VERSION:
                 raise ValueError("publication contract")
+            as_of = datetime.fromisoformat(str(payload["as_of"]).replace("Z", "+00:00"))
+            universe_as_of = date.fromisoformat(str(payload["universe_as_of"])[:10])
+            if (as_of.tzinfo is None or as_of.astimezone(qs.KST) < close_kst
+                    or universe_as_of < completed):
+                raise ValueError("publication covers an older session")
             for item in items:
                 if not isinstance(item, dict):
                     raise ValueError("publication item")
@@ -290,14 +302,14 @@ def prepare_forward_paths_with_flat_replay(
     try:
         return prepare_forward_paths(db, code, envelope, now=now), REGULAR_FORWARD_START, None
     except HistoricalPathConflict as exc:
-        if now.date() < FLAT_REPLAY_ENTRY_DATE or exc.trade_date >= FLAT_REPLAY_WARMUP_DATE:
+        if now.date() != FLAT_REPLAY_ENTRY_DATE or exc.trade_date >= FLAT_REPLAY_WARMUP_DATE:
             raise
         if (FLAT_REPLAY_WARMUP_DATE not in envelope.evidence
                 or FLAT_REPLAY_WARMUP_DATE not in evidence_timeline
                 or evidence_timeline[FLAT_REPLAY_WARMUP_DATE].get("strategy_version") != REGULAR_FORWARD_STRATEGY_VERSION
                 or evidence_timeline[FLAT_REPLAY_WARMUP_DATE].get("policy_version") != REGULAR_FORWARD_ENTRY_POLICY):
             raise UnverifiedRegularSessionPrice("재시작 전일의 독립 근거가 없습니다") from exc
-        sources = _flat_replay_publication_sources(db, code)
+        sources = _flat_replay_publication_sources(db, code, now=now)
         observed = db.scalar(select(QuantSignalObservedEntry.stock_code).where(
             QuantSignalObservedEntry.stock_code == code,
             QuantSignalObservedEntry.trade_date >= REGULAR_FORWARD_START,

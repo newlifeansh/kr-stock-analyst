@@ -765,6 +765,14 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_signal_transition."
         "test_flat_replay_keeps_new_path_conflict_quarantined",
         "tests.test_regular_signal_transition."
+        "test_flat_replay_rejects_first_activation_after_entry_day",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_requires_new_close_if_first_activated_after_market",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_requires_publication_payload_to_cover_completed_close",
+        "tests.test_regular_signal_transition."
+        "test_flat_replay_rejects_stale_universe_even_with_new_generation_clock",
+        "tests.test_regular_signal_transition."
         "test_flat_replay_stock_detail_uses_same_start_and_exposes_policy",
     ),
     "SIG-KR-REGULAR-VALIDATION-CACHE-001": (
