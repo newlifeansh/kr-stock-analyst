@@ -22,6 +22,7 @@ from app.models import (
     MacroObservation,
     NewsItem,
     QuantSignalIntradayPathSnapshot,
+    QuantSignalObservedEntry,
     ResearchReport,
     StockCompanySnapshot,
     StockIntradaySnapshot,
@@ -43,6 +44,7 @@ from app.services.quant_signals import (
     synchronize_quant_payload_live_quote,
 )
 from app.services import quant_signals
+from app.services import observed_entry
 from app.services.signal_reconciliations import (
     apply_market_signal_reconciliations,
     apply_stock_signal_reconciliations,
@@ -1522,6 +1524,122 @@ def test_v8_ordered_minutes_require_fresh_complete_chart_matching_krx_quote():
     assert len(quant_signals._verified_intraday_minutes(
         {**quote, "intraday_minutes": [*rows, {**rows[-1], "trade_time": "090400"}]}, bar
     ) or []) == 2
+
+
+def test_unconfirmed_candidate_recovers_when_kis_backfills_last_no_trade_minute():
+    day = date(2026, 11, 3)
+    observed = datetime(2026, 11, 3, 10, 43, tzinfo=quant_signals.KST)
+    previous = [
+        {"trade_date": "20261103", "trade_time": "104000", "open": 100,
+         "high": 100, "low": 100, "price": 100, "volume": 10, "trading_value": 1_000},
+        {"trade_date": "20261103", "trade_time": "104100", "open": 100,
+         "high": 100, "low": 100, "price": 100, "volume": 0, "trading_value": 1_000},
+    ]
+    revised = [
+        previous[0],
+        {**previous[1], "high": 101, "volume": 5, "trading_value": 1_502},
+        {"trade_date": "20261103", "trade_time": "104200", "open": 100,
+         "high": 102, "low": 100, "price": 102, "volume": 10,
+         "trading_value": 2_522},
+    ]
+    assert not quant_signals._intraday_path_preserves_prior_touches(previous, revised)
+    assert quant_signals._intraday_path_preserves_prior_touches(
+        previous, revised, allow_terminal_no_trade_revision=True,
+    )
+    assert not quant_signals._intraday_path_preserves_prior_touches(
+        [*previous, revised[2]], revised,
+        allow_terminal_no_trade_revision=True,
+    )
+    db = _session()
+    try:
+        quant_signals._store_verified_intraday_path(
+            db, "021240", day, previous, observed_at=observed, is_final=False,
+        )
+        db.flush()
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._store_verified_intraday_path(
+                db, "021240", day, revised, observed_at=observed,
+                is_final=True,
+            )
+        watcher = QuantSignalObservedEntry(
+            stock_code="021240", trade_date=day,
+            policy_version=observed_entry.POLICY_VERSION, status="watching",
+            payload=json.dumps({"status": "watching"}),
+            updated_at=datetime(2026, 11, 3, 1, 43),
+        )
+        db.add(watcher)
+        db.flush()
+        watcher.status = "confirmed"
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._store_verified_intraday_path(
+                db, "021240", day, revised, observed_at=observed,
+                is_final=True,
+            )
+        watcher.status = "watching"
+        for bad in (
+            [previous[0], {**revised[1], "trading_value": 2_000}, revised[2]],
+            [{**previous[0], "high": 101}, *revised[1:]],
+            [previous[0], {**revised[1], "trade_time": "104300"}, revised[2]],
+        ):
+            with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+                quant_signals._store_verified_intraday_path(
+                    db, "021240", day, bad, observed_at=observed,
+                    is_final=True,
+                )
+        snapshot = quant_signals._store_verified_intraday_path(
+            db, "021240", day, revised, observed_at=observed, is_final=True,
+        )
+        assert snapshot.is_final is True
+        assert json.loads(snapshot.payload) == revised
+        assert watcher.status == "watching"
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._store_verified_intraday_path(
+                db, "021240", day,
+                [previous[0], {**revised[1], "high": 102}, revised[2]],
+                observed_at=observed, is_final=True,
+            )
+    finally:
+        db.close()
+
+
+def test_closing_auction_print_accepts_only_matching_kis_cumulative_turnover():
+    day = date(2026, 11, 3)
+    observed = datetime(2026, 11, 3, 15, 45, tzinfo=quant_signals.KST)
+    prior = {"trade_date": "20261103", "trade_time": "151900", "open": 100,
+             "high": 100, "low": 100, "price": 100, "volume": 10,
+             "trading_value": 1_000}
+    print_row = {"trade_date": "20261103", "trade_time": "153000", "open": 103,
+                 "high": 103, "low": 103, "price": 103, "volume": 500,
+                 "trading_value": 0}
+    chart_print = {**print_row, "trading_value": 52_500}
+    db = _session()
+    try:
+        snapshot = quant_signals._store_verified_intraday_path(
+            db, "005930", day, [prior, print_row],
+            observed_at=observed, is_final=False,
+        )
+        snapshot.source = quant_signals.KIS_CLOSING_AUCTION_SOURCE
+        db.flush()
+        chart = [prior, {**prior, "trade_time": "152000", "volume": 0}, chart_print]
+        merged = quant_signals._merge_verified_closing_auction_trade(chart, snapshot)
+        assert merged is not None and merged[-1] == chart_print
+        for bad in (
+            {**chart_print, "volume": 501},
+            {**chart_print, "price": 104},
+            {**chart_print, "trading_value": 52_499},
+        ):
+            with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+                quant_signals._store_verified_intraday_path(
+                    db, "005930", day, [prior, bad],
+                    observed_at=observed, is_final=True,
+                )
+        sealed = quant_signals._store_verified_intraday_path(
+            db, "005930", day, merged, observed_at=observed, is_final=True,
+        )
+        assert sealed.is_final is True
+        assert json.loads(sealed.payload) == [prior, chart_print]
+    finally:
+        db.close()
 
 
 def test_explicit_flat_no_trade_minute_keeps_verified_path_without_a_price_touch():
