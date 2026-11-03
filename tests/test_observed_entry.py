@@ -325,7 +325,7 @@ def test_extended_observed_candidate_is_published_before_buy_approval(monkeypatc
             envelope_calls.append(code)
             return RegularPriceEnvelope(rows, rows, {})
         monkeypatch.setattr(qs, "prepare_forward_envelope", prepare_envelope)
-        monkeypatch.setattr(qs, "prepare_forward_paths", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr(qs, "prepare_forward_paths_with_flat_replay", lambda *_args, **_kwargs: ({}, qs.REGULAR_FORWARD_START, None))
         monkeypatch.setattr(qs, "load_entry_evidence_timeline",
                             lambda *_args, **_kwargs: {prior: {"status": "ready"}})
         monkeypatch.setattr(qs, "forward_entry_timeline", lambda *_args, **_kwargs: {})

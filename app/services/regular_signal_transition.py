@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalTransitionBaseline, QuantSignalIntradayPathSnapshot
+from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalObservedEntry, QuantSignalTransitionBaseline, QuantSignalIntradayPathSnapshot
 from app.services.regular_session_prices import PRICE_FIELDS, UnverifiedRegularSessionPrice
 
 REGULAR_FORWARD_VERSION = "krx-regular-forward-v1"
@@ -26,6 +26,15 @@ REGULAR_FORWARD_STRATEGY_VERSION = "position-lifecycle-v8.1"
 REGULAR_FORWARD_START = date(2026, 10, 13)
 REGULAR_FORWARD_ENTRY_POLICY = "independent-entry-regular-forward-v1"
 LEGACY_MARKET_SNAPSHOT_VERSIONS = ("v36", "v35")
+FLAT_REPLAY_WARMUP_DATE = date(2026, 11, 3)
+FLAT_REPLAY_ENTRY_DATE = date(2026, 11, 4)
+FLAT_REPLAY_POLICY = "krx-regular-flat-replay-v1"
+
+
+class HistoricalPathConflict(UnverifiedRegularSessionPrice):
+    def __init__(self, trade_date: date, message: str):
+        super().__init__(message)
+        self.trade_date = trade_date
 
 
 def _json(payload: Any) -> str:
@@ -207,19 +216,127 @@ def prepare_forward_envelope(db: Session, code: str, rows: list[DailyPrice], *, 
     return forward_price_envelope(db, code, rows, completed_through=completed)
 
 
-def prepare_forward_paths(db: Session, code: str, envelope, *, now: datetime):
+def prepare_forward_paths(db: Session, code: str, envelope, *, now: datetime,
+                          min_trade_date: date | None = None):
     from app.services import quant_signals as qs
     from app.services.regular_price_replay import regular_ordered_paths
 
     paths = regular_ordered_paths(envelope)
     for day, evidence in envelope.evidence.items():
+        if min_trade_date is not None and day < min_trade_date:
+            continue
         stored = db.get(QuantSignalIntradayPathSnapshot, (code, day))
         if stored is not None:
             try:
                 qs._store_verified_intraday_path(db, code, day, evidence["regular_rows"], observed_at=now, is_final=True)
             except qs.UnverifiedIntradayPathError as exc:
-                raise UnverifiedRegularSessionPrice(str(exc)) from exc
-    return paths
+                raise HistoricalPathConflict(day, str(exc)) from exc
+    return {day: minutes for day, minutes in paths.items()
+            if min_trade_date is None or day >= min_trade_date}
+
+
+def _flat_replay_publication_sources(db: Session, code: str) -> list[dict[str, Any]]:
+    from app.services import quant_signals as qs
+
+    sources = []
+    for recent_days in (30, 90):
+        key = qs.market_quant_signal_snapshot_key(150, 0, recent_days)
+        record = db.get(MarketQuantSignalSnapshot, key)
+        # Require publications produced after the last completed warm-up
+        # close. A stale feed cannot prove that no newer transition exists.
+        if record is None or record.generated_at < datetime(2026, 11, 3, 6, 40):
+            raise UnverifiedRegularSessionPrice("최신 공개 시그널 이력이 없어 재시작을 보류합니다")
+        try:
+            payload = json.loads(record.payload)
+            items = payload["items"]
+            if not isinstance(items, list) or payload.get("strategy_version") != REGULAR_FORWARD_STRATEGY_VERSION:
+                raise ValueError("publication contract")
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValueError("publication item")
+                if item.get("code") != code:
+                    continue
+                if item.get("is_current_holding") or (item.get("current") or {}).get("position_open"):
+                    raise ValueError("active holding")
+                day = date.fromisoformat(str(item.get("execution_date") or item.get("signal_date"))[:10])
+                if day >= REGULAR_FORWARD_START:
+                    raise ValueError("published forward transition")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise UnverifiedRegularSessionPrice("공개된 진입·보유 이력을 보존해야 합니다") from exc
+        sources.append({"cache_key": key, "generated_at": record.generated_at,
+                        "payload_hash": sha256(record.payload.encode()).hexdigest()})
+    return sources
+
+
+def prepare_forward_paths_with_flat_replay(
+    db: Session, code: str, envelope, *, now: datetime,
+    evidence_timeline: dict[date, dict[str, Any]],
+) -> tuple[dict[date, Any], date, dict[str, Any] | None]:
+    """Resume only a proven flat stock after an older path changed upstream.
+
+    The old snapshots and publications remain immutable. Every path used by
+    the resumed lifecycle is still validated against its own dated evidence.
+    """
+    key = f"{REGULAR_FORWARD_VERSION}:flat-replay:{code}"
+    baseline = _load(db, key)
+    if baseline is not None:
+        if (baseline.get("policy") != FLAT_REPLAY_POLICY or baseline.get("code") != code
+                or baseline.get("warmup_date") != FLAT_REPLAY_WARMUP_DATE.isoformat()
+                or baseline.get("entry_date") != FLAT_REPLAY_ENTRY_DATE.isoformat()):
+            raise UnverifiedRegularSessionPrice("재시작 기준선의 정책이 일치하지 않습니다")
+        paths = prepare_forward_paths(db, code, envelope, now=now,
+                                      min_trade_date=FLAT_REPLAY_WARMUP_DATE)
+        return paths, FLAT_REPLAY_WARMUP_DATE, baseline
+    try:
+        return prepare_forward_paths(db, code, envelope, now=now), REGULAR_FORWARD_START, None
+    except HistoricalPathConflict as exc:
+        if now.date() < FLAT_REPLAY_ENTRY_DATE or exc.trade_date >= FLAT_REPLAY_WARMUP_DATE:
+            raise
+        if (FLAT_REPLAY_WARMUP_DATE not in envelope.evidence
+                or FLAT_REPLAY_WARMUP_DATE not in evidence_timeline
+                or evidence_timeline[FLAT_REPLAY_WARMUP_DATE].get("strategy_version") != REGULAR_FORWARD_STRATEGY_VERSION
+                or evidence_timeline[FLAT_REPLAY_WARMUP_DATE].get("policy_version") != REGULAR_FORWARD_ENTRY_POLICY):
+            raise UnverifiedRegularSessionPrice("재시작 전일의 독립 근거가 없습니다") from exc
+        sources = _flat_replay_publication_sources(db, code)
+        observed = db.scalar(select(QuantSignalObservedEntry.stock_code).where(
+            QuantSignalObservedEntry.stock_code == code,
+            QuantSignalObservedEntry.trade_date >= REGULAR_FORWARD_START,
+            QuantSignalObservedEntry.trade_date < FLAT_REPLAY_ENTRY_DATE,
+        ).limit(1))
+        if observed is not None:
+            raise UnverifiedRegularSessionPrice("기존 장중 관측 이력을 보존해야 합니다") from exc
+        paths = prepare_forward_paths(db, code, envelope, now=now,
+                                      min_trade_date=FLAT_REPLAY_WARMUP_DATE)
+        from app.services import quant_signals as qs
+
+        bars = qs._normalize_prices([row for row in envelope.lower
+                                     if row.trade_date <= FLAT_REPLAY_WARMUP_DATE])
+        if (len(bars) < qs.MIN_HISTORY_ROWS
+                or bars[-1].trade_date != FLAT_REPLAY_WARMUP_DATE
+                or not bars[-1].ohlc_complete):
+            raise UnverifiedRegularSessionPrice("재시작 전일의 완전 일봉이 없습니다") from exc
+        simulation = qs._simulate(
+            bars, qs._indicator_rows(bars), evidence_timeline,
+            intraday_minutes_by_date={day: minutes for day, minutes in paths.items()
+                                      if day <= FLAT_REPLAY_WARMUP_DATE},
+            lifecycle_start_date=FLAT_REPLAY_WARMUP_DATE,
+        )
+        if (simulation["events"] or simulation["trades"]
+                or simulation["pending"] or simulation["position"]):
+            raise UnverifiedRegularSessionPrice("재시작 전일에 열린 전략 상태가 있습니다") from exc
+        requested = {
+            "policy": FLAT_REPLAY_POLICY, "code": code,
+            "warmup_date": FLAT_REPLAY_WARMUP_DATE,
+            "entry_date": FLAT_REPLAY_ENTRY_DATE,
+            "conflict_date": exc.trade_date,
+            "publication_sources": sources,
+            "evidence_hash": sha256(_json(evidence_timeline[FLAT_REPLAY_WARMUP_DATE]).encode()).hexdigest(),
+            "flat_events": 0, "flat_pending": False, "flat_position": False,
+        }
+        baseline = _freeze(db, key, requested)
+        if baseline != json.loads(_json(requested)):
+            raise UnverifiedRegularSessionPrice("동시 재시작 기준선이 일치하지 않습니다") from exc
+        return paths, FLAT_REPLAY_WARMUP_DATE, baseline
 
 
 def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, now: datetime, include_paths: bool = True):
