@@ -5684,8 +5684,10 @@ def _live_checks(
             )
             return {
                 **meta,
-                "condition": option.get("id"),
-                "condition_label": option.get("label"),
+                "condition": "community_popular",
+                "condition_disabled": True,
+                "kr_condition_count": len(push_config.get("conditions") or []),
+                "us_condition_count": len(us_push_config.get("conditions") or []),
                 "provider": provider.get("source"),
                 "item_count": min(len(items), 3),
                 "post_ids": [item.get("post_id") for item in items[:3]],

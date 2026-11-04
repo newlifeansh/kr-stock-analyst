@@ -3417,6 +3417,8 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
     assert by_id["DATA-GLOBAL-003"]["status"] == "warn"
     assert by_id["DATA-KRX-NAVER-002"]["status"] == "pass"
     assert by_id["SIG-UI-025"]["status"] == "pass"
+    assert by_id["SIG-PUSH-COMMUNITY-002"]["status"] == "pass"
+    assert by_id["SIG-PUSH-COMMUNITY-002"]["evidence"]["condition_disabled"] is True
     watch_map_evidence = by_id["SIG-UI-025"]["evidence"]
     assert watch_map_evidence["domestic"]["market_scope"] == "kr"
     assert watch_map_evidence["domestic"]["market_cap_krw"] == pytest.approx(
