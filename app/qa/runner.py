@@ -347,6 +347,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-PUSH-COMMUNITY-001": (
         "tests.test_web_push."
+        "test_community_notifications_are_disabled_for_existing_subscriptions_and_operator",
+        "tests.test_web_push."
         "test_operator_community_popular_sends_once_to_enabled_domestic_subscribers",
         "tests.test_web_push."
         "test_operator_community_popular_fails_closed_when_rank_is_missing",
@@ -669,6 +671,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_run_once_dispatches_domestic_intraday_half_sale_once_after_baseline",
     ),
     "SIG-PUSH-COMMUNITY-002": (
+        "tests.test_web_push."
+        "test_community_notifications_are_disabled_for_existing_subscriptions_and_operator",
         "tests.test_stock_community_deep_link.test_cold_stock_navigation_applies_community_route_after_hydration",
         "tests.test_data_signal_qa.test_community_notification_e2e_routes_the_async_history_response",
         "tests.test_data_signal_qa.test_community_retry_e2e_settles_the_failed_request_before_click",
@@ -5607,21 +5611,26 @@ def _live_checks(
 
         def community_popular_push_contract() -> dict[str, Any]:
             push_config, push_meta = api.get("/push/config")
-            option = next(
-                (
-                    item
+            _assert(
+                "community_popular" not in push_config.get("conditions", [])
+                and all(
+                    item.get("id") != "community_popular"
                     for item in push_config.get("condition_options") or []
                     if isinstance(item, dict)
-                    and item.get("id") == "community_popular"
                 ),
-                None,
-            )
-            _assert(
-                isinstance(option, dict)
-                and bool(option.get("label"))
-                and "상위 3개" in str(option.get("description") or ""),
-                "알림 설정에 커뮤니티 인기글 조건이 없거나 상위 3개 범위가 명확하지 않습니다.",
+                "국내 알림 설정에 비활성화된 커뮤니티 인기글 조건이 남아 있습니다.",
                 **push_meta,
+            )
+            us_push_config, us_push_meta = api.get("/push/config", market_scope="us")
+            _assert(
+                "community_popular" not in us_push_config.get("conditions", [])
+                and all(
+                    item.get("id") != "community_popular"
+                    for item in us_push_config.get("condition_options") or []
+                    if isinstance(item, dict)
+                ),
+                "미국 알림 설정에 비활성화된 커뮤니티 인기글 조건이 남아 있습니다.",
+                **us_push_meta,
             )
             payload, meta = api.get(
                 "/stocks/005930/community-feed",
@@ -5685,7 +5694,7 @@ def _live_checks(
         collector.check(
             "SIG-PUSH-COMMUNITY-002",
             community_popular_push_contract,
-            pass_message="삼성전자 커뮤니티 인기글 알림 옵션과 상위 3개 원천 계약을 확인했습니다.",
+            pass_message="국내·미국 커뮤니티 알림 옵션 제거와 인기글 화면의 원천 계약을 확인했습니다.",
         )
 
         def realtime_status_contract() -> dict[str, Any]:

@@ -313,7 +313,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261024v587"
+DASHBOARD_CLIENT_VERSION = "20261105v588"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -321,7 +321,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261024us160"
+US_DASHBOARD_CLIENT_VERSION = "20261105us161"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -592,14 +592,6 @@ PUSH_CONDITION_OPTIONS = [
         "description": "상위 10 신규 진입과 추천 종목의 매수·매도 단계 변경을 알려드립니다.",
     },
     {
-        "id": "community_popular",
-        "label": "커뮤니티 인기글",
-        "description": (
-            "관심종목의 오늘 커뮤니티 인기글 상위 3개에 "
-            "새 글이 들어오면 알려드립니다."
-        ),
-    },
-    {
         "id": "price_move",
         "label": "급등락",
         "description": f"관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
@@ -637,11 +629,6 @@ US_PUSH_CONDITION_COPY = {
         "추천 업데이트",
         "미국 추천 상위 10 신규 진입과 매수·매도 단계 변경을 알려드립니다.",
     ),
-    "community_popular": (
-        "커뮤니티 인기글",
-        "미국 관심종목의 오늘 커뮤니티 인기글 상위 3개에 "
-        "새 글이 들어오면 알려드립니다.",
-    ),
     "price_move": (
         "급등락",
         f"미국 관심종목 변동이 {settings.web_push_price_threshold:.0f}% 이상이면 알려드립니다.",
@@ -656,9 +643,7 @@ US_PUSH_CONDITION_COPY = {
     ),
 }
 SUPPORTED_PUSH_CONDITIONS = tuple(item["id"] for item in PUSH_CONDITION_OPTIONS)
-DEFAULT_PUSH_CONDITIONS = tuple(
-    item["id"] for item in PUSH_CONDITION_OPTIONS if item["id"] != "community_popular"
-)
+DEFAULT_PUSH_CONDITIONS = SUPPORTED_PUSH_CONDITIONS
 REQUIRED_PUSH_CONDITIONS = tuple(
     item["id"] for item in PUSH_CONDITION_OPTIONS if item.get("required")
 )
@@ -2543,8 +2528,7 @@ def _normalize_push_conditions(values: object) -> list[str]:
         for condition in ("market_ai_signal", "market_session"):
             if condition not in normalized:
                 normalized.append(condition)
-    selected = normalized or list(DEFAULT_PUSH_CONDITIONS)
-    return list(dict.fromkeys((*REQUIRED_PUSH_CONDITIONS, *selected)))
+    return list(dict.fromkeys((*REQUIRED_PUSH_CONDITIONS, *normalized)))
 
 
 def _subscription_conditions(subscription: Optional[PushSubscription]) -> list[str]:
