@@ -7440,12 +7440,12 @@ def run_e2e_checks(
                     or "돈이 되는 소식 · AI 시그널" not in contract.get("coreText", "")
                     or "현재 꺼짐" not in contract.get("coreText", "")
                     or contract.get("coreEnabled") != "false"
-                    or contract.get("optionalCount") != 7
+                    or contract.get("optionalCount") != 6
                     or contract.get("optionalCheckedCount") != 0
-                    or contract.get("optionalSummary") != "0/7 선택"
-                    or "community_popular" not in contract.get("optionalIds", [])
-                    or contract.get("communityLabel") != "커뮤니티 인기글"
-                    or "상위 3개" not in contract.get("communityDescription", "")
+                    or contract.get("optionalSummary") != "0/6 선택"
+                    or "community_popular" in contract.get("optionalIds", [])
+                    or contract.get("communityLabel")
+                    or contract.get("communityDescription")
                     or contract.get("statusHidden") is not False
                     or not any(
                         phrase in contract.get("statusText", "")
@@ -7608,6 +7608,10 @@ def run_e2e_checks(
                     wait_until="commit",
                     ready_selector="body[data-view='home']",
                 )
+                if page.evaluate(
+                    "() => pushNotificationOptions().some(option => option.id === 'community_popular')"
+                ):
+                    raise QaFailure("커뮤니티 알림 선택 항목이 다시 표시됩니다.")
                 shell = _assert_page_shell(page, theme=theme)
                 page.evaluate(
                     """fixture => {

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 from types import SimpleNamespace
+import pytest
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -37,6 +38,45 @@ def _settings(**overrides) -> Settings:
     return Settings(
         **values,
     )
+
+
+def test_community_notifications_are_disabled_for_existing_subscriptions_and_operator(monkeypatch):
+    db = _session()
+    calls = []
+    monkeypatch.setattr(web_push, "webpush", lambda **kwargs: calls.append(kwargs))
+    try:
+        runtime = web_push.WebPushRuntime(_settings())
+        for scope in ("kr", "us"):
+            subscription = PushSubscription(
+                share_id=f"{scope}-tester",
+                endpoint=f"https://push.example/{scope}-community",
+                p256dh="p" * 64,
+                auth="a" * 24,
+                market_scope=scope,
+                notification_preferences='["community_popular"]',
+            )
+            db.add(subscription)
+            db.commit()
+            assert web_push.subscription_conditions(subscription) == web_push.REQUIRED_PUSH_CONDITIONS
+            candidate = web_push.NotificationCandidate(
+                event_key=f"operator-community-popular:{scope}:005930:post",
+                kind="community_popular",
+                title="커뮤니티 인기글",
+                body="새 글",
+                url="/dashboard/005930?tab=community&community_mode=popular",
+                tag=f"{scope}-community",
+                market_scope=scope,
+            )
+            assert web_push.candidate_enabled(subscription, candidate) is False
+            assert runtime._send(db, subscription, candidate, operator_approved=True) is False
+        for dry_run in (True, False):
+            with pytest.raises(RuntimeError, match="community notifications are disabled"):
+                runtime.send_operator_community_popular(db, code="005930", dry_run=dry_run)
+        assert calls == []
+        assert db.query(PushDelivery).count() == 0
+        assert db.query(PushNotificationHistory).count() == 0
+    finally:
+        db.close()
 
 
 def test_price_candidate_requires_five_percent_move():
@@ -221,6 +261,7 @@ def test_delivery_is_sent_only_once(monkeypatch):
 
 
 def test_operator_community_popular_sends_once_to_enabled_domestic_subscribers(monkeypatch):
+    monkeypatch.setattr(web_push, "COMMUNITY_POPULAR_PUSH_ENABLED", True)
     db = _session()
     calls = []
     try:
@@ -336,6 +377,7 @@ def test_operator_community_popular_sends_once_to_enabled_domestic_subscribers(m
 
 
 def test_operator_community_popular_fails_closed_when_rank_is_missing(monkeypatch):
+    monkeypatch.setattr(web_push, "COMMUNITY_POPULAR_PUSH_ENABLED", True)
     db = _session()
     try:
         db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
@@ -761,6 +803,7 @@ def test_community_popular_candidates_use_top_three_and_internal_popular_deep_li
 
 
 def test_community_popular_alert_baselines_then_sends_new_entry_once(monkeypatch):
+    monkeypatch.setattr(web_push, "COMMUNITY_POPULAR_PUSH_ENABLED", True)
     db = _session()
     calls = []
     try:
@@ -856,6 +899,7 @@ def test_community_popular_source_failure_does_not_create_a_baseline():
 
 
 def test_community_popular_alert_rebaselines_on_each_new_day(monkeypatch):
+    monkeypatch.setattr(web_push, "COMMUNITY_POPULAR_PUSH_ENABLED", True)
     db = _session()
     calls = []
     try:

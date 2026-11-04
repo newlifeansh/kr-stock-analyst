@@ -157,6 +157,8 @@ DEFAULT_PUSH_CONDITIONS = (
     "disclosure_report",
     "major_event",
 )
+# Disabled at source. Historical delivery fixtures can opt in explicitly in tests.
+COMMUNITY_POPULAR_PUSH_ENABLED = False
 SUPPORTED_PUSH_CONDITIONS = (*DEFAULT_PUSH_CONDITIONS, "community_popular")
 REQUIRED_PUSH_CONDITIONS = {"ai_signal", "morning_briefing"}
 SIGNAL_NOTIFICATION_KINDS = frozenset({"ai_signal", "market_ai_signal"})
@@ -434,11 +436,13 @@ def subscription_conditions(subscription: PushSubscription) -> set[str]:
     if not isinstance(parsed, list):
         return set(DEFAULT_PUSH_CONDITIONS)
     allowed = set(SUPPORTED_PUSH_CONDITIONS)
+    if not COMMUNITY_POPULAR_PUSH_ENABLED:
+        allowed.discard("community_popular")
     parsed_values = {str(item) for item in parsed}
     normalized = {item for item in parsed_values if item in allowed}
     if LEGACY_DEFAULT_PUSH_CONDITIONS.issubset(parsed_values):
         normalized.update({"market_ai_signal", "market_session"})
-    return REQUIRED_PUSH_CONDITIONS | (normalized or set(DEFAULT_PUSH_CONDITIONS))
+    return REQUIRED_PUSH_CONDITIONS | normalized
 
 
 def subscription_market_scope(subscription: PushSubscription) -> str:
@@ -446,6 +450,8 @@ def subscription_market_scope(subscription: PushSubscription) -> str:
 
 
 def candidate_enabled(subscription: PushSubscription, candidate: NotificationCandidate) -> bool:
+    if candidate.kind == "community_popular" and not COMMUNITY_POPULAR_PUSH_ENABLED:
+        return False
     if subscription_market_scope(subscription) != candidate.market_scope:
         return False
     if candidate.kind == "test":
@@ -2241,6 +2247,9 @@ class WebPushRuntime:
         self, db: Session, subscription: PushSubscription, candidate: NotificationCandidate,
         *, operator_approved: bool = False,
     ) -> bool:
+        # Keep the final delivery boundary closed for both automatic and operator sends.
+        if candidate.kind == "community_popular" and not COMMUNITY_POPULAR_PUSH_ENABLED:
+            return False
         if candidate.expires_at is not None:
             current = datetime.now(KST)
             if current > candidate.expires_at or not is_korea_regular_market_session(current):
@@ -2389,6 +2398,8 @@ class WebPushRuntime:
         twice to one subscription.
         """
 
+        if not COMMUNITY_POPULAR_PUSH_ENABLED:
+            raise RuntimeError("community notifications are disabled")
         normalized_code = str(code or "").strip().upper()
         if not normalized_code:
             raise ValueError("stock code is required")

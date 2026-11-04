@@ -675,11 +675,6 @@ const PUSH_NOTIFICATION_FALLBACK_OPTIONS = [
     description: "상위 10 신규 진입과 추천 종목의 매수·매도 단계 변경을 알려드립니다.",
   },
   {
-    id: "community_popular",
-    label: "커뮤니티 인기글",
-    description: "관심종목의 오늘 커뮤니티 인기글 상위 3개에 새 글이 들어오면 알려드립니다.",
-  },
-  {
     id: "price_move",
     label: "급등락",
     description: "관심종목 변동이 기준 이상 커지면 알려드립니다.",
@@ -699,7 +694,6 @@ const PUSH_NOTIFICATION_COMPACT_DESCRIPTIONS = Object.freeze({
   market_session: "장 시작·마감 5분 전",
   market_ai_signal: "국내 시장 시그널",
   recommendation_update: "상위 10 진입·매매 단계 변경",
-  community_popular: "오늘 인기글 상위 3개 진입",
   disclosure_report: "중요한 공시·리포트만",
   major_event: "영향 큰 일정이 가까워질 때",
 });
