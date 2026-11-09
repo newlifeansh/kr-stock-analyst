@@ -1070,6 +1070,7 @@ def _canonical_ai_signal_revision_payload(
         result["status"] = "refreshing"
         result = _suppress_stale_preliminary_market_signals(result)
     result = apply_market_signal_reconciliations(result, now=now) or result
+    result = _suppress_out_of_session_preliminary_market_signals(result, now)
     result = enrich_market_quant_signal_sectors(db, result)
     result = _merge_market_preliminary_notification_history(db, result)
     return sanitize_pending_entry_signal_items(result)
@@ -1655,6 +1656,26 @@ def _market_quant_signal_snapshot_freshness(
         if generated_at.tzinfo is None:
             generated_at = generated_at.replace(tzinfo=timezone.utc)
         generated_at = generated_at.astimezone(KST)
+        if (
+            is_korea_market_session_date(current.date(), current)
+            and current.time() < time(6, 0)
+            and generated_at.time() >= time(15, 40)
+        ):
+            # The collector starts the next session's premarket refresh at
+            # 06:00. Until then, the last completed session's close remains
+            # the current publication, including after weekends or holidays.
+            previous_session = None
+            for offset in range(1, 8):
+                candidate = current.date() - timedelta(days=offset)
+                if is_scheduled_korea_market_session_date(candidate):
+                    previous_session = candidate
+                    break
+            if (
+                previous_session == generated_at.date()
+                and str((payload or {}).get("universe_as_of") or "")
+                == previous_session.isoformat()
+            ):
+                max_age_seconds = MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS
     if generated_at is not None:
         current_utc = (
             current.astimezone(timezone.utc)
@@ -1717,6 +1738,32 @@ def _suppress_stale_preliminary_market_signals(payload: dict[str, Any]) -> dict[
     )
     result["preliminary_count"] = 0
     result["confirmed_count"] = len(result["items"])
+    return result
+
+
+def _suppress_out_of_session_preliminary_market_signals(
+    payload: dict[str, Any], now: datetime
+) -> dict[str, Any]:
+    """A refreshed historical feed must not revive yesterday's candidates."""
+
+    current_date = now.astimezone(KST).date().isoformat()
+    items = [item for item in payload.get("items") or [] if isinstance(item, dict)]
+    kept = [
+        item for item in items
+        if not _is_preliminary_market_quant_signal(item)
+        or str(item.get("signal_date") or "")[:10] == current_date
+    ]
+    removed = len(items) - len(kept)
+    if not removed:
+        return payload
+    result = {**payload, "items": kept}
+    result["stale_preliminary_count"] = int(
+        result.get("stale_preliminary_count") or 0
+    ) + removed
+    result["preliminary_count"] = sum(
+        1 for item in kept if _is_preliminary_market_quant_signal(item)
+    )
+    result["confirmed_count"] = len(kept) - result["preliminary_count"]
     return result
 
 
@@ -4533,6 +4580,9 @@ def get_market_quant_signals(
                 recent_days,
             )
         payload = apply_market_signal_reconciliations(payload, now=current_time) or payload
+        payload = _suppress_out_of_session_preliminary_market_signals(
+            payload, current_time
+        )
         payload = enrich_market_quant_signal_sectors(db, payload)
         payload = _merge_market_preliminary_notification_history(db, payload)
     payload = sanitize_pending_entry_signal_items(payload)

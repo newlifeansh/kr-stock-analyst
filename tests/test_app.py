@@ -2958,9 +2958,93 @@ def test_market_signal_snapshot_freshness_uses_session_specific_limits(monkeypat
     )["snapshot_state"] == "stale"
 
 
+def test_market_signal_snapshot_keeps_completed_close_until_premarket_refresh(monkeypatch):
+    from app import main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "is_korea_market_session_date",
+        lambda target, _now=None: target.weekday() < 5,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "is_scheduled_korea_market_session_date",
+        lambda target: target.weekday() < 5,
+    )
+    kst = ZoneInfo("Asia/Seoul")
+    prior_close = datetime(2026, 11, 6, 18, 0, tzinfo=kst)
+    payload = {
+        "snapshot_generated_at": prior_close.isoformat(),
+        "universe_as_of": "2026-11-06",
+    }
+    monday = datetime(2026, 11, 9, 5, 59, tzinfo=kst)
+    before_refresh = main_module._market_quant_signal_snapshot_freshness(payload, monday)
+    assert before_refresh["snapshot_state"] == "fresh"
+    assert before_refresh["snapshot_max_age_seconds"] == (
+        main_module.MARKET_QUANT_SIGNAL_NON_SESSION_MAX_AGE_SECONDS
+    )
+    assert main_module._market_quant_signal_snapshot_freshness(
+        payload, monday.replace(hour=6, minute=0)
+    )["snapshot_state"] == "stale"
+
+    tuesday = datetime(2026, 11, 10, 0, 5, tzinfo=kst)
+    monday_close = {
+        "snapshot_generated_at": datetime(2026, 11, 9, 18, 0, tzinfo=kst).isoformat(),
+        "universe_as_of": "2026-11-09",
+    }
+    assert main_module._market_quant_signal_snapshot_freshness(
+        monday_close, tuesday
+    )["snapshot_state"] == "fresh"
+    for invalid in (
+        {**monday_close, "universe_as_of": "2026-11-06"},
+        {**monday_close, "snapshot_generated_at": datetime(2026, 11, 9, 14, 0, tzinfo=kst).isoformat()},
+        payload,
+    ):
+        assert main_module._market_quant_signal_snapshot_freshness(
+            invalid, tuesday
+        )["snapshot_state"] == "stale"
+
+
+def test_market_signal_revision_removes_prior_session_preliminary(monkeypatch):
+    from app import main as main_module
+
+    today = datetime.now(ZoneInfo("Asia/Seoul"))
+    payload = {
+        "status": "ready",
+        "snapshot_generated_at": today.isoformat(),
+        "preliminary_count": 1,
+        "confirmed_count": 1,
+        "items": [
+            {"code": "035720", "signal_date": today.date() - timedelta(days=1),
+             "status": "preliminary", "is_preliminary": True},
+            {"code": "005930", "signal_date": today.date() - timedelta(days=1),
+             "status": "confirmed", "is_preliminary": False},
+        ],
+    }
+    monkeypatch.setattr(
+        main_module, "apply_market_signal_reconciliations",
+        lambda value, **_kwargs: value,
+    )
+    monkeypatch.setattr(
+        main_module, "enrich_market_quant_signal_sectors",
+        lambda _db, value: value,
+    )
+    monkeypatch.setattr(
+        main_module, "_merge_market_preliminary_notification_history",
+        lambda _db, value: value,
+    )
+    result = main_module._canonical_ai_signal_revision_payload(None, payload, now=today)
+    assert result["status"] == "ready"
+    assert result["preliminary_count"] == 0
+    assert result["confirmed_count"] == 1
+    assert result["stale_preliminary_count"] == 1
+    assert [item["code"] for item in result["items"]] == ["005930"]
+
+
 def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch):
     from app import main as main_module
 
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
     payload = {
         "status": "ready",
         "strategy_version": "position-lifecycle-v7.4",
@@ -2968,18 +3052,35 @@ def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch
         "as_of": datetime.now(ZoneInfo("Asia/Seoul")),
         "universe_count": 100,
         "recent_days": 28,
-        "preliminary_count": 1,
-        "confirmed_count": 0,
+        "preliminary_count": 2,
+        "confirmed_count": 1,
         "items": [
             {
                 "code": "035420",
                 "name": "NAVER",
                 "side": "buy",
                 "signal": "예비 매수",
-                "signal_date": datetime.now(ZoneInfo("Asia/Seoul")).date(),
+                "signal_date": today,
                 "status": "preliminary",
                 "is_preliminary": True,
-            }
+            },
+            {
+                "code": "035720",
+                "name": "카카오",
+                "side": "buy",
+                "signal_date": today - timedelta(days=1),
+                "status": "preliminary",
+                "is_preliminary": True,
+            },
+            {
+                "code": "005930",
+                "name": "삼성전자",
+                "side": "buy",
+                "signal_date": today - timedelta(days=1),
+                "execution_date": today,
+                "status": "confirmed",
+                "is_preliminary": False,
+            },
         ],
     }
     main_module.market_quant_signal_cache.clear()
@@ -3003,7 +3104,11 @@ def test_fresh_market_signal_snapshot_keeps_current_preliminary_rows(monkeypatch
         assert body["status"] == "ready"
         assert body["snapshot_state"] == "fresh"
         assert body["preliminary_count"] == 1
+        assert body["confirmed_count"] == 1
+        assert body["stale_preliminary_count"] == 1
         assert any(item["code"] == "035420" for item in body["items"])
+        assert "035720" not in {item["code"] for item in body["items"]}
+        assert "005930" in {item["code"] for item in body["items"]}
     finally:
         main_module.market_quant_signal_cache.clear()
 

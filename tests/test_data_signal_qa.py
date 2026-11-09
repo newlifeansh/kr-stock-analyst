@@ -3716,6 +3716,38 @@ def test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope(monkeypatch) 
 
 
 @pytest.mark.qa_live
+def test_live_intraday_push_qa_rejects_prior_session_preliminary(monkeypatch) -> None:
+    from app.qa import runner
+
+    class ExpiredPreliminaryApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/market/quant-signals" and params.get("limit") == 0:
+                payload = {
+                    **payload,
+                    "items": [
+                        *payload["items"],
+                        {
+                            "code": "035720",
+                            "signal_date": (
+                                datetime.now(KST).date() - timedelta(days=1)
+                            ).isoformat(),
+                            "status": "preliminary",
+                            "is_preliminary": True,
+                        },
+                    ],
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", ExpiredPreliminaryApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-PUSH-INTRADAY-001")
+    assert check["status"] == "fail"
+    assert check["evidence"]["expired_preliminary_codes"] == ["035720"]
+
+
+@pytest.mark.qa_live
 def test_live_korea_market_session_rejects_previous_close_at_open(monkeypatch) -> None:
     from app.qa import runner
 

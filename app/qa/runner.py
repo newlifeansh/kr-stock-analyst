@@ -660,10 +660,18 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
     "SIG-PUSH-INTRADAY-001": (
+        "tests.test_app."
+        "test_market_signal_snapshot_keeps_completed_close_until_premarket_refresh",
+        "tests.test_app."
+        "test_market_signal_revision_removes_prior_session_preliminary",
+        "tests.test_app."
+        "test_fresh_market_signal_snapshot_keeps_current_preliminary_rows",
         "tests.test_quant_signals."
         "test_market_quant_signal_live_quotes_refresh_ranked_universe",
         "tests.test_data_signal_qa."
         "test_live_intraday_push_qa_uses_actual_dispatch_snapshot_scope",
+        "tests.test_data_signal_qa."
+        "test_live_intraday_push_qa_rejects_prior_session_preliminary",
         "tests.test_app."
         "test_market_quant_signal_refresh_loop_retries_without_dying[exception]",
         "tests.test_app."
@@ -4201,6 +4209,20 @@ def _live_checks(
                     )
                 items = feed.get("items")
                 _assert(isinstance(items, list), "시장 시그널 전체 항목이 배열이 아닙니다.")
+                expired_preliminary = [
+                    str(item.get("code") or "")
+                    for item in items
+                    if isinstance(item, dict)
+                    and (item.get("is_preliminary") is True
+                         or item.get("status") == "preliminary")
+                    and str(item.get("signal_date") or "")[:10]
+                    != observed_now.date().isoformat()
+                ]
+                _assert(
+                    not expired_preliminary,
+                    "이전 거래일 예비 후보가 현재 시장 피드에 남아 있습니다.",
+                    expired_preliminary_codes=expired_preliminary,
+                )
                 verified = [
                     item for item in items
                     if isinstance(item, dict)
