@@ -88,6 +88,113 @@ console.log(JSON.stringify({active, healthy}));
     assert result["healthy"]["state"] == "realtime"
 
 
+def test_us_signal_status_explains_stale_daily_setup_while_preserving_holdings():
+    source = SOURCE.read_text()
+    function_source = source[
+        source.index("function aiSignalPageFreshnessView(") :
+        source.index("function syncAiSignalFreshnessBadgeVisibility(")
+    ]
+    script = f"""
+const assert = require('node:assert/strict');
+const state = {{
+  marketScope: 'us', aiSignalMarketMetricsByScope: {{ us: {{
+    new_entries_allowed: false, universe_as_of: '2026-11-04',
+    state_reason: '최근 완료된 미국 정규장 스냅샷 갱신을 기다리고 있습니다.',
+  }} }},
+}};
+const isUsHubContext = true;
+let visible = [];
+const visibleAiSignalSnapshotItems = () => visible;
+const isCurrentAiSignalHolding = item => item.current?.position_open === true;
+const isAiSignalSnapshotStale = () => true;
+{function_source}
+const empty = aiSignalPageFreshnessView();
+visible = [{{ current: {{ position_open: true }} }}];
+const held = aiSignalPageFreshnessView();
+assert.equal(empty.state, 'delayed');
+assert.equal(empty.label, '미국 신규 진입 보류');
+assert.match(empty.detail, /2026-11-04 자료 기준/);
+assert.equal(held.heldCount, 1);
+assert.match(held.label, /보유 신호 유지/);
+console.log(JSON.stringify({{ empty, held }}));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script], check=True, capture_output=True, text=True, timeout=10,
+    )
+    result = json.loads(completed.stdout)
+    assert result["empty"]["state"] == "delayed"
+    assert result["held"]["heldCount"] == 1
+
+
+def test_recommendation_list_keeps_stale_us_status_when_ranked_items_exist():
+    source = SOURCE.read_text()
+    function_source = source[
+        source.index("async function fetchRecommendationsForScope("):
+        source.index("async function loadRecommendations(")
+    ]
+    script = f"""
+const assert = require('node:assert/strict');
+const isUsHubContext = true;
+const state = {{ marketScope: 'us' }};
+const RECOMMENDATION_LIMIT = 8;
+const pageEntryTtlMs = () => 0;
+const fetchJsonCached = async () => ({{
+  status: 'ready', data_state: 'ready', selection_state: 'stale',
+  selection_message: '2026-11-04 자료 기준 추천입니다.',
+  as_of: '2026-11-04', items: [{{ code: 'AAA' }}],
+}});
+const tagMarketItems = (items, scope) => items.map(item => ({{ ...item, market_scope: scope }}));
+const canonicalUsPayloadCanCompose = () => true;
+const failClosedUsEntryPendingItems = items => items;
+const entryPendingItemCount = () => 0;
+{function_source}
+fetchRecommendationsForScope().then(payload => {{
+  assert.equal(payload.items.length, 1);
+  assert.equal(payload.selection_state, 'stale');
+  assert.match(payload.selection_message, /2026-11-04/);
+}}).catch(error => {{ console.error(error); process.exitCode = 1; }});
+"""
+    subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True, timeout=10)
+
+
+def test_ranked_recommendation_cards_show_stale_status_notice():
+    source = SOURCE.read_text()
+    function_source = source[
+        source.index("function renderRecommendations("):
+        source.index("function setTrendTab(")
+    ]
+    script = f"""
+const assert = require('node:assert/strict');
+const RECOMMENDATION_LIMIT = 8;
+const state = {{ usSectorMoves: null }};
+const elements = {{
+  recommendMeta: {{ textContent: '', dateTime: '', hidden: true }},
+  recommendList: {{ innerHTML: '', dataset: {{}} }},
+}};
+let status = '';
+let cards = 0;
+const closeRecommendationQuoteStreams = () => {{}};
+const recommendationIsTerminalExit = () => false;
+const rerankRecommendationItems = items => items;
+const updateRecommendationTrackMeta = () => {{}};
+const formatDataBasis = value => value;
+const setRecommendStatus = value => {{ status = value; }};
+const appendRecommendationCard = () => {{ cards += 1; }};
+const connectRecommendationQuoteStream = () => {{}};
+const scheduleUsSectorRefresh = () => {{}};
+{function_source}
+renderRecommendations({{
+  as_of: '2026-11-04', selection_state: 'stale',
+  selection_message: '2026-11-04 자료 기준 추천입니다.',
+  items: [{{ code: 'AAA' }}],
+}});
+assert.equal(cards, 1);
+assert.match(status, /2026-11-04/);
+assert.equal(elements.recommendList.dataset.selectionState, 'stale');
+"""
+    subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True, timeout=10)
+
+
 def test_signal_page_commits_market_scan_metadata_and_updates_the_universe_label():
     source = SOURCE.read_text()
 

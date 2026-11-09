@@ -16639,6 +16639,10 @@ function aiSignalMarketMetrics(payload = {}) {
     entry_safety_guard: payload.entry_safety_guard || null,
     universe_count: Number(payload.current_universe_count) || Number(payload.universe_count) || 0,
     execution_replay_unverified_count: Number(payload.execution_replay_unverified_count) || 0,
+    new_entries_allowed: payload.new_entries_allowed,
+    daily_setup_ready: payload.daily_setup_ready,
+    state_reason: payload.state_reason || "",
+    universe_as_of: payload.universe_as_of || "",
   };
 }
 
@@ -17318,6 +17322,22 @@ function aiSignalPageFreshnessView(now = Date.now()) {
       time: formatAiSignalLiveTime(state.aiSignalLiveAsOf || state.aiSignalSnapshotAsOf),
     };
   }
+  const usOnly = isUsHubContext && state.marketScope === "us";
+  const usMetrics = usOnly ? state.aiSignalMarketMetricsByScope?.us || {} : {};
+  if (usOnly && usMetrics.new_entries_allowed === false) {
+    const asOf = /^\d{4}-\d{2}-\d{2}/.test(String(usMetrics.universe_as_of || ""))
+      ? `${String(usMetrics.universe_as_of).slice(0, 10)} 자료 기준 · `
+      : "";
+    return {
+      state: "delayed",
+      counts: {},
+      heldCount: heldItems.length,
+      mixed: false,
+      label: heldItems.length ? "보유 신호 유지 · 미국 신규 진입 보류" : "미국 신규 진입 보류",
+      detail: `${asOf}${usMetrics.state_reason || "최근 완료된 미국 정규장 시그널 근거를 다시 확인하고 있어요."}`,
+      time: "",
+    };
+  }
   if (isAiSignalSnapshotStale(now)) {
     const summary = aiSignalFreshnessSummary(heldItems.map(() => "checking"));
     return {
@@ -17328,7 +17348,6 @@ function aiSignalPageFreshnessView(now = Date.now()) {
     };
   }
   if (!heldItems.length) {
-    const usOnly = isUsHubContext && state.marketScope === "us";
     const closed = usOnly
       ? usMarketPhase(new Date(now), state.usSectorMoves) === "closed"
       : isDomesticMarketClosed(new Date(now));
@@ -26940,12 +26959,18 @@ function normalizeUsAIAnalysisForDisplay(payload = {}) {
     ? source.current
     : null;
   const sourceAction = String(sourceCurrent?.action || "");
+  const existingHybridLifecycle = source.rollout_mode === "hybrid_forward"
+    && source.public_evidence_status === "ready"
+    && ["entered", "holding", "partially_exited", "full_exit_pending", "exited"].includes(sourceAction);
   const canonicalReady = isCanonicalUsSnapshotReady(source)
+    && source.execution_enabled !== true
+    && existingHybridLifecycle;
+  const newEntryReady = isCanonicalUsSnapshotReady(source)
     && source.is_current_universe_member === true
     && source.new_entries_allowed === true
     && source.execution_enabled !== true
     && ["entry_pending", "entry_watch", "no_signal"].includes(sourceAction);
-  if (canonicalReady) {
+  if (canonicalReady || newEntryReady) {
     return { ...source, canonical_display_ready: true };
   }
   const snapshotReady = isCanonicalUsSnapshotReady(source);
@@ -28914,7 +28939,11 @@ function renderRecommendations(payload, options = {}) {
   elements.recommendMeta.textContent = recommendMetaText;
   elements.recommendMeta.dateTime = payload.as_of || "";
   elements.recommendMeta.hidden = !recommendMetaText;
-  setRecommendStatus("");
+  setRecommendStatus(
+    payload.selection_state && payload.selection_state !== "ready"
+      ? payload.selection_message || "추천 자료의 기준일을 다시 확인하고 있습니다."
+      : "",
+  );
   elements.recommendList.innerHTML = "";
   elements.recommendList.dataset.selectionState = payload.selection_state || "ready";
   elements.recommendList.dataset.selectionMessage = payload.selection_message || "";
@@ -31285,8 +31314,8 @@ async function fetchRecommendationsForScope(options = {}) {
     us_market_included: includesUs,
     as_of: payloads.map((payload) => payload.as_of).filter(Boolean).sort().at(-1) || null,
     entry_pending_count: entryPendingItemCount(items),
-    selection_state: items.length ? "ready" : unavailablePayload?.selection_state || "ready",
-    selection_message: items.length ? "" : unavailablePayload?.selection_message || "",
+    selection_state: unavailablePayload?.selection_state || "ready",
+    selection_message: unavailablePayload?.selection_message || "",
     items,
   };
 }

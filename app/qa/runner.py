@@ -608,6 +608,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_stock_news_has_separate_domestic_and_yahoo_overseas_tabs",
     ),
     "REC-US-INDEPENDENT-001": (
+        "tests.test_us_market."
+        "test_us_recommendations_mark_old_daily_setup_as_stale_without_losing_ranked_items",
+        "tests.test_ai_signal_empty_states."
+        "test_recommendation_list_keeps_stale_us_status_when_ranked_items_exist",
+        "tests.test_ai_signal_empty_states."
+        "test_ranked_recommendation_cards_show_stale_status_notice",
         "tests.test_us_market.test_fresh_quotes_do_not_readmit_closed_hybrid_positions_to_recommendations",
         "tests.test_data_signal_qa."
         "test_us_country_toggle_check_ignores_community_market_scope_metadata",
@@ -884,6 +890,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_recommendation_score_and_current_signal_use_separate_labels",
     ),
     "SIG-UI-022": (
+        "tests.test_ai_signal_empty_states."
+        "test_us_signal_status_explains_stale_daily_setup_while_preserving_holdings",
         "tests.test_public_signal."
         "test_quant_projection_exposes_only_three_public_reasons_and_keeps_input_immutable",
         "tests.test_public_signal."
@@ -1188,6 +1196,18 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_failed_refresh_keeps_last_good_snapshot_and_blocks_returned_entries",
     ),
     "SIG-US-CONTRACT-001": (
+        "tests.test_us_hybrid_signals."
+        "test_hybrid_stale_daily_or_collector_hides_old_entry_candidates_but_keeps_holdings",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_stale_daily_setup_preserves_only_verified_ledger[holding-True-holding-ready]",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_stale_daily_setup_preserves_only_verified_ledger[exited-True-exited-ready]",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_stale_daily_setup_preserves_only_verified_ledger[holding-False-holding-ready]",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_stale_daily_setup_preserves_only_verified_ledger[entry_pending-True-no_signal-ready]",
+        "tests.test_app."
+        "test_us_stock_ai_analysis_stale_daily_setup_preserves_only_verified_ledger[entry_pending-False-no_signal-not_applicable]",
         "tests.test_data_signal_qa."
         "test_us_live_accepts_confirmed_model_holdings_and_exits",
         "tests.test_data_signal_qa."

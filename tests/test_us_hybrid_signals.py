@@ -343,6 +343,8 @@ def test_hybrid_counts_never_inherit_legacy_daily_positions(db, stage):
     daily.update({"confirmed_count": 99, "preliminary_count": 98, "entry_pending_count": 97})
     state = initial() if stage == "pending" else entered()
     current = OPEN + timedelta(minutes=2, seconds=10)
+    if stage == "pending":
+        state["updated_at"] = current.isoformat()
     if stage == "exited":
         current = OPEN + timedelta(minutes=3, seconds=10)
         state = hybrid.advance_us_hybrid_state(state, daily, {"AAPL": chart((100, 100.1, 106))}, current)
@@ -490,6 +492,36 @@ def test_hybrid_stale_collector_blocks_readiness_but_does_not_hide_open_ledger(d
     public = public_market_signal_payload(projected)
     assert public["items"][0]["current"]["position_open"] is True
     assert public["items"][0]["current"]["live_observation"] is False
+
+
+def test_hybrid_stale_daily_or_collector_hides_old_entry_candidates_but_keeps_holdings(db):
+    candidate = hybrid.advance_us_hybrid_state(
+        initial(), feed(), {"AAPL": chart((100,), volumes=(2000,))},
+        OPEN + timedelta(minutes=1, seconds=5),
+    )
+    assert candidate["entry_candidates"]["AAPL"]["status"] == "watching"
+    save(db, candidate)
+    stale_daily = feed()
+    stale_daily["universe_as_of"] = "2026-10-09"
+
+    for daily, now in (
+        (stale_daily, OPEN + timedelta(minutes=1, seconds=10)),
+        (feed(), OPEN + timedelta(minutes=10)),
+    ):
+        projected = hybrid.project_us_hybrid_feed(db, daily, now=now)
+        assert projected["new_entries_allowed"] is False
+        assert projected["items"] == []
+        assert projected["entry_pending_count"] == 0
+    retained = entered()
+    retained["checksum"] = hybrid._digest(retained)
+    row = db.get(MarketQuantSignalSnapshot, hybrid.US_HYBRID_KEY)
+    row.payload = hybrid._json(retained)
+    db.commit()
+    projected = hybrid.project_us_hybrid_feed(
+        db, stale_daily, now=OPEN + timedelta(minutes=2, seconds=10),
+    )
+    assert projected["new_entries_allowed"] is False
+    assert projected["items"][0]["current"]["position_open"] is True
 
 
 def test_hybrid_latest_invalid_minute_cannot_reuse_older_fresh_confirmation():

@@ -1884,10 +1884,20 @@ const preparing = normalizeUsAIAnalysisForDisplay({{
 const outside = normalizeUsAIAnalysisForDisplay({{
   ...base, is_current_universe_member: false, new_entries_allowed: false,
 }});
+const retained = normalizeUsAIAnalysisForDisplay({{
+  ...base, rollout_mode: "hybrid_forward", public_evidence_status: "ready",
+  is_current_universe_member: false, new_entries_allowed: false,
+  stance: "전략 보유", current: {{ action: "holding", position_open: true, evidence: "ledger" }},
+}});
+const stalePending = normalizeUsAIAnalysisForDisplay({{
+  ...base, rollout_mode: "hybrid_forward", new_entries_allowed: false,
+}});
 console.log(JSON.stringify({{
   ready: [ready.status, ready.data_state, ready.snapshot_id, ready.snapshot_checksum, ready.current.action, ready.current.evidence, ready.stance],
   preparing: [preparing.status, preparing.data_state, preparing.snapshot_id, preparing.is_current_universe_member, preparing.current.action, preparing.stance, preparing.trade_levels, preparing.current.next_confirmation],
   outside: [outside.is_current_universe_member, outside.new_entries_allowed, outside.current.action, outside.stance, outside.trade_levels, outside.current.next_confirmation],
+  retained: [retained.canonical_display_ready, retained.current.action, retained.current.position_open, retained.current.evidence],
+  stalePending: [stalePending.canonical_display_ready, stalePending.current.action, stalePending.trade_levels],
 }}));
 """
 
@@ -1897,6 +1907,8 @@ console.log(JSON.stringify({{
         "ready": ["ready", "ready", "us-snapshot-1", "checksum-1", "entry_pending", "keep", "예비 매수"],
         "preparing": ["preparing", "preparing", None, None, "no_signal", "관망 우선", None, "준비 완료된 동일 스냅샷을 확인한 뒤 신규 진입을 다시 판단합니다."],
         "outside": [False, False, "no_signal", "관망 우선", None, "현재 미국 시가총액 Top100 유니버스 밖 종목이어서 신규 진입을 판단하지 않습니다."],
+        "retained": [True, "holding", True, "ledger"],
+        "stalePending": [False, "no_signal", None],
     }
     renderer = source[source.index("function renderUsAIAnalysis("):source.index("function renderAIAnalysis(")]
     assert "data_state: \"ready\"" not in renderer
