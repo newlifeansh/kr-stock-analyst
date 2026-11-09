@@ -1495,12 +1495,49 @@ def _enriched_closing_auction_turnover(
     )
 
 
+def _flat_no_trade_placeholder(
+    previous_trade: dict[str, Any], row: dict[str, Any],
+) -> bool:
+    """A flat zero-volume bar cannot be an executed entry or exit touch."""
+
+    prior_close = _safe_number(previous_trade.get("price"))
+    prior_value = _nonnegative_finite_number(previous_trade.get("trading_value"))
+    return bool(
+        str(row.get("trade_time") or "").zfill(6) < "152000"
+        and _nonnegative_finite_number(row.get("volume")) == 0
+        and prior_close is not None and isfinite(prior_close)
+        and prior_value is not None
+        and _nonnegative_finite_number(row.get("trading_value")) == prior_value
+        and all(
+            _safe_number(row.get(field)) == prior_close
+            for field in ("open", "high", "low", "price")
+        )
+    )
+
+
 def _intraday_path_preserves_prior_touches(
     previous: list[dict[str, Any]], current: list[dict[str, Any]],
     *, allow_terminal_no_trade_revision: bool = False,
     allow_closing_auction_turnover: bool = False,
+    allow_dropped_no_trade_placeholders: bool = False,
 ) -> bool:
-    """Preserve executed minutes; optionally repair one unexecuted tail placeholder."""
+    """Preserve executed minutes; discard only independently absent flat bars."""
+
+    if allow_dropped_no_trade_placeholders:
+        current_times = {
+            (row.get("trade_date"), row.get("trade_time")) for row in current
+        }
+        retained: list[dict[str, Any]] = []
+        for index, row in enumerate(previous):
+            if (
+                index < len(previous) - 1
+                and retained
+                and (row.get("trade_date"), row.get("trade_time")) not in current_times
+                and _flat_no_trade_placeholder(retained[-1], row)
+            ):
+                continue
+            retained.append(row)
+        previous = retained
 
     if len(current) < len(previous):
         return False
@@ -1571,23 +1608,33 @@ def _store_verified_intraday_path(
         )
         if not _intraday_path_preserves_prior_touches(
             previous, rows, allow_terminal_no_trade_revision=allow_revision,
+            allow_dropped_no_trade_placeholders=allow_revision,
             allow_closing_auction_turnover=(
                 not snapshot.is_final
                 and snapshot.source == KIS_CLOSING_AUCTION_SOURCE
             ),
         ):
             raise UnverifiedIntradayPathError("이전 장중 체결 근거와 새 분봉이 충돌합니다")
+        terminal_new = next(
+            (
+                row for row in rows
+                if (row.get("trade_date"), row.get("trade_time"))
+                == (previous[-1].get("trade_date"), previous[-1].get("trade_time"))
+            ),
+            None,
+        )
         if (
             allow_revision and len(previous) > 1
+            and terminal_new is not None
             and _revised_terminal_no_trade_minute(
-                previous[-2], previous[-1], rows[len(previous) - 1],
+                previous[-2], previous[-1], terminal_new,
             )
         ):
             logger.warning(
                 "KIS no-trade tail corrected for unconfirmed entry: code=%s date=%s minute=%s",
                 code, trade_date, previous[-1].get("trade_time"),
             )
-        elif previous[-1] != rows[len(previous) - 1]:
+        elif terminal_new is not None and previous[-1] != terminal_new:
             logger.info(
                 "KIS closing auction turnover verified: code=%s date=%s",
                 code, trade_date,

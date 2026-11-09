@@ -1631,6 +1631,64 @@ def test_no_entry_decision_allows_only_verified_terminal_placeholder_repair():
         db.close()
 
 
+def test_forward_path_discards_only_absent_flat_no_trade_bars_before_sealing():
+    day = date(2026, 11, 6)
+    observed = datetime(2026, 11, 6, 15, 45, tzinfo=quant_signals.KST)
+    first = {"trade_date": "20261106", "trade_time": "090300",
+             "open": 100, "high": 100, "low": 100, "price": 100,
+             "volume": 10, "trading_value": 1000}
+    flat = [
+        {**first, "trade_time": f"09{minute:02d}00", "volume": 0}
+        for minute in range(4, 33)
+    ]
+    later = {**first, "trade_time": "093300", "price": 101,
+             "high": 101, "volume": 10, "trading_value": 2010}
+    previous = [first, *flat, later]
+    verified = [first, later]
+    assert not quant_signals._intraday_path_preserves_prior_touches(
+        previous, verified
+    )
+    assert quant_signals._intraday_path_preserves_prior_touches(
+        previous, verified, allow_dropped_no_trade_placeholders=True,
+    )
+    assert not quant_signals._intraday_path_preserves_prior_touches(
+        [first, {**flat[0], "high": 101}, *flat[1:], later], verified,
+        allow_dropped_no_trade_placeholders=True,
+    )
+    assert not quant_signals._intraday_path_preserves_prior_touches(
+        previous, [first, {**later, "price": 102}],
+        allow_dropped_no_trade_placeholders=True,
+    )
+    db = _session()
+    try:
+        for code in ("035420", "323410"):
+            quant_signals._store_verified_intraday_path(
+                db, code, day, previous, observed_at=observed, is_final=False,
+            )
+        watcher = QuantSignalObservedEntry(
+            stock_code="323410", trade_date=day,
+            policy_version=observed_entry.POLICY_VERSION, status="confirmed",
+            payload=json.dumps({"status": "confirmed"}),
+            updated_at=datetime(2026, 11, 6, 6, 45),
+        )
+        db.add(watcher)
+        db.flush()
+        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+            quant_signals._store_verified_intraday_path(
+                db, "323410", day, verified, observed_at=observed,
+                is_final=True,
+            )
+        watcher.status = "watching"
+        for code in ("035420", "323410"):
+            snapshot = quant_signals._store_verified_intraday_path(
+                db, code, day, verified, observed_at=observed, is_final=True,
+            )
+            assert snapshot.is_final is True
+            assert json.loads(snapshot.payload) == verified
+    finally:
+        db.close()
+
+
 def test_closing_auction_print_accepts_only_matching_kis_cumulative_turnover():
     day = date(2026, 11, 3)
     observed = datetime(2026, 11, 3, 15, 45, tzinfo=quant_signals.KST)
