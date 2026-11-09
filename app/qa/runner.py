@@ -2145,8 +2145,8 @@ def _gate_checks(
         )
         _assert(
             US_SIGNAL_UNIVERSE_LIMIT == 100
-            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v6",
-            "미국 시그널 유니버스 정책이 Top 100 v6과 다릅니다.",
+            and US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v7",
+            "미국 시그널 유니버스 정책이 Top 100 v7과 다릅니다.",
         )
         _assert(
             US_ROLLOUT_MODE == "model_replay"

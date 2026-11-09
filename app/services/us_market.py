@@ -4064,14 +4064,15 @@ def build_us_recommendations(
     if canonical is None:
         canonical = us_position_lifecycle_preparing_payload()
     normalized_candidate_limit = max(5, min(100, int(candidate_limit)))
+    universe_members = list(canonical.get("universe_members") or [])
     snapshot_ready = bool(
         canonical.get("status") == "ready"
         and canonical.get("data_state") == "ready"
         and str(canonical.get("snapshot_id") or "").strip()
         and str(canonical.get("snapshot_checksum") or "").strip()
+        and bool(universe_members)
     )
     canonical_items = list(canonical.get("items") or [])
-    universe_members = list(canonical.get("universe_members") or [])
     scored_items = (
         _us_recommendation_candidates(universe_members) if snapshot_ready else []
     )

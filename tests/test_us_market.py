@@ -1539,6 +1539,24 @@ def test_us_recommendations_mark_old_daily_setup_as_stale_without_losing_ranked_
     assert payload["new_entries_allowed"] is False
 
 
+def test_us_recommendations_wait_when_no_completed_top100_members_exist():
+    feed = {
+        "status": "ready", "data_state": "ready",
+        "snapshot_id": "hybrid-ledger", "snapshot_checksum": "ledger-checksum",
+        "as_of": datetime(2026, 11, 9, 12, 0, tzinfo=UTC),
+        "universe_as_of": None, "universe_count": 0,
+        "daily_setup_ready": False, "new_entries_allowed": False,
+        "universe_members": [], "items": [],
+    }
+
+    payload = us_market.build_us_recommendations(feed=feed, limit=5)
+
+    assert payload["items"] == []
+    assert payload["selection_state"] == "unavailable"
+    assert "완료된 미국 Top100 스냅샷" in payload["selection_message"]
+    assert "2026-11-09 자료 기준 추천" not in payload["selection_message"]
+
+
 def test_us_recommendation_missing_valuation_reweights_only_observed_components():
     members = [
         {
@@ -2304,7 +2322,7 @@ def test_fresh_quotes_do_not_readmit_closed_hybrid_positions_to_recommendations(
         feed = {
             'status': 'ready', 'data_state': 'ready', 'snapshot_id': 'hybrid',
             'snapshot_checksum': 'checksum', 'rollout_mode': 'hybrid_forward',
-            'universe_members': [],
+            'universe_members': candidates,
             'items': [
                 {'code': code, 'current': {'action': action, 'position_open': opened,
                  'live_observation': live_observation, 'model_exposure_percent': 100 if opened else 0}}
