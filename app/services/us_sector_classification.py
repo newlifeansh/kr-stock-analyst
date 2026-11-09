@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v11"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v12"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -43,6 +43,15 @@ def _cik_map(etf: str, values: str) -> dict[str, str]:
 # https://www.sectorspdrs.com/api/documents/by-fullname/Sector%20Documents/XLK%20-%20Technology%20Documents/Fact%20Sheet
 # https://www.sec.gov/Archives/edgar/data/1035267/000103526726000058/0001035267-26-000058-index.htm
 # https://www.ssga.com/library-content/products/factsheets/etfs/us/factsheet-us-en-xlv.pdf
+# v12 adds WMB (SEC CIK 107263) to XLE: State Street XLE holdings list
+# Williams Companies. SONY (SEC CIK 313838) uses the XLY consumer
+# discretionary proxy: SEC 20-F identifies the issuer and the MSCI World
+# Consumer Discretionary index lists Sony Group. The foreign ADR is not
+# claimed to be an XLY constituent. Nasdaq display sectors are ignored.
+# https://www.sec.gov/Archives/edgar/data/107263/000010726326000006/wmb-20251231.htm
+# https://www.ssga.com/us/en/institutional/etfs/state-street-energy-select-sector-spdr-etf-xle
+# https://www.sec.gov/Archives/edgar/data/313838/000119312525143137/0001193125-25-143137-index.htm
+# https://www.msci.com/documents/10199/255599/msci-world-consumer-discretionary-index-usd-net.pdf
 US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
     **_cik_map(
         "XLK",
@@ -66,7 +75,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         "XLY",
         """
         0001018724 0001318605 0000354950 0001577552 0001094517 0000063908
-        0000109198
+        0000109198 0000313838
         """,
     ),
     **_cik_map(
@@ -97,6 +106,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         "XLE",
         """
         0002115436 0000093410 0001306965 0000879764 0001163165 0001119639
+        0000107263
         """,
     ),
     **_cik_map(

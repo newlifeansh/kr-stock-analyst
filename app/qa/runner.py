@@ -1095,6 +1095,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "DATA-US-EVIDENCE-001": (
         "tests.test_us_position_lifecycle_fail_closed."
+        "test_reviewed_wmb_sony_top100_boundary_restores_complete_coverage",
+        "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_now_isrg_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed.test_reviewed_acn_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed.test_reviewed_bud_tjx_top100_boundary_restores_complete_coverage",
@@ -1229,6 +1231,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle_fail_closed."
         "test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy",
         "tests.test_us_position_lifecycle_fail_closed."
+        "test_reviewed_wmb_sony_top100_boundary_restores_complete_coverage",
+        "tests.test_us_position_lifecycle_fail_closed."
         "test_sector_etf_taxonomy_is_versioned_complete_data_and_unknown_fails_closed",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_one_missing_member_history_blocks_every_new_entry",
@@ -1356,6 +1360,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_personal_us_mcp_remote_health_fails_closed_without_token",
     ),
     "SIG-US-MIGRATION-001": (
+        "tests.test_us_position_lifecycle_runtime.test_sector_v11_snapshot_is_preserved_until_v12_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v10_snapshot_is_preserved_until_v11_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v9_snapshot_is_preserved_until_v10_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v8_snapshot_is_preserved_until_v9_rebuild",
