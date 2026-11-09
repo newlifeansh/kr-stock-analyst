@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from urllib.parse import urlparse
 
 try:
     import psycopg
@@ -16,6 +17,8 @@ def main() -> None:
     if not url:
         print(json.dumps({"status": "database_url_unavailable"}))
         return
+    host = (urlparse(url).hostname or "").lower()
+    host_type = "internal" if host.endswith(".internal") else "external"
     try:
         with psycopg.connect(url, connect_timeout=8) as db:
             with db.cursor() as cur:
@@ -46,9 +49,17 @@ def main() -> None:
                     """
                 )
                 missing = [{"code": code, "rank": rank} for code, rank in cur.fetchall()]
-        print(json.dumps({"status": "ok", "missing": missing}))
+        print(json.dumps({"status": "ok", "host_type": host_type, "missing": missing}))
     except Exception as exc:
-        print(json.dumps({"status": "query_failed", "error_type": type(exc).__name__}))
+        reason = str(exc).lower()
+        category = (
+            "dns" if "name or service not known" in reason or "could not translate host" in reason
+            else "timeout" if "timeout" in reason
+            else "connection" if "connection refused" in reason
+            else "other"
+        )
+        print(json.dumps({"status": "query_failed", "host_type": host_type,
+                          "error_type": type(exc).__name__, "category": category}))
 
 
 if __name__ == "__main__":
