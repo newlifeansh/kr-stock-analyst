@@ -126,6 +126,52 @@ console.log(JSON.stringify({{ empty, held }}));
     assert result["held"]["heldCount"] == 1
 
 
+def test_domestic_held_signal_status_explains_unverified_paths_without_changing_quote_state():
+    source = SOURCE.read_text()
+    function_source = source[
+        source.index("function aiSignalPageFreshnessView(") :
+        source.index("function syncAiSignalFreshnessBadgeVisibility(")
+    ]
+    script = f"""
+const assert = require('node:assert/strict');
+const state = {{
+  marketScope: 'kr', aiSignalUnverifiedCount: 3,
+  aiSignalMarketMetricsByScope: {{}}, aiSignalItems: [],
+}};
+let isUsHubContext = false;
+const navigator = {{ onLine: true }};
+const visibleAiSignalSnapshotItems = () => [{{ code: '005930' }}];
+const isCurrentAiSignalHolding = () => true;
+const isAiSignalSnapshotStale = () => false;
+const itemMatchesMarketScope = () => true;
+const aiSignalItemWithLiveOverlay = () => ({{ live_freshness_state: 'closed' }});
+const aiSignalFreshnessSummary = () => ({{ state: 'closed', mixed: false }});
+const aiSignalFreshnessSummaryLabel = () => '장 마감 · 보유 1개';
+const formatAiSignalLiveTime = () => '';
+const formatNumber = value => String(value);
+{function_source}
+const held = aiSignalPageFreshnessView();
+assert.equal(held.state, 'closed');
+assert.match(held.detail, /3개 종목의 매매 기록을 재검증 중/);
+assert.match(held.detail, /새 확정 신호는 보류/);
+state.aiSignalUnverifiedCount = 0;
+const verified = aiSignalPageFreshnessView();
+assert.equal(verified.detail, '마지막 확인 가격 기준이며 확정 수익률은 바뀌지 않아요.');
+state.marketScope = 'us';
+isUsHubContext = true;
+state.aiSignalUnverifiedCount = 3;
+const us = aiSignalPageFreshnessView();
+assert.doesNotMatch(us.detail, /재검증 중/);
+console.log(JSON.stringify({{ held, verified, us }}));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script], check=True, capture_output=True, text=True, timeout=10,
+    )
+    result = json.loads(completed.stdout)
+    assert result["held"]["state"] == "closed"
+    assert "재검증 중" in result["held"]["detail"]
+
+
 def test_recommendation_list_keeps_stale_us_status_when_ranked_items_exist():
     source = SOURCE.read_text()
     function_source = source[
