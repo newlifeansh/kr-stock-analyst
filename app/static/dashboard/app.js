@@ -26905,6 +26905,7 @@ async function loadQuantSignals(options = {}) {
   }
   const forceRefresh = options.force === true;
   const requestSequence = ++state.stockQuantRequestSequence;
+  const previousRequestedCode = state.stockQuantRequestedCode;
   state.stockQuantLoading = true;
   state.stockQuantLoadingCode = code;
   state.stockQuantRequestedCode = code;
@@ -26916,7 +26917,7 @@ async function loadQuantSignals(options = {}) {
     elements.quantSignalStatus.hidden = false;
     elements.quantSignalStatus.textContent = forceRefresh ? "최신 가격으로 AI 시그널을 다시 계산하는 중입니다." : "AI 시그널을 계산하는 중입니다.";
   }
-  if (elements.quantSignalContent && state.stockQuantRequestedCode !== code) {
+  if (elements.quantSignalContent && previousRequestedCode !== code) {
     elements.quantSignalContent.hidden = true;
   }
   try {
@@ -26932,14 +26933,17 @@ async function loadQuantSignals(options = {}) {
       renderQuantSignals(payload);
       state.stockQuantLastLiveRefreshAt = Date.now();
     }
-  } catch {
+  } catch (error) {
     if (
       requestSequence === state.stockQuantRequestSequence
       && state.currentStock?.code === code
-      && elements.quantSignalStatus
     ) {
-      elements.quantSignalStatus.hidden = false;
-      elements.quantSignalStatus.textContent = "AI 시그널을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      if (error?.status === 503) {
+        resetQuantSignals("과거 장중 매매 기록을 재검증 중입니다. 확인 전에는 확정 시그널을 표시하지 않습니다. 자료 확인 후 새로고침해 주세요.");
+      } else if (elements.quantSignalStatus) {
+        elements.quantSignalStatus.hidden = false;
+        elements.quantSignalStatus.textContent = "AI 시그널을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      }
     }
   } finally {
     if (state.stockQuantLoadingCode === code && state.stockQuantRequestSequence === requestSequence) {
