@@ -204,6 +204,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_recommendations.test_recommendation_signal_failure_returns_safe_state[generic-failure]",
         "tests.test_ai_signal_empty_states.test_recommendation_list_keeps_partial_signal_status_with_ranked_items",
         "tests.test_ai_signal_empty_states.test_recommendation_stage_marks_unverified_signal_unavailable",
+        "tests.test_staging_dark_theme.test_staging_recommendation_overlay_exposes_unverified_signal_without_buy_state",
+        "tests.test_staging_dark_theme.test_staging_v166_distinguishes_recommendation_states_and_reflows_mobile_cards",
         "tests.test_recommendations.test_recommendations_replay_only_returned_candidates_without_exits",
         "tests.test_recommendations.test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates",
         "tests.test_recommendations.test_recommendations_batch_consecutive_exit_replacements",
