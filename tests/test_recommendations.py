@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import DailyPrice, StockMaster
-from app.schemas import MarketRecommendationOut
+from app.schemas import MarketRecommendationOut, RecommendationAiTradeSignalOut
 from app.services import recommendations
 from app.services.recommendations import (
     _action,
@@ -53,6 +53,49 @@ def test_recommendations_replay_only_returned_candidates_without_exits(monkeypat
     assert set(calls) == {item["code"] for item in result["items"]}
     assert result["terminal_exit_excluded_count"] == 0
     assert result["candidate_count"] == result["qualified_count"] == 100
+
+
+def test_recommendations_expose_missing_signal_without_losing_rank(monkeypatch):
+    _install_ranked_pool(monkeypatch, count=2)
+    monkeypatch.setattr(recommendations, "_uses_runtime_database", lambda _db: True)
+    monkeypatch.setattr(
+        recommendations, "_load_recommendation_signal",
+        lambda code, **_kwargs: None if code == "100000" else _confirmed_entry_signal(code),
+    )
+
+    result = build_recommendations(None, limit=2, candidate_limit=2)
+
+    assert [item["code"] for item in result["items"]] == ["100000", "100001"]
+    assert all(item["action"] == item["score_action"] for item in result["items"])
+    assert result["selection_state"] == "ready"
+    assert result["signal_state"] == "partial"
+    assert result["signal_unavailable_count"] == 1
+    assert "1개" in result["signal_message"]
+    missing = result["items"][0]["ai_trade_signal"]
+    assert missing["data_state"] == "unavailable"
+    assert missing["current"] is None
+    assert "신규 매수 판단을 보류" in missing["data_message"]
+    assert RecommendationAiTradeSignalOut.model_validate(missing).current is None
+    assert result["items"][1]["ai_trade_signal"]["data_state"] == "ready"
+
+
+@pytest.mark.parametrize("error,expected", [
+    (recommendations.UnverifiedIntradayPathError("incomplete"), "재검증 중"),
+    (RuntimeError("secret-provider-detail"), "신규 매수 판단을 보류"),
+], ids=["intraday-unverified", "generic-failure"])
+def test_recommendation_signal_failure_returns_safe_state(monkeypatch, error, expected):
+    def fail(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(recommendations, "load_quant_signal_payload", fail)
+    monkeypatch.setattr(recommendations, "load_reference_quant_signal_payload", fail)
+    signal = recommendations._load_recommendation_signal_in_session(
+        None, "005930", live_quote=None, ensure_signal_history=False,
+    )
+    assert signal["data_state"] == "unavailable"
+    assert signal["current"] is None
+    assert expected in signal["data_message"]
+    assert "secret-provider-detail" not in signal["data_message"]
 
 
 def test_recommendations_preserve_selection_with_warmed_process_workers(monkeypatch):

@@ -28171,7 +28171,7 @@ function recommendationSignalStageView(signal = null, item = {}) {
   if (signal.data_state !== "ready" || !signal.current) {
     return {
       key: "unavailable",
-      headline: "계산 준비 중",
+      headline: "시그널 확인 불가",
       tone: "unavailable",
       changedAt: null,
       next: signal.data_message || "가격 이력이 확보되면 매매신호를 계산합니다.",
@@ -28942,7 +28942,9 @@ function renderRecommendations(payload, options = {}) {
   setRecommendStatus(
     payload.selection_state && payload.selection_state !== "ready"
       ? payload.selection_message || "추천 자료의 기준일을 다시 확인하고 있습니다."
-      : "",
+      : Number(payload.signal_unavailable_count || 0) > 0
+        ? payload.signal_message || `추천 후보 ${payload.signal_unavailable_count}개의 AI 매매 시그널을 확인하지 못했습니다.`
+        : "",
   );
   elements.recommendList.innerHTML = "";
   elements.recommendList.dataset.selectionState = payload.selection_state || "ready";
@@ -31304,6 +31306,9 @@ async function fetchRecommendationsForScope(options = {}) {
   const unavailablePayload = payloads.find(
     (payload) => payload.selection_state && payload.selection_state !== "ready",
   );
+  const signalUnavailableCount = payloads.reduce(
+    (total, payload) => total + Number(payload.signal_unavailable_count || 0), 0,
+  );
   return {
     status: includesUs ? (usPayload?.status || "unavailable") : (payloads[0]?.status || "ready"),
     data_state: includesUs ? (usPayload?.data_state || "unavailable") : (payloads[0]?.data_state || null),
@@ -31316,6 +31321,11 @@ async function fetchRecommendationsForScope(options = {}) {
     entry_pending_count: entryPendingItemCount(items),
     selection_state: unavailablePayload?.selection_state || "ready",
     selection_message: unavailablePayload?.selection_message || "",
+    signal_unavailable_count: signalUnavailableCount,
+    signal_state: signalUnavailableCount > 0 ? "partial" : "ready",
+    signal_message: signalUnavailableCount > 0
+      ? `추천 후보 ${signalUnavailableCount}개의 AI 매매 시그널 근거를 확인하지 못했습니다. 해당 종목의 신규 매수 판단을 보류합니다.`
+      : "",
     items,
   };
 }
