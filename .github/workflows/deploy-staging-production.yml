@@ -755,6 +755,10 @@ jobs:
           python3 scripts/railway_runtime_audit.py --project "$US_STAGING_RAILWAY_PROJECT_ID" --environment staging > artifacts/runtime-audit/us-staging.json
           python3 scripts/railway_runtime_audit.py --project "$PRODUCTION_RAILWAY_PROJECT_ID" --environment production > artifacts/runtime-audit/kr-production.json
           python3 scripts/railway_runtime_audit.py --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --environment production > artifacts/runtime-audit/us-production.json
+      - name: Read bounded redacted collector signal logs
+        run: |
+          python3 scripts/railway_signal_log_audit.py --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE" --environment production > artifacts/runtime-audit/us-production-signal-logs.json
+          python3 scripts/railway_signal_log_audit.py --project "$PRODUCTION_RAILWAY_PROJECT_ID" --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" --environment production > artifacts/runtime-audit/kr-production-signal-logs.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
