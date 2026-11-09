@@ -759,6 +759,10 @@ jobs:
         run: |
           python3 scripts/railway_signal_log_audit.py --project "$US_PRODUCTION_RAILWAY_PROJECT_ID" --service "$US_PRODUCTION_RAILWAY_COLLECTOR_SERVICE" --environment production > artifacts/runtime-audit/us-production-signal-logs.json
           python3 scripts/railway_signal_log_audit.py --project "$PRODUCTION_RAILWAY_PROJECT_ID" --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" --environment production > artifacts/runtime-audit/kr-production-signal-logs.json
+      - name: Read current domestic evidence gaps
+        run: |
+          python3 -m pip install --quiet 'psycopg[binary]>=3.2,<4'
+          railway run --project "$PRODUCTION_RAILWAY_PROJECT_ID" --service "$PRODUCTION_RAILWAY_COLLECTOR_SERVICE" --environment production --no-local python3 scripts/production_signal_db_audit.py > artifacts/runtime-audit/kr-production-evidence-gaps.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
