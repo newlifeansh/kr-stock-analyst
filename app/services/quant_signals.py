@@ -1559,9 +1559,15 @@ def _store_verified_intraday_path(
             raise UnverifiedIntradayPathError("저장된 분봉 근거가 불완전합니다")
         watcher = db.get(QuantSignalObservedEntry, (code, trade_date))
         allow_revision = bool(
-            not snapshot.is_final and watcher is not None
-            and watcher.status == "watching"
-            and watcher.policy_version == observed_entry.POLICY_VERSION
+            not snapshot.is_final
+            and trade_date >= REGULAR_FORWARD_START
+            and (
+                watcher is None
+                or (
+                    watcher.status == "watching"
+                    and watcher.policy_version == observed_entry.POLICY_VERSION
+                )
+            )
         )
         if not _intraday_path_preserves_prior_touches(
             previous, rows, allow_terminal_no_trade_revision=allow_revision,

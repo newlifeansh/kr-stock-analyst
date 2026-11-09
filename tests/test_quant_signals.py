@@ -1556,20 +1556,14 @@ def test_unconfirmed_candidate_recovers_when_kis_backfills_last_no_trade_minute(
             db, "021240", day, previous, observed_at=observed, is_final=False,
         )
         db.flush()
-        with pytest.raises(quant_signals.UnverifiedIntradayPathError):
-            quant_signals._store_verified_intraday_path(
-                db, "021240", day, revised, observed_at=observed,
-                is_final=True,
-            )
         watcher = QuantSignalObservedEntry(
             stock_code="021240", trade_date=day,
-            policy_version=observed_entry.POLICY_VERSION, status="watching",
-            payload=json.dumps({"status": "watching"}),
+            policy_version=observed_entry.POLICY_VERSION, status="confirmed",
+            payload=json.dumps({"status": "confirmed"}),
             updated_at=datetime(2026, 11, 3, 1, 43),
         )
         db.add(watcher)
         db.flush()
-        watcher.status = "confirmed"
         with pytest.raises(quant_signals.UnverifiedIntradayPathError):
             quant_signals._store_verified_intraday_path(
                 db, "021240", day, revised, observed_at=observed,
@@ -1598,6 +1592,41 @@ def test_unconfirmed_candidate_recovers_when_kis_backfills_last_no_trade_minute(
                 [previous[0], {**revised[1], "high": 102}, revised[2]],
                 observed_at=observed, is_final=True,
             )
+    finally:
+        db.close()
+
+
+def test_no_entry_decision_allows_only_verified_terminal_placeholder_repair():
+    day = date(2026, 11, 9)
+    observed = datetime(2026, 11, 9, 15, 45, tzinfo=quant_signals.KST)
+    first = {"trade_date": "20261109", "trade_time": "092100",
+             "open": 100, "high": 100, "low": 100, "price": 100,
+             "volume": 10, "trading_value": 1000}
+    placeholder = {**first, "trade_time": "092200", "volume": 0}
+    repaired = {**placeholder, "volume": 5, "trading_value": 1500}
+    following = {**first, "trade_time": "092300", "trading_value": 2500}
+    db = _session()
+    try:
+        quant_signals._store_verified_intraday_path(
+            db, "035720", day, [first, placeholder],
+            observed_at=observed, is_final=False,
+        )
+        db.flush()
+        for altered in (
+            {**repaired, "trading_value": 1499},
+            {**repaired, "price": 101},
+        ):
+            with pytest.raises(quant_signals.UnverifiedIntradayPathError):
+                quant_signals._store_verified_intraday_path(
+                    db, "035720", day, [first, altered, following],
+                    observed_at=observed, is_final=True,
+                )
+        snapshot = quant_signals._store_verified_intraday_path(
+            db, "035720", day, [first, repaired, following],
+            observed_at=observed, is_final=True,
+        )
+        assert snapshot.is_final is True
+        assert json.loads(snapshot.payload)[1] == repaired
     finally:
         db.close()
 
