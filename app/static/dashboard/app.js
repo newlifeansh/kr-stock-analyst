@@ -17398,10 +17398,14 @@ function aiSignalPageFreshnessView(now = Date.now()) {
     const timestamp = Date.parse(item.live_updated_at || "");
     return Number.isFinite(timestamp) && timestamp > latest ? timestamp : latest;
   }, 0);
+  const revalidationDetail = !usOnly && state.aiSignalUnverifiedCount > 0
+    ? `${formatNumber(state.aiSignalUnverifiedCount)}개 종목의 매매 기록을 재검증 중이며 새 확정 신호는 보류해요.`
+    : "";
   return {
     ...summary,
     label: aiSignalFreshnessSummaryLabel(summary),
-    detail: summary.mixed ? "지연·확인 종목만 아래에 따로 표시해요." : detail,
+    detail: [summary.mixed ? "지연·확인 종목만 아래에 따로 표시해요." : detail, revalidationDetail]
+      .filter(Boolean).join(" "),
     time: latestTimestamp ? formatAiSignalLiveTime(new Date(latestTimestamp).toISOString()) : "",
   };
 }
