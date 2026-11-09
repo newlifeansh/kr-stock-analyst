@@ -569,7 +569,7 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
     codes = {
         code
         for code, setup in state["setups"].items()
-        if base_ready
+        if result["new_entries_allowed"]
         and (setup.get("daily_watch") or setup.get("eligible"))
         and setup.get("reference_close")
         and setup.get("atr")
@@ -579,7 +579,7 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
     codes.update(
         code
         for code, candidate in state.get("entry_candidates", {}).items()
-        if candidate.get("status") == "watching"
+        if result["new_entries_allowed"] and candidate.get("status") == "watching"
     )
     codes.update(state["positions"])
     for code in sorted(codes):

@@ -4156,9 +4156,15 @@ def build_us_recommendations(
         "recommendation_model_version": US_RECOMMENDATION_MODEL_VERSION,
         "recommendation_selection_rule": US_RECOMMENDATION_SELECTION_RULE,
         "recommendation_component_weights": dict(US_RECOMMENDATION_COMPONENT_WEIGHTS),
-        "selection_state": "ready" if snapshot_ready else "unavailable",
+        "selection_state": (
+            "stale" if canonical.get("daily_setup_ready") is False and snapshot_ready
+            else "ready" if snapshot_ready else "unavailable"
+        ),
         "selection_message": (
-            "미국 Top100 추천 점수로 순위를 계산하되, 전량 매도를 "
+            f"{str(canonical.get('universe_as_of') or canonical.get('as_of') or '이전 완료장')[:10]} "
+            "자료 기준 추천입니다. 최근 미국 완료장 자료 갱신을 기다리는 동안 신규 진입은 보류합니다."
+            if snapshot_ready and canonical.get("daily_setup_ready") is False
+            else "미국 Top100 추천 점수로 순위를 계산하되, 전량 매도를 "
             "완료한 종목은 새 매수 조건이 확인될 때까지 제외합니다."
             if snapshot_ready
             else "완료된 미국 Top100 스냅샷이 준비되면 추천 점수를 다시 계산합니다."

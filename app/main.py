@@ -313,7 +313,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261105v588"
+DASHBOARD_CLIENT_VERSION = "20261109v589"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -321,7 +321,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261105us161"
+US_DASHBOARD_CLIENT_VERSION = "20261109us162"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -5258,9 +5258,20 @@ def us_stock_ai_analysis(
             for item in signal_reasons
         )
     )
+    source_current = (
+        dict(signal.get("current") or {}) if isinstance(signal, dict) else {}
+    )
+    source_action = str(source_current.get("action") or "")
+    retained_lifecycle = bool(
+        feed.get("rollout_mode") == "hybrid_forward"
+        and feed.get("hybrid_ledger_ready") is True
+        and source_action in {
+            "entered", "holding", "partially_exited", "full_exit_pending", "exited",
+        }
+    )
     canonical_member_ready = bool(
         feed_ready
-        and is_current_universe_member
+        and (is_current_universe_member or retained_lifecycle)
         and isinstance(reason_source, dict)
         and reason_source.get("data_state") == "ready"
         and canonical_reasons_valid
@@ -5287,23 +5298,16 @@ def us_stock_ai_analysis(
         if snapshot_ready
         else None
     )
-    source_current = (
-        dict(signal.get("current") or {}) if isinstance(signal, dict) else {}
-    )
-    source_action = str(source_current.get("action") or "")
     action = (
         source_action
         if canonical_candidate_ready
-        and source_action
-        in {
-            "entry_pending",
-            "entry_watch",
-            "entered",
-            "holding",
-            "partially_exited",
-            "full_exit_pending",
-            "exited",
-        }
+        and (
+            source_action in {
+                "entered", "holding", "partially_exited", "full_exit_pending", "exited",
+            }
+            or feed.get("new_entries_allowed") is True
+            and source_action in {"entry_pending", "entry_watch"}
+        )
         else "no_signal"
     )
     label_by_action = {
@@ -5342,7 +5346,8 @@ def us_stock_ai_analysis(
         canonical_current["unrealized_return"] = source_current.get(
             "unrealized_return"
         )
-    if feed.get("rollout_mode") == "hybrid_forward" and isinstance(signal, dict):
+    if (feed.get("rollout_mode") == "hybrid_forward"
+            and isinstance(signal, dict) and action == source_action):
         canonical_current = dict(source_current)
     canonical_reasons = (
         signal_reasons
@@ -5411,7 +5416,11 @@ def us_stock_ai_analysis(
             "data_state": feed.get("data_state"),
             "snapshot_id": feed.get("snapshot_id"),
             "snapshot_checksum": feed.get("snapshot_checksum"),
-            "new_entries_allowed": canonical_member_ready,
+            "new_entries_allowed": bool(
+                canonical_member_ready
+                and is_current_universe_member
+                and feed.get("new_entries_allowed") is True
+            ),
             "is_current_universe_member": is_current_universe_member,
             "public_evidence_status": public_evidence_status,
             "evidence_session_date": evidence_session_date,

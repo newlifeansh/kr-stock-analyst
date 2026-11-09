@@ -1516,6 +1516,29 @@ def test_us_recommendations_rank_top100_independently_of_trade_signal_action():
     assert exited["terminal_exit_excluded_count"] == 1
 
 
+def test_us_recommendations_mark_old_daily_setup_as_stale_without_losing_ranked_items(monkeypatch):
+    monkeypatch.setattr(
+        us_market,
+        "_us_recommendation_candidates",
+        lambda _: [{"code": "AAA", "name": "Alpha", "market": "NYSE", "recommendation_score": 80}],
+    )
+    feed = {
+        "status": "ready", "data_state": "ready",
+        "snapshot_id": "old-completed-session", "snapshot_checksum": "checksum",
+        "universe_as_of": "2026-11-04", "daily_setup_ready": False,
+        "new_entries_allowed": False, "universe_members": [{"code": "AAA"}],
+        "items": [],
+    }
+
+    payload = us_market.build_us_recommendations(feed=feed, limit=1)
+
+    assert [item["code"] for item in payload["items"]] == ["AAA"]
+    assert payload["selection_state"] == "stale"
+    assert "2026-11-04" in payload["selection_message"]
+    assert "신규 진입은 보류" in payload["selection_message"]
+    assert payload["new_entries_allowed"] is False
+
+
 def test_us_recommendation_missing_valuation_reweights_only_observed_components():
     members = [
         {
