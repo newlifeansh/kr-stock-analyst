@@ -296,6 +296,11 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "Run domestic production read-only checks" in workflow
     assert "Run US production read-only checks" in workflow
     assert "Verify current US screen through the canonical gateway" in workflow
+    verify = workflow.split("  verify_production:", 1)[1].split(
+        "  retire_unused_ollama:", 1
+    )[0]
+    assert "timeout-minutes: 75" in verify
+    assert verify.count("--wait-seconds 900") == 4
     assert "--surface us-gateway" in workflow
     assert "us-production-ui-e2e.json" in workflow
     assert "Resolve production invite code for canonical US screen verification" in workflow

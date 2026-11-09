@@ -242,7 +242,7 @@ jobs:
   verify_production:
     needs: [gate, build_image, deploy_production]
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 75
     environment:
       name: production
       url: ${{ vars.PRODUCTION_BASE_URL }}
