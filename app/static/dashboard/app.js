@@ -28171,7 +28171,7 @@ function recommendationSignalStageView(signal = null, item = {}) {
   if (signal.data_state !== "ready" || !signal.current) {
     return {
       key: "unavailable",
-      headline: "계산 준비 중",
+      headline: "시그널 확인 불가",
       tone: "unavailable",
       changedAt: null,
       next: signal.data_message || "가격 이력이 확보되면 매매신호를 계산합니다.",

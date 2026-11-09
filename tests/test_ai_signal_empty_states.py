@@ -223,6 +223,7 @@ const stage = recommendationSignalStageView({{
   data_message: '이전 장중 매매 기록을 재검증 중입니다.',
 }});
 assert.equal(stage.key, 'unavailable');
+assert.equal(stage.headline, '시그널 확인 불가');
 assert.match(stage.next, /재검증 중/);
 assert.equal(stage.changedAt, null);
 """
