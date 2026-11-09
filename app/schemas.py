@@ -1449,6 +1449,9 @@ class MarketRecommendationOut(BaseModel):
     selection_state: str = "ready"
     selection_refreshing: bool = False
     selection_message: str = ""
+    signal_unavailable_count: int = 0
+    signal_state: str = "ready"
+    signal_message: str = ""
     methodology: list[str]
     items: list[RecommendationItemOut]
 

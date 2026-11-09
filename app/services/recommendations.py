@@ -26,6 +26,8 @@ from app.services.quant_signals import (
     MARKET_SIGNAL_RECENT_DAYS,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
+    STRATEGY_VERSION,
+    UnverifiedIntradayPathError,
     apply_market_signal_reconciliations,
     enrich_market_quant_signal_sectors,
     load_external_market_quant_signal_feed,
@@ -65,6 +67,9 @@ RECOMMENDATION_SIGNAL_PROCESS_WORKERS = 6
 _recommendation_signal_pool: ProcessPoolExecutor | None = None
 _recommendation_signal_pool_lock = RLock()
 logger = logging.getLogger(__name__)
+RECOMMENDATION_SIGNAL_UNAVAILABLE_MESSAGE = (
+    "검증된 AI 매매 시그널 근거를 확인하지 못했습니다. 신규 매수 판단을 보류합니다."
+)
 
 
 def _warm_recommendation_signal_worker(ready_queue=None) -> int:
@@ -1009,8 +1014,29 @@ def _load_recommendation_signal_in_session(
                 **signal_kwargs,
             )
         return load_quant_signal_payload(db, code, **signal_kwargs)
+    except UnverifiedIntradayPathError:
+        logger.warning("Recommendation signal intraday path is unverified for %s", code)
+        return _unavailable_recommendation_signal(
+            "이전 장중 매매 기록을 재검증 중입니다. 검증이 끝날 때까지 신규 매수 시그널을 표시하지 않습니다."
+        )
     except Exception:
-        return None
+        logger.exception("Recommendation signal calculation failed for %s", code)
+        return _unavailable_recommendation_signal()
+
+
+def _unavailable_recommendation_signal(
+    message: str = RECOMMENDATION_SIGNAL_UNAVAILABLE_MESSAGE,
+    *,
+    as_of: datetime | None = None,
+) -> dict[str, object]:
+    return {
+        "data_state": "unavailable",
+        "data_message": message,
+        "as_of": as_of or _now_kst(),
+        "price_through": None,
+        "strategy_version": STRATEGY_VERSION,
+        "current": None,
+    }
 
 
 def _load_recommendation_signal(
@@ -1379,10 +1405,31 @@ def build_recommendations(
         _terminal_exit_signal(signal) for signal in signals_by_code.values()
     )
 
+    signal_unavailable_count = 0
     for idx, item in enumerate(selected, start=1):
         item["rank"] = idx
         item["recommended_at"] = recommendation_as_of
         signal = signals_by_code.get(str(item["code"]))
+        if (
+            not isinstance(signal, dict)
+            or signal.get("data_state") != "ready"
+            or not isinstance(signal.get("current"), dict)
+        ):
+            signal = _unavailable_recommendation_signal(
+                str(signal.get("data_message") or "").strip()
+                if (
+                    isinstance(signal, dict)
+                    and signal.get("data_state") != "ready"
+                    and str(signal.get("data_message") or "").strip()
+                )
+                else RECOMMENDATION_SIGNAL_UNAVAILABLE_MESSAGE,
+                as_of=(
+                    signal.get("as_of")
+                    if isinstance(signal, dict) and isinstance(signal.get("as_of"), datetime)
+                    else recommendation_as_of
+                ),
+            )
+            signal_unavailable_count += 1
         current = signal.get("current") if isinstance(signal, dict) else None
         item["ai_trade_signal"] = (
             {
@@ -1468,6 +1515,12 @@ def build_recommendations(
         "selection_state": "ready",
         "selection_refreshing": False,
         "selection_message": "추천 점수로 선별하되, AI 전략이 매도를 완료한 종목은 새 매수 조건이 확인될 때까지 제외합니다.",
+        "signal_unavailable_count": signal_unavailable_count,
+        "signal_state": "partial" if signal_unavailable_count else "ready",
+        "signal_message": (
+            f"추천 후보 {signal_unavailable_count}개의 AI 매매 시그널 근거를 확인하지 못했습니다. 해당 종목의 신규 매수 판단을 보류합니다."
+            if signal_unavailable_count else ""
+        ),
         "methodology": METHODOLOGY,
         "items": selected,
     }

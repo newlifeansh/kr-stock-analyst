@@ -199,6 +199,11 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-CONTRACT-002": (
         "tests.test_regular_session_prices.test_closing_auction_time_formatting_is_bounded_per_bucket",
+        "tests.test_recommendations.test_recommendations_expose_missing_signal_without_losing_rank",
+        "tests.test_recommendations.test_recommendation_signal_failure_returns_safe_state[intraday-unverified]",
+        "tests.test_recommendations.test_recommendation_signal_failure_returns_safe_state[generic-failure]",
+        "tests.test_ai_signal_empty_states.test_recommendation_list_keeps_partial_signal_status_with_ranked_items",
+        "tests.test_ai_signal_empty_states.test_recommendation_stage_marks_unverified_signal_unavailable",
         "tests.test_recommendations.test_recommendations_replay_only_returned_candidates_without_exits",
         "tests.test_recommendations.test_recommendations_lazy_backfill_matches_eager_ranking_and_terminates",
         "tests.test_recommendations.test_recommendations_batch_consecutive_exit_replacements",
@@ -4573,12 +4578,28 @@ def _live_checks(
                 recommendation_date = str(recommendations.get("as_of") or "")[:10]
                 invalid: list[dict[str, Any]] = []
                 state_counts = {"entry_confirmed": 0, "entered_today": 0, "holding": 0}
+                unavailable_count = 0
                 signal_actions: set[str] = set()
                 for item in items:
                     if not isinstance(item, dict):
                         invalid.append({"item": "not_object"})
                         continue
                     signal = item.get("ai_trade_signal")
+                    signal_valid = isinstance(signal, dict) and (
+                        (
+                            signal.get("data_state") == "ready"
+                            and isinstance(signal.get("current"), dict)
+                        )
+                        or (
+                            signal.get("data_state") == "unavailable"
+                            and signal.get("current") is None
+                            and bool(signal.get("data_message"))
+                            and bool(signal.get("strategy_version"))
+                            and bool(signal.get("as_of"))
+                        )
+                    )
+                    if isinstance(signal, dict) and signal.get("data_state") == "unavailable":
+                        unavailable_count += 1
                     current = (
                         signal.get("current")
                         if isinstance(signal, dict)
@@ -4634,7 +4655,8 @@ def _live_checks(
                         and item.get("recommendation_label") == "추천 후보"
                     )
                     if (
-                        item.get("buy_condition_met") is not True
+                        not signal_valid
+                        or item.get("buy_condition_met") is not True
                         or not recommendation_score_is_independent
                         or (
                             signal_action == "exited"
@@ -4657,6 +4679,7 @@ def _live_checks(
                                 "recommendation_label": item.get("recommendation_label"),
                                 "buy_condition_met": item.get("buy_condition_met"),
                                 "signal_action": current.get("action"),
+                                "signal_data_state": signal.get("data_state") if isinstance(signal, dict) else None,
                                 "position_open": current.get("position_open"),
                                 "live_observation": current.get("live_observation"),
                                 "entry_date": current.get("entry_date"),
@@ -4672,6 +4695,15 @@ def _live_checks(
                     not invalid,
                     "추천 점수 순위가 AI 시그널 행동으로 덮였거나 현재 AI 상태가 일관되지 않습니다.",
                     invalid=invalid,
+                )
+                _assert(
+                    int(recommendations.get("signal_unavailable_count") or 0) == unavailable_count
+                    and recommendations.get("signal_state") == ("partial" if unavailable_count else "ready")
+                    and (not unavailable_count or bool(recommendations.get("signal_message"))),
+                    "추천 응답의 AI 시그널 확인 불가 건수와 상태가 반환 항목과 다릅니다.",
+                    signal_unavailable_count=recommendations.get("signal_unavailable_count"),
+                    returned_unavailable_count=unavailable_count,
+                    signal_state=recommendations.get("signal_state"),
                 )
                 expected_ranks = list(range(1, len(items) + 1))
                 ranks = [item.get("rank") for item in items if isinstance(item, dict)]
@@ -4730,6 +4762,7 @@ def _live_checks(
                     "entered_today_count": recommendations.get("entered_today_count"),
                     "holding_count": recommendations.get("holding_count"),
                     "terminal_exit_excluded_count": terminal_exit_excluded_count,
+                    "signal_unavailable_count": unavailable_count,
                     "returned_count": len(items),
                     "signal_actions": sorted(signal_actions),
                     "codes": [item.get("code") for item in items if isinstance(item, dict)],

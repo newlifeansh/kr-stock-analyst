@@ -157,6 +157,78 @@ fetchRecommendationsForScope().then(payload => {{
     subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True, timeout=10)
 
 
+def test_recommendation_list_keeps_partial_signal_status_with_ranked_items():
+    source = SOURCE.read_text()
+    scope_source = source[
+        source.index("async function fetchRecommendationsForScope("):
+        source.index("async function loadRecommendations(")
+    ]
+    render_source = source[
+        source.index("function renderRecommendations("):
+        source.index("function setTrendTab(")
+    ]
+    script = f"""
+const assert = require('node:assert/strict');
+const isUsHubContext = false;
+const state = {{ marketScope: 'kr', usSectorMoves: null }};
+const RECOMMENDATION_LIMIT = 8;
+const pageEntryTtlMs = () => 0;
+const fetchJsonCached = async () => ({{
+  selection_state: 'ready', signal_state: 'partial', signal_unavailable_count: 1,
+  signal_message: '추천 후보 1개의 AI 매매 시그널 근거를 확인하지 못했습니다.',
+  as_of: '2026-11-09', items: [{{ code: '005930' }}],
+}});
+const tagMarketItems = (items, scope) => items.map(item => ({{ ...item, market_scope: scope }}));
+const canonicalUsPayloadCanCompose = () => true;
+const failClosedUsEntryPendingItems = items => items;
+const entryPendingItemCount = () => 0;
+const elements = {{
+  recommendMeta: {{ textContent: '', dateTime: '', hidden: true }},
+  recommendList: {{ innerHTML: '', dataset: {{}} }},
+}};
+let status = '';
+let cards = 0;
+const closeRecommendationQuoteStreams = () => {{}};
+const recommendationIsTerminalExit = () => false;
+const rerankRecommendationItems = items => items;
+const updateRecommendationTrackMeta = () => {{}};
+const formatDataBasis = value => value;
+const setRecommendStatus = value => {{ status = value; }};
+const appendRecommendationCard = () => {{ cards += 1; }};
+const connectRecommendationQuoteStream = () => {{}};
+const scheduleUsSectorRefresh = () => {{}};
+{scope_source}
+{render_source}
+fetchRecommendationsForScope().then(payload => {{
+  renderRecommendations(payload);
+  assert.equal(cards, 1);
+  assert.equal(payload.signal_unavailable_count, 1);
+  assert.match(status, /1개/);
+}}).catch(error => {{ console.error(error); process.exitCode = 1; }});
+"""
+    subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True, timeout=10)
+
+
+def test_recommendation_stage_marks_unverified_signal_unavailable():
+    source = SOURCE.read_text()
+    stage_source = source[
+        source.index("function recommendationSignalStageView("):
+        source.index("function recommendationAiSignalStageView(")
+    ]
+    script = f"""
+const assert = require('node:assert/strict');
+{stage_source}
+const stage = recommendationSignalStageView({{
+  data_state: 'unavailable', current: null,
+  data_message: '이전 장중 매매 기록을 재검증 중입니다.',
+}});
+assert.equal(stage.key, 'unavailable');
+assert.match(stage.next, /재검증 중/);
+assert.equal(stage.changedAt, null);
+"""
+    subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True, timeout=10)
+
+
 def test_ranked_recommendation_cards_show_stale_status_notice():
     source = SOURCE.read_text()
     function_source = source[

@@ -2451,6 +2451,9 @@ class FakeReadOnlyApi:
             return {
                 "as_of": "2026-08-29T10:00:00+09:00",
                 "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
+                "signal_unavailable_count": 0,
+                "signal_state": "ready",
+                "signal_message": "",
                 "candidate_count": 0,
                 "qualified_count": 0,
                 "pending_count": 0,
@@ -3969,6 +3972,8 @@ def test_live_recommendation_contract_accepts_redacted_entered_today_evidence(
                     "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
                     "candidate_count": 1,
                     "qualified_count": 1,
+                    "signal_unavailable_count": 0,
+                    "signal_state": "ready",
                     "pending_count": 0,
                     "entered_today_count": 1,
                     "items": [
@@ -3982,6 +3987,7 @@ def test_live_recommendation_contract_accepts_redacted_entered_today_evidence(
                             "rank": 1,
                             "strategy_entry_price": 118_500,
                             "ai_trade_signal": {
+                                "data_state": "ready",
                                 "current": {
                                     "action": "entered",
                                     "position_open": True,
@@ -4030,6 +4036,8 @@ def test_live_recommendation_contract_accepts_redacted_current_holding(
                     "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
                     "candidate_count": 1,
                     "qualified_count": 1,
+                    "signal_unavailable_count": 0,
+                    "signal_state": "ready",
                     "pending_count": 0,
                     "entered_today_count": 0,
                     "holding_count": 1,
@@ -4044,6 +4052,7 @@ def test_live_recommendation_contract_accepts_redacted_current_holding(
                             "rank": 1,
                             "strategy_entry_price": 129_200,
                             "ai_trade_signal": {
+                                "data_state": "ready",
                                 "current": {
                                     "action": "holding",
                                     "position_open": True,
@@ -4076,6 +4085,49 @@ def test_live_recommendation_contract_accepts_redacted_current_holding(
     )
     assert by_id["SIG-CONTRACT-002"]["evidence"]["holding_count"] == 1
     assert report["deployment_blocked"] is False
+
+
+@pytest.mark.qa_live
+@pytest.mark.parametrize("missing_signal", [False, True], ids=["explicit-unavailable", "silent-null"])
+def test_live_recommendation_contract_requires_explicit_signal_failure(monkeypatch, missing_signal):
+    from app.qa import runner
+
+    class PartialSignalApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            if path == "/market/recommendations":
+                return {
+                    "as_of": "2026-11-09T16:00:00+09:00",
+                    "selection_rule": "recommendation_score_ranked_with_terminal_exit_exclusion",
+                    "candidate_count": 1,
+                    "qualified_count": 1,
+                    "pending_count": 0,
+                    "entered_today_count": 0,
+                    "holding_count": 0,
+                    "signal_unavailable_count": 0 if missing_signal else 1,
+                    "signal_state": "ready" if missing_signal else "partial",
+                    "signal_message": "" if missing_signal else "추천 후보 1개의 AI 매매 시그널 근거를 확인하지 못했습니다.",
+                    "items": [{
+                        "code": "005930", "rank": 1, "action": "관찰",
+                        "score_action": "관찰", "recommendation_state": "score_selected",
+                        "recommendation_label": "추천 후보", "buy_condition_met": True,
+                        "ai_trade_signal": None if missing_signal else {
+                            "data_state": "unavailable",
+                            "data_message": "이전 장중 매매 기록을 재검증 중입니다.",
+                            "as_of": "2026-11-09T16:00:00+09:00",
+                            "strategy_version": "position-lifecycle-v8.1",
+                            "current": None,
+                        },
+                    }],
+                }, self._meta(path)
+            return super().get(path, **params)
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", PartialSignalApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "SIG-CONTRACT-002")
+    assert check["status"] == ("fail" if missing_signal else "pass")
+    if not missing_signal:
+        assert check["evidence"]["signal_unavailable_count"] == 1
 
 
 @pytest.mark.qa_live
