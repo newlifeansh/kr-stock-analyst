@@ -843,6 +843,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_closing_auction_capture_runs_independently_of_top150_scan",
         "tests.test_quant_signals."
         "test_v8_current_day_seal_fails_closed_on_mismatch_or_provider_outage",
+        "tests.test_quant_signals."
+        "test_no_entry_decision_allows_only_verified_terminal_placeholder_repair",
+        "tests.test_quant_signals."
+        "test_forward_path_discards_only_absent_flat_no_trade_bars_before_sealing",
         "tests.test_quote_stream_scaling."
         "test_canonical_refresh_swaps_cache_before_publishing_transformed_revision",
         "tests.test_signal_entry_evidence."
