@@ -1662,11 +1662,46 @@ def test_new_universe_version_migrates_around_invalid_prior_version_row(
         now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
     )
 
-    assert universe.US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v6"
+    assert universe.US_SIGNAL_UNIVERSE_VERSION == "us-market-cap-top100-v7"
     assert payload["status"] == "ready"
     assert sqlite_db.get(
         MarketRankingSnapshot,
-        "us-market-cap-top100-v6:2026-09-08",
+        "us-market-cap-top100-v7:2026-09-08",
+    ) is not None
+
+
+def test_v7_rebuild_preserves_v6_completed_session_snapshot(monkeypatch, sqlite_db):
+    prior = _valid_payload("2026-09-08", code_prefix="V")
+    prior["universe_version"] = "us-market-cap-top100-v6"
+    prior["audit_checksum"] = _audit_checksum(prior)
+    frozen_payload = universe._serialize_payload(prior)
+    old = MarketRankingSnapshot(
+        snapshot_id="us-market-cap-top100-v6:2026-09-08",
+        category=universe.US_SIGNAL_UNIVERSE_CATEGORY,
+        payload=frozen_payload,
+        captured_at=datetime(2026, 9, 9, 1, 0),
+        expires_at=datetime(2027, 9, 9, 1, 0),
+    )
+    sqlite_db.add(old)
+    sqlite_db.commit()
+    candidates = _candidates(101)
+    quotes = {
+        str(item["code"]): _quote(str(item["code"]), 2_000_000_000 - index)
+        for index, item in enumerate(candidates)
+    }
+    monkeypatch.setattr(universe, "_screen_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(us_market, "fetch_us_quote_batch", lambda *_args, **_kwargs: quotes)
+    monkeypatch.setattr(us_market, "_sec_ticker_map", lambda: _cik_map(candidates))
+
+    payload = universe.build_us_signal_universe(
+        db=sqlite_db, now=datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["universe_version"] == "us-market-cap-top100-v7"
+    assert sqlite_db.get(MarketRankingSnapshot, old.snapshot_id).payload == frozen_payload
+    assert sqlite_db.get(
+        MarketRankingSnapshot, "us-market-cap-top100-v7:2026-09-08",
     ) is not None
 
 
