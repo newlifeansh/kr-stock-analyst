@@ -4327,7 +4327,8 @@
   };
 
   const recommendationCustomerState = (item = {}) => {
-    const current = item?.ai_trade_signal?.current || {};
+    const signal = item?.ai_trade_signal;
+    const current = signal?.current || {};
     const action = String(current.action || "").trim();
     const positionOpen = current.position_open === true;
     const name = item?.name || "이 종목";
@@ -4343,6 +4344,34 @@
       additionalBuyLabel: "확인 중",
       positionOpen,
     };
+    if (!signal || signal.data_state === "unavailable" || !signal.current) {
+      const message = signal?.data_message || "검증된 AI 매매 시그널 근거를 확인하지 못했습니다.";
+      return {
+        ...base,
+        key: "unavailable",
+        label: "시그널 확인 불가",
+        guide: "신규 매수 판단 보류",
+        headline: `${name}, AI 매매 시그널을 확인할 수 없어요`,
+        summary: message,
+        actionTitle: "지금은 신규 매수 판단을 보류할 단계예요",
+        nextFallback: message,
+        reason: "추천 점수 기준을 통과한 후보예요. 현재 AI 매매 시그널은 확인되지 않았어요.",
+        additionalBuyLabel: "보류",
+      };
+    }
+    if (["waiting", "no_signal"].includes(action)) {
+      return {
+        ...base,
+        key: "watching",
+        label: "관망",
+        guide: "현재 매수 신호 없음",
+        headline: `${name}, 현재 AI 매수 신호는 관망이에요`,
+        summary: "AI 전략에서 현재 신규 매수 조건이 확인되지 않았어요.",
+        actionTitle: "지금은 새 매수 조건을 기다릴 단계예요",
+        nextFallback: current.next_confirmation || "다음 종가에서 신규 매수 조건을 다시 확인해요.",
+        additionalBuyLabel: "신호 없음",
+      };
+    }
     if (action === "entry_pending") {
       if (stagingUsMarketContext && !positionOpen) {
         return {
@@ -4491,9 +4520,18 @@
     selectionState = "ready",
     selectionMessage = "",
     cardCount = 0,
+    signalUnavailableCount = 0,
     marketLabel = "한국",
   } = {}) => {
     const count = Math.max(0, Number(cardCount) || 0);
+    const unavailable = Math.max(0, Math.min(count, Number(signalUnavailableCount) || 0));
+    if (count && unavailable) return {
+      stateKey: "partial",
+      heading: `추천 후보 ${count}개 · 시그널 확인 불가 ${unavailable}개`,
+      detail: "추천 점수는 후보의 우선순위입니다. 시그널 확인 불가 종목의 신규 매수 판단을 보류합니다.",
+      actionLabel: "",
+      actionKind: "",
+    };
     if (count) return { stateKey: "ready", heading: `추천 후보 ${count}개`, detail: "점수는 후보 안의 우선순위이고, 상태 배지는 지금의 AI 판단이에요.", actionLabel: "", actionKind: "" };
     if (/불러오는 중|확인 중/.test(sourceMessage)) return { stateKey: "loading", heading: `${marketLabel} 추천 종목을 확인하고 있어요`, detail: "최신 시장 판단을 불러오는 동안 잠시만 기다려 주세요.", actionLabel: "", actionKind: "" };
     if (/불러오지 못|오류|실패/.test(sourceMessage)) return { stateKey: "error", heading: "추천 데이터를 불러오지 못했어요", detail: "연결 상태를 확인한 뒤 다시 시도해 주세요.", actionLabel: "다시 불러오기", actionKind: "retry" };
@@ -4515,6 +4553,11 @@
     const list = document.getElementById("recommend-list");
     if (!module || !status || !summary || !list) return;
     const cards = Array.from(list.querySelectorAll(":scope > .recommend-card"));
+    const signalUnavailableCount = cards.filter((card) => {
+      const item = card.recommendationItem;
+      const signal = item?.ai_trade_signal;
+      return Boolean(item && (!signal || signal.data_state === "unavailable" || !signal.current));
+    }).length;
     const marketLabel = recommendationMarketLabel();
     const alreadyDecorated = Boolean(status.querySelector("[data-recommendation-status-title]"));
     const rawMessage = alreadyDecorated ? "" : status.textContent.trim();
@@ -4530,6 +4573,7 @@
       selectionState: list.dataset.selectionState || "ready",
       selectionMessage: list.dataset.selectionMessage || "",
       cardCount: cards.length,
+      signalUnavailableCount,
       marketLabel,
     });
     if (stateKey === "initial") return;
@@ -4578,7 +4622,8 @@
         ? "entered-today"
         : item.recommendation_state === "holding"
           ? "holding"
-          : "entry-confirmed";
+          : ["unavailable", "watching"].includes(customerState.key)
+            ? customerState.key : "entry-confirmed";
       card.dataset.customerState = customerState.key;
       const itemName = card.querySelector(".recommend-name strong")?.textContent?.trim() || "추천 종목";
       const nameCopy = card.querySelector(".recommend-name .stock-list-copy");
@@ -4587,11 +4632,15 @@
       const rank = card.querySelector(".recommend-rank");
       if (rank) {
         rank.textContent = `#${item.rank || "-"} · ${customerState.label}`;
-        rank.classList.remove("watch");
-        rank.classList.add("buy");
+        rank.classList.toggle("watch", ["unavailable", "watching"].includes(customerState.key));
+        rank.classList.toggle("buy", !["unavailable", "watching"].includes(customerState.key));
       }
       const stage = card.querySelector(".recommend-signal-stage");
-      if (stage) stage.textContent = customerState.label;
+      if (stage) {
+        stage.textContent = customerState.label;
+        stage.classList.toggle("is-unavailable", customerState.key === "unavailable");
+        stage.classList.toggle("is-loading", customerState.key === "checking");
+      }
       const stageLabel = card.querySelector(".recommend-decision-flow-head > span");
       if (stageLabel) stageLabel.textContent = "지금 AI 판단";
       const changedLabel = card.querySelector(".recommend-signal-facts dt");

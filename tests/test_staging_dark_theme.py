@@ -3503,12 +3503,13 @@ const inputs = [
   {{sourceMessage: '최신 가격·수급 자료가 아직 완성되지 않았습니다.', selectionState: 'unavailable', selectionMessage: '수집 완료 후 자동으로 다시 계산합니다.', cardCount: 0, marketLabel: '한국'}},
   {{sourceMessage: '추천 종목을 불러오지 못했습니다.', cardCount: 0, marketLabel: '미국'}},
   {{sourceMessage: '', cardCount: 8, marketLabel: '미국'}},
+  {{sourceMessage: '추천 후보 2개의 AI 매매 시그널 근거를 확인하지 못했습니다.', cardCount: 8, signalUnavailableCount: 2, marketLabel: '한국'}},
 ];
 process.stdout.write(JSON.stringify(inputs.map(recommendationOverviewModel)));
 """
     result = subprocess.run(["node", "-e", script], cwd=ROOT, check=True, capture_output=True, text=True)
     states = json.loads(result.stdout)
-    assert [item["stateKey"] for item in states] == ["loading", "empty", "unavailable", "error", "ready"]
+    assert [item["stateKey"] for item in states] == ["loading", "empty", "unavailable", "error", "ready", "partial"]
     assert states[1]["heading"] == "지금은 새로 살 종목이 없어요"
     assert "한국 추천 조건을 모두 통과한 종목이 0개" in states[1]["detail"]
     assert states[1]["actionKind"] == "signals"
@@ -3516,6 +3517,8 @@ process.stdout.write(JSON.stringify(inputs.map(recommendationOverviewModel)));
     assert states[2]["actionKind"] == "retry"
     assert states[3]["actionKind"] == "retry"
     assert states[4]["heading"] == "추천 후보 8개"
+    assert "시그널 확인 불가 2개" in states[5]["heading"]
+    assert "신규 매수 판단을 보류" in states[5]["detail"]
 
     for contract in (
         'module.setAttribute("aria-busy", String(stateKey === "loading"))',
@@ -3524,8 +3527,12 @@ process.stdout.write(JSON.stringify(inputs.map(recommendationOverviewModel)));
         'window.scrollY + recommendationModule.getBoundingClientRect().top - 92',
         'nameCopy.appendChild(marketBadge)',
         'scoreLabel.className = "staging-recommend-score-label"',
+        'signalUnavailableCount = cards.filter',
+        'rank.classList.toggle("watch", ["unavailable", "watching"].includes(customerState.key))',
     ):
         assert contract in js
+
+    assert '.recommend-summary[data-state="partial"] > p' in css
 
     rules = css.split(
         "/* v166 — recommendation overview: honest empty states and collision-free metric rows. */", 1,
@@ -3542,6 +3549,47 @@ process.stdout.write(JSON.stringify(inputs.map(recommendationOverviewModel)));
         ".recommend-card:last-child",
     ):
         assert contract in rules
+
+
+def test_staging_recommendation_overlay_exposes_unverified_signal_without_buy_state():
+    source = (ROOT / "app/static/staging/toss-ia.js").read_text()
+    customer_source = source[
+        source.index("const recommendationCustomerState ="):
+        source.index("const recommendationMarketLabel =")
+    ]
+    script = f"""
+const stagingUsMarketContext = false;
+{customer_source}
+const unavailable = recommendationCustomerState({{
+  name: '삼성전자', recommendation_state: 'entry_confirmed',
+  ai_trade_signal: {{ data_state: 'unavailable', current: null,
+    data_message: '이전 장중 매매 기록을 재검증 중입니다.' }},
+}});
+const missing = recommendationCustomerState({{
+  name: '삼성전자', ai_trade_signal: null,
+}});
+const ready = recommendationCustomerState({{
+  name: '삼성전자', ai_trade_signal: {{ data_state: 'ready',
+    current: {{ action: 'entry_pending', position_open: false }} }},
+}});
+const watching = recommendationCustomerState({{
+  name: '삼성전자', ai_trade_signal: {{ data_state: 'ready',
+    current: {{ action: 'waiting', position_open: false }} }},
+}});
+process.stdout.write(JSON.stringify({{ unavailable, missing, ready, watching }}));
+"""
+    result = subprocess.run(["node", "-e", script], cwd=ROOT, check=True, capture_output=True, text=True)
+    states = json.loads(result.stdout)
+    assert states["unavailable"]["key"] == "unavailable"
+    assert states["unavailable"]["label"] == "시그널 확인 불가"
+    assert "재검증 중" in states["unavailable"]["summary"]
+    assert "신규 매수 판단을 보류" in states["unavailable"]["actionTitle"]
+    assert states["unavailable"]["additionalBuyLabel"] == "보류"
+    assert states["missing"]["key"] == "unavailable"
+    assert states["ready"]["key"] == "new-buy-wait"
+    assert states["watching"]["key"] == "watching"
+    assert states["watching"]["label"] == "관망"
+    assert states["watching"]["additionalBuyLabel"] == "신호 없음"
 
 
 def test_staging_v129_uses_independent_stock_search_svg_centered_with_watch_heart():

@@ -21234,6 +21234,16 @@ body[data-staging-ia="tds-video"] #recommend-view .recommend-summary > p > span 
   word-break: keep-all !important;
 }
 
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="partial"] > p {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 4px !important;
+}
+
+body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="partial"] > p > strong {
+  white-space: normal !important;
+  overflow-wrap: break-word !important;
+}
+
 body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="empty"] > p,
 body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="error"] > p,
 body[data-staging-ia="tds-video"] #recommend-view .recommend-summary[data-state="loading"] > p {
