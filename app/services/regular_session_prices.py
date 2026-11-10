@@ -16,7 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 import zlib
 
-from sqlalchemy import inspect, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
 from app.models import DailyPrice, SignalSessionPrice
@@ -558,16 +558,45 @@ def collect_regular_session_prices(
     local = observed_at.astimezone(KST) if observed_at.tzinfo is not None else None
     if local is None or end > local.date() or (end == local.date() and local.time() < time(15, 31)):
         raise ValueError("backfill end must be a completed session date")
-    pairs = [(code, day) for day in reversed(_session_dates(start, end)) for code in sorted(set(codes))]
+    has_table = inspect(db.connection()).has_table(SignalSessionPrice.__tablename__)
+    if persist and not has_table:
+        raise ValueError("create the additive evidence table before persisting")
+    active_codes = sorted(set(codes))
+    pairs = [(code, day) for day in reversed(_session_dates(start, end)) for code in active_codes]
+    # A fixed newest-first cap can indefinitely starve an older failed day
+    # when the current cohort grows. Retry recorded failures first, while
+    # spacing provider attempts so an unchanged bad session cannot monopolize
+    # the next pass or exhaust the dated-chart API.
+    retry_cutoff = observed_at.astimezone(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
+    last_unverified = {
+        (code, day): latest
+        for code, day, latest in db.execute(
+            select(
+                SignalSessionPrice.code,
+                SignalSessionPrice.trade_date,
+                func.max(SignalSessionPrice.observed_at),
+            ).where(
+                SignalSessionPrice.code.in_(active_codes),
+                SignalSessionPrice.trade_date >= start,
+                SignalSessionPrice.trade_date <= end,
+                SignalSessionPrice.basis_version == REGULAR_PRICE_BASIS,
+                SignalSessionPrice.state == "unverified",
+            ).group_by(SignalSessionPrice.code, SignalSessionPrice.trade_date)
+        )
+    } if active_codes and has_table else {}
+    retryable = sorted(
+        (pair for pair in pairs if pair in last_unverified and last_unverified[pair] < retry_cutoff),
+        key=lambda pair: (last_unverified[pair], -pair[1].toordinal(), pair[0]),
+    )
+    retryable_set = set(retryable)
+    retry_quota = max(1, max_pairs // 4)
+    pairs = retryable[:retry_quota] + [pair for pair in pairs if pair not in retryable_set] + retryable[retry_quota:]
     report: dict[str, Any] = {
         "basis_version": REGULAR_PRICE_BASIS, "start": start.isoformat(), "end": end.isoformat(),
         "persist": persist, "total_pairs": len(pairs), "attempted": 0,
         "ready": 0, "already_ready": 0, "bounded": 0, "already_bounded": 0, "unverified": [], "deferred": 0,
         "signal_publication": False, "history_overwrite": False, "notifications_sent": 0,
     }
-    has_table = inspect(db.connection()).has_table(SignalSessionPrice.__tablename__)
-    if persist and not has_table:
-        raise ValueError("create the additive evidence table before persisting")
     for code, day in pairs:
         try:
             prior = load_regular_session_evidence(db, code, day, allow_bounded=True)
@@ -581,6 +610,12 @@ def collect_regular_session_prices(
                 continue
         else:
             report["already_ready" if prior["state"] == "ready" else "already_bounded"] += 1
+            continue
+        last_attempt = last_unverified.get((code, day))
+        if last_attempt is not None and last_attempt >= retry_cutoff:
+            report["unverified"].append({
+                "code": code, "trade_date": day.isoformat(), "reason": "retry_cooldown",
+            })
             continue
         if report["attempted"] >= max_pairs:
             report["deferred"] += 1

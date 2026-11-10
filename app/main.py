@@ -313,7 +313,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261110v591"
+DASHBOARD_CLIENT_VERSION = "20261111v592"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -321,7 +321,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261110us164"
+US_DASHBOARD_CLIENT_VERSION = "20261111us165"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -1817,6 +1817,13 @@ def _retry_market_quant_signal_regular_evidence() -> None:
             )
 
 
+def _regular_evidence_retry_window(now: datetime) -> bool:
+    return (
+        is_korea_market_session_date(now.date(), now)
+        and time(6, 0) <= now.time() <= time(15, 30)
+    )
+
+
 async def _run_market_quant_signal_regular_evidence_retry_loop(
     ready: asyncio.Event,
 ) -> None:
@@ -1824,7 +1831,7 @@ async def _run_market_quant_signal_regular_evidence_retry_loop(
         await ready.wait()
         await asyncio.sleep(MARKET_SIGNAL_REGULAR_EVIDENCE_RETRY_SECONDS)
         now = datetime.now(KST)
-        if not ready.is_set() or not is_korea_regular_market_session(now):
+        if not ready.is_set() or not _regular_evidence_retry_window(now):
             continue
         try:
             await asyncio.to_thread(_retry_market_quant_signal_regular_evidence)
@@ -1916,7 +1923,7 @@ async def _run_market_quant_signal_refresh_loop(
                         last_regular_preflight_key = preflight_key
                     if (
                         regular_evidence_ready is not None
-                        and is_korea_regular_market_session(datetime.now(KST))
+                        and _regular_evidence_retry_window(datetime.now(KST))
                     ):
                         regular_evidence_ready.set()
                     if refresh_detail:
@@ -8907,9 +8914,19 @@ def stock_quant_signals(
             ),
         )
     except UnverifiedIntradayPathError as exc:
+        missing_session = re.fullmatch(
+            rf"{re.escape(code)} (\d{{4}}-\d{{2}}-\d{{2}}): 검증된 정규장 가격이 없습니다",
+            str(exc),
+        )
+        detail = (
+            f"{missing_session.group(1)} 정규장 체결 자료가 검증되지 않아 AI 시그널을 보류합니다. "
+            "해당 날짜의 매매 순서를 확인하기 전에는 확정 신호를 표시하지 않습니다."
+            if missing_session else
+            "이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다."
+        )
         raise HTTPException(
             status_code=503,
-            detail="이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다.",
+            detail=detail,
         ) from exc
     if not payload:
         raise HTTPException(status_code=404, detail="Stock not found")

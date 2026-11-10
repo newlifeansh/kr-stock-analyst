@@ -3923,6 +3923,36 @@ def test_stock_signal_detail_fails_closed_when_published_minute_path_cannot_repl
         db.close()
 
 
+def test_stock_signal_detail_names_missing_regular_session_without_claiming_a_signal(monkeypatch):
+    db = _session()
+    db.add(_stock("005930"))
+    db.commit()
+
+    def override_db():
+        yield db
+
+    monkeypatch.setattr(main, "ensure_stock_price_history", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(main, "_fetch_uncached_current_quote", lambda *_args, **_kwargs: ({}, "test"))
+    monkeypatch.setattr(
+        main, "load_reference_quant_signal_payload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            quant_signals.UnverifiedIntradayPathError(
+                "005930 2026-11-06: 검증된 정규장 가격이 없습니다"
+            )
+        ),
+    )
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/stocks/005930/quant-signals")
+        assert response.status_code == 503
+        assert "2026-11-06" in response.json()["detail"]
+        assert "확정 신호를 표시하지 않습니다" in response.json()["detail"]
+        assert "005930" not in response.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
 def test_quant_signals_stop_when_a_weekday_candle_has_no_confirmed_open():
     rows = _price_rows("096770")
     rows[-2].open = None
