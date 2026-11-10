@@ -93,6 +93,21 @@ def _private_quant_payload() -> dict[str, object]:
     }
 
 
+def test_public_gap_payload_keeps_verified_prices_and_date_warning_without_signals():
+    payload = _private_quant_payload()
+    payload.update(
+        data_state="incomplete", excluded_session_date="2026-11-06",
+        verified_sessions=[{"trade_date": "2026-11-10", "close": 100}],
+        current=None, events=[], trades=[], data_message="private-source-error",
+    )
+    public = public_quant_signal_payload(payload)
+    assert public["excluded_session_date"] == "2026-11-06"
+    assert public["verified_sessions"] == payload["verified_sessions"]
+    assert "2026-11-06" in public["data_message"]
+    assert "private-source-error" not in public["data_message"]
+    assert public["current"] is None and public["events"] == public["trades"] == []
+
+
 def test_quant_projection_exposes_only_three_public_reasons_and_keeps_input_immutable() -> None:
     private_payload = _private_quant_payload()
     original = deepcopy(private_payload)

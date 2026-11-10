@@ -2919,11 +2919,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261111v592" />'
+            '<link href="/assets/dashboard/styles.css?v=20261111v593" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261111v592"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261111v593"></script>'
             '</body></html>',
             self._meta(path),
         )

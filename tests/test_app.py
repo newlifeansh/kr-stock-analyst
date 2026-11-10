@@ -42,7 +42,7 @@ def test_health():
     assert response.json()["strategy_version"] == "position-lifecycle-v8.1"
     assert response.json()["execution_model"] == "close-confirmed-intraday-trigger-v1"
     assert response.json()["intraday_execution_effective_date"] == "2026-10-03"
-    assert response.json()["dashboard_version"] == "20261111v592"
+    assert response.json()["dashboard_version"] == "20261111v593"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -2232,7 +2232,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261111v592"}
+    assert version.json() == {"version": "20261111v593"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -2242,9 +2242,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
     assert 'pathname === "/us-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' not in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261111v592" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261111v593" in refresh.text
     assert 'params.get("market") === "us"' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261111v592" not in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261111v593" not in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -4341,7 +4341,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert "시총 상위 종목의 최근 신호" not in home_shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20261111v592' in shell
+    assert 'styles.css?v=20261111v593' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -4428,7 +4428,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20261111v592"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20261111v593"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -4466,7 +4466,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20261111v592"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20261111v593"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source
@@ -4883,6 +4883,55 @@ context.fetchJsonCached('/stocks/005930/quant-signals', { force: true, ttlMs: 0 
   });
 """
     subprocess.run(["node", "-e", script, fetcher], check=True)
+
+
+@pytest.mark.qa_gate
+def test_domestic_signal_gap_shows_only_verified_sessions_and_hides_ready_panel():
+    source = (Path(__file__).parents[1] / "app/static/dashboard/app.js").read_text()
+    snippet = source[
+        source.index("function renderVerifiedRegularSessions("):
+        source.index("async function loadQuantSignals(")
+    ]
+    shell = (Path(__file__).parents[1] / "app/static/dashboard/index.html").read_text()
+    assert 'id="quant-verified-sessions" hidden' in shell
+    script = """
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+function element() {
+  return { children: [], append(...items) { this.children.push(...items); } };
+}
+const panel = { hidden: true };
+const list = { children: [], replaceChildren() { this.children = []; }, appendChild(item) { this.children.push(item); } };
+const status = { hidden: true, textContent: '', classList: { toggle() {} } };
+const content = { hidden: false };
+const context = {
+  state: { stockQuantSignals: { events: [{ side: 'buy' }] }, stockQuantRequestedCode: 'old', stockPriceRows: [], currentDashboard: {} },
+  elements: { quantVerifiedSessions: panel, quantVerifiedList: list, quantSignalStatus: status, quantSignalContent: content },
+  document: { createElement: element },
+  sanitizePendingEntryAiSignal: (value) => value,
+  renderStockMiniChart: () => {},
+  formatQuantActionDate: (value) => value,
+  formatQuantPrice: (value) => `${value}원`,
+  formatNumber: (value) => String(value),
+};
+vm.runInNewContext(process.argv[1], context);
+context.renderQuantSignals({ code: '005930', data_state: 'incomplete', excluded_session_date: '2026-11-06', data_message: '11월 6일 기록 보류', verified_sessions: [
+  { trade_date: '2026-11-10', close: 100, volume: 20 },
+  { trade_date: '2026-11-09', close: 90, volume: 10 },
+] });
+assert.equal(panel.hidden, false);
+assert.equal(content.hidden, true);
+assert.equal(context.state.stockQuantSignals.current, undefined);
+assert.equal(context.state.stockQuantRequestedCode, '005930');
+assert.match(status.textContent, /11월 6일/);
+assert.equal(list.children.length, 2);
+assert.equal(list.children[0].children[0].textContent, '2026-11-10');
+assert.match(list.children[0].children[1].textContent, /종가 100원.*거래량 20/);
+context.renderVerifiedRegularSessions({ data_state: 'ready', verified_sessions: [] });
+assert.equal(panel.hidden, true);
+assert.equal(list.children.length, 0);
+"""
+    subprocess.run(["node", "-e", script, snippet], check=True)
 
 
 def test_ai_signal_home_preview_opens_full_list_before_stock_detail():

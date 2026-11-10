@@ -313,7 +313,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261111v592"
+DASHBOARD_CLIENT_VERSION = "20261111v593"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -8918,6 +8918,42 @@ def stock_quant_signals(
             rf"{re.escape(code)} (\d{{4}}-\d{{2}}-\d{{2}}): 검증된 정규장 가격이 없습니다",
             str(exc),
         )
+        if missing_session and missing_session.group(1) == "2026-11-06":
+            from app.services.regular_session_gap import verified_sessions_around_gap
+
+            gap_date = date(2026, 11, 6)
+            verified = verified_sessions_around_gap(db, code, gap_date)
+            if verified:
+                stock = db.get(StockMaster, code)
+                message = (
+                    "2026-11-06 정규장 기록을 제외하고 검증된 날짜의 가격만 표시합니다. "
+                    "매매 순서를 확인하기 전에는 확정 AI 시그널을 표시하지 않습니다."
+                )
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                return {
+                    "code": code, "name": stock.name, "market": stock.market,
+                    "sector": stock.sector, "industry": stock.industry,
+                    "as_of": datetime.now(KST),
+                    "strategy_name": "비밀노트 AI 시그널",
+                    "strategy_version": STRATEGY_VERSION,
+                    "execution_model": EXECUTION_MODEL,
+                    "source": "검증된 KRX 정규장 가격 근거",
+                    "signal_source": "verified_session_partial",
+                    "data_rows": len(verified),
+                    "price_through": verified[0]["trade_date"],
+                    "data_state": "incomplete", "data_message": message,
+                    "excluded_session_date": gap_date,
+                    "verified_sessions": verified,
+                    "confirmation": {
+                        "state": "limited", "label": "장중 기록 확인 중",
+                        "available_count": 0, "total_count": 0,
+                        "note": message, "quality_state": "blocked",
+                    },
+                    "current": None, "performance": None,
+                    "events": [], "trades": [], "factors": [],
+                    "disclaimer": "검증된 가격만 표시하며 매매 시그널은 확정하지 않습니다.",
+                }
         detail = (
             f"{missing_session.group(1)} 정규장 체결 자료가 검증되지 않아 AI 시그널을 보류합니다. "
             "해당 날짜의 매매 순서를 확인하기 전에는 확정 신호를 표시하지 않습니다."

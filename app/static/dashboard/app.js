@@ -172,6 +172,8 @@ const elements = {
   aiRisks: $("ai-risks"),
   aiSectionList: $("ai-section-list"),
   quantSignalStatus: $("quant-signal-status"),
+  quantVerifiedSessions: $("quant-verified-sessions"),
+  quantVerifiedList: $("quant-verified-list"),
   quantSignalContent: $("quant-signal-content"),
   usStockAIContent: $("us-stock-ai-content"),
   usStockAIStance: $("us-stock-ai-stance"),
@@ -26233,7 +26235,10 @@ function resetQuantSignals(message = "AI 시그널을 계산하는 중입니다.
   if (elements.quantSignalStatus) {
     elements.quantSignalStatus.hidden = false;
     elements.quantSignalStatus.textContent = message;
+    elements.quantSignalStatus.classList?.remove("is-partial");
   }
+  if (elements.quantVerifiedSessions) elements.quantVerifiedSessions.hidden = true;
+  if (elements.quantVerifiedList) elements.quantVerifiedList.replaceChildren();
   if (elements.quantSignalContent) {
     elements.quantSignalContent.hidden = true;
   }
@@ -26824,15 +26829,37 @@ function renderQuantSignalChart() {
   setText(elements.quantChartSource, `최근 1년 · ${formatNumber(rows.length)}거래일`);
 }
 
+function renderVerifiedRegularSessions(payload) {
+  const panel = elements.quantVerifiedSessions;
+  const list = elements.quantVerifiedList;
+  if (!panel || !list) return;
+  list.replaceChildren();
+  const rows = payload.data_state === "incomplete" && Array.isArray(payload.verified_sessions)
+    ? payload.verified_sessions.slice(0, 5) : [];
+  panel.hidden = rows.length === 0;
+  for (const item of rows) {
+    const row = document.createElement("div");
+    const day = document.createElement("strong");
+    const price = document.createElement("span");
+    row.className = "quant-verified-row";
+    day.textContent = formatQuantActionDate(item.trade_date);
+    price.textContent = `종가 ${formatQuantPrice(item.close)} · 거래량 ${formatNumber(item.volume)}`;
+    row.append(day, price);
+    list.appendChild(row);
+  }
+}
+
 function renderQuantSignals(payload) {
   payload = sanitizePendingEntryAiSignal(payload);
   state.stockQuantSignals = payload;
   state.stockQuantRequestedCode = payload.code;
+  renderVerifiedRegularSessions(payload);
   if (elements.quantSignalStatus) {
     const nonTrading = payload.trading_state === "non_trading";
     elements.quantSignalStatus.hidden = payload.data_state === "ready" && !nonTrading;
     elements.quantSignalStatus.textContent = payload.data_message || "신호 데이터가 부족합니다.";
     elements.quantSignalStatus.classList.toggle("is-non-trading", nonTrading);
+    elements.quantSignalStatus.classList.toggle("is-partial", payload.data_state === "incomplete" && Boolean(payload.excluded_session_date));
   }
   if (!elements.quantSignalContent) {
     return;

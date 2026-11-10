@@ -21871,6 +21871,33 @@ body[data-view="stock"] .shell[data-ui-version="3.0"] {
   line-height: 1.55;
 }
 
+#stock-view.stock-detail-v3 .quant-signal-status.is-partial {
+  min-height: 0;
+  padding: 16px 18px;
+  place-items: start;
+  background: #fff9ed;
+  border-color: #ead9af;
+  color: #6d5420;
+  line-height: 1.6;
+}
+
+#stock-view.stock-detail-v3 .quant-verified-sessions[hidden] { display: none; }
+#stock-view.stock-detail-v3 .quant-verified-sessions > p {
+  color: var(--stock-v3-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+#stock-view.stock-detail-v3 .quant-verified-list { display: grid; gap: 8px; }
+#stock-view.stock-detail-v3 .quant-verified-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--stock-v3-line);
+  font-size: 14px;
+}
+#stock-view.stock-detail-v3 .quant-verified-row span { color: var(--stock-v3-muted); }
+
 #stock-view.stock-detail-v3 .quant-signal-stack {
   display: grid;
   gap: 14px;

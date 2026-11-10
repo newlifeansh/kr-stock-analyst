@@ -1251,6 +1251,15 @@ class QuantCurrentSignalOut(BaseModel):
     reconciliation_id: Optional[str] = None
 
 
+class VerifiedRegularSessionOut(BaseModel):
+    trade_date: date
+    open: int
+    high: int
+    low: int
+    close: int
+    volume: int
+
+
 class StockQuantSignalsOut(BaseModel):
     code: str
     name: str
@@ -1264,6 +1273,8 @@ class StockQuantSignalsOut(BaseModel):
     strategy_version: str
     price_basis: Optional[dict[str, object]] = None
     legacy_history: list[dict[str, object]] = Field(default_factory=list)
+    excluded_session_date: Optional[date] = None
+    verified_sessions: list[VerifiedRegularSessionOut] = Field(default_factory=list)
     candidate_strategy_version: Optional[str] = None
     strategy_version_history: list[dict[str, object]] = Field(default_factory=list)
     execution_model: Optional[str] = None

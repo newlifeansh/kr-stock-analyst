@@ -3953,6 +3953,85 @@ def test_stock_signal_detail_names_missing_regular_session_without_claiming_a_si
         db.close()
 
 
+def test_stock_signal_detail_exposes_only_other_verified_sessions_for_november_gap(monkeypatch):
+    from app.services.regular_session_prices import regular_session_evidence, store_regular_session_evidence
+    from tests.test_regular_session_prices import minute_rows
+
+    db = _session()
+    db.add(_stock("005930"))
+    for day in (date(2026, 11, 9), date(2026, 11, 10)):
+        rows = minute_rows()
+        for row in rows:
+            row["trade_date"] = day.strftime("%Y%m%d")
+        evidence = regular_session_evidence(
+            "005930", day, rows,
+            observed_at=datetime(2026, 11, 11, 6, tzinfo=quant_signals.KST),
+        )
+        assert evidence["state"] == "ready"
+        store_regular_session_evidence(
+            db, evidence, observed_at=datetime(2026, 11, 11, 6, tzinfo=quant_signals.KST),
+        )
+    db.commit()
+
+    def override_db():
+        yield db
+
+    monkeypatch.setattr(main, "ensure_stock_price_history", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(main, "_fetch_uncached_current_quote", lambda *_args, **_kwargs: ({}, "test"))
+    monkeypatch.setattr(
+        main, "load_reference_quant_signal_payload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            quant_signals.UnverifiedIntradayPathError(
+                "005930 2026-11-06: 검증된 정규장 가격이 없습니다"
+            )
+        ),
+    )
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/stocks/005930/quant-signals")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["data_state"] == "incomplete"
+        assert payload["excluded_session_date"] == "2026-11-06"
+        assert [row["trade_date"] for row in payload["verified_sessions"]] == ["2026-11-10", "2026-11-09"]
+        assert payload["price_through"] == "2026-11-10"
+        assert payload["current"] is None and payload["performance"] is None
+        assert payload["events"] == payload["trades"] == []
+        assert "2026-11-06" in payload["data_message"]
+        assert response.headers["cache-control"].startswith("no-store")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
+def test_stock_signal_detail_does_not_apply_november_exception_to_another_date(monkeypatch):
+    db = _session()
+    db.add(_stock("005930"))
+    db.commit()
+
+    def override_db():
+        yield db
+
+    monkeypatch.setattr(main, "ensure_stock_price_history", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(main, "_fetch_uncached_current_quote", lambda *_args, **_kwargs: ({}, "test"))
+    monkeypatch.setattr(
+        main, "load_reference_quant_signal_payload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            quant_signals.UnverifiedIntradayPathError(
+                "005930 2026-11-05: 검증된 정규장 가격이 없습니다"
+            )
+        ),
+    )
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/stocks/005930/quant-signals")
+        assert response.status_code == 503
+        assert "2026-11-05" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
 def test_quant_signals_stop_when_a_weekday_candle_has_no_confirmed_open():
     rows = _price_rows("096770")
     rows[-2].open = None
