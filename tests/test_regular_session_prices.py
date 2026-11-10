@@ -431,6 +431,75 @@ def test_regular_backfill_redacts_source_errors_and_keeps_failures_visible(db):
     assert "do-not-export" not in json.dumps(result)
 
 
+def test_regular_backfill_prioritizes_old_unverified_session_under_pair_cap(db):
+    from types import SimpleNamespace
+
+    bad = rsp.regular_session_evidence("005930", DAY, [], observed_at=OBSERVED)
+    assert bad["state"] == "unverified"
+    rsp.store_regular_session_evidence(db, bad, observed_at=OBSERVED)
+    db.commit()
+    calls = []
+
+    def fetch(code, day):
+        calls.append((code, day))
+        return {"rows": minute_rows()}
+
+    result = rsp.collect_regular_session_prices(
+        db, SimpleNamespace(fetch_regular_session_data=fetch),
+        codes=["005930"], start=DAY, end=DAY + timedelta(days=1),
+        observed_at=OBSERVED + timedelta(days=1), persist=True, max_pairs=1,
+    )
+    assert calls == [("005930", DAY)]
+    assert result["attempted"] == 1 and result["deferred"] == 1
+    assert rsp.load_regular_session_evidence(db, "005930", DAY)["state"] == "ready"
+
+
+def test_regular_backfill_cools_down_unverified_source_without_hiding_failure(db):
+    from types import SimpleNamespace
+
+    bad = rsp.regular_session_evidence("005930", DAY, [], observed_at=OBSERVED)
+    rsp.store_regular_session_evidence(db, bad, observed_at=OBSERVED)
+    db.commit()
+    calls = []
+
+    def fetch(code, day):
+        calls.append((code, day))
+        return {"rows": minute_rows()}
+
+    result = rsp.collect_regular_session_prices(
+        db, SimpleNamespace(fetch_regular_session_data=fetch),
+        codes=["000660", "005930"], start=DAY, end=DAY,
+        observed_at=OBSERVED + timedelta(minutes=10), persist=True, max_pairs=2,
+    )
+    assert calls == [("000660", DAY)]
+    assert result["attempted"] == 1
+    assert {item["reason"] for item in result["unverified"]} == {"retry_cooldown"}
+    assert result["state"] == "incomplete"
+
+
+def test_regular_backfill_reserves_capacity_for_new_sessions_when_old_failures_accumulate(db):
+    from types import SimpleNamespace
+
+    for code in ("000660", "005930"):
+        bad = rsp.regular_session_evidence(code, DAY, [], observed_at=OBSERVED)
+        rsp.store_regular_session_evidence(db, bad, observed_at=OBSERVED)
+    db.commit()
+    calls = []
+
+    def fetch(code, day):
+        calls.append((code, day))
+        return {"rows": minute_rows()}
+
+    result = rsp.collect_regular_session_prices(
+        db, SimpleNamespace(fetch_regular_session_data=fetch),
+        codes=["000660", "005930"], start=DAY, end=DAY + timedelta(days=1),
+        observed_at=OBSERVED + timedelta(days=1), persist=True, max_pairs=2,
+    )
+    assert calls == [("000660", DAY), ("000660", DAY + timedelta(days=1))]
+    assert result["attempted"] == 2
+    assert result["deferred"] == 2
+
+
 def test_regular_turnover_accepts_observed_day_boundary_not_assumed_zero():
     rows = minute_rows()[1:]
     for row in rows:

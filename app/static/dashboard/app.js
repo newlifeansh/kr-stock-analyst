@@ -9943,6 +9943,14 @@ async function fetchJsonCached(url, options = {}) {
       if (!response.ok) {
         const error = new Error(`request failed: ${url}`);
         error.status = response.status;
+        if (response.status === 503 && /\/stocks\/[^/]+\/quant-signals(?:\?|$)/.test(url)) {
+          try {
+            const failure = await response.json();
+            if (typeof failure?.detail === "string" && failure.detail.length <= 240) {
+              error.detail = failure.detail;
+            }
+          } catch { /* Preserve the status when the error body is unavailable. */ }
+        }
         const retryAfter = Number(response.headers.get("Retry-After"));
         error.retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0
           ? retryAfter * 1000
@@ -26943,7 +26951,7 @@ async function loadQuantSignals(options = {}) {
       && state.currentStock?.code === code
     ) {
       if (error?.status === 503) {
-        resetQuantSignals("과거 장중 매매 기록을 재검증 중입니다. 확인 전에는 확정 시그널을 표시하지 않습니다. 자료 확인 후 새로고침해 주세요.");
+        resetQuantSignals(error?.detail || "과거 장중 매매 기록을 재검증 중입니다. 확인 전에는 확정 시그널을 표시하지 않습니다. 자료 확인 후 새로고침해 주세요.");
       } else if (elements.quantSignalStatus) {
         elements.quantSignalStatus.hidden = false;
         elements.quantSignalStatus.textContent = "AI 시그널을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";

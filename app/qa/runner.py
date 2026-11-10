@@ -809,6 +809,15 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_signal_transition.test_rolling_flat_replay_keeps_unproven_stocks_quarantined[conflict_date]",
         "tests.test_regular_signal_transition.test_rolling_flat_replay_refuses_first_activation_after_market_open",
     ),
+    "DATA-KR-REGULAR-GAP-001": (
+        "tests.test_regular_session_prices.test_regular_backfill_prioritizes_old_unverified_session_under_pair_cap",
+        "tests.test_regular_session_prices.test_regular_backfill_cools_down_unverified_source_without_hiding_failure",
+        "tests.test_regular_session_prices.test_regular_backfill_reserves_capacity_for_new_sessions_when_old_failures_accumulate",
+        "tests.test_app.test_regular_evidence_retry_window_includes_premarket_but_not_closed_market",
+        "tests.test_quant_signals.test_stock_signal_detail_names_missing_regular_session_without_claiming_a_signal",
+        "tests.test_app.test_domestic_signal_detail_503_hides_old_content_and_explains_hold",
+        "tests.test_app.test_domestic_signal_detail_503_reads_safe_server_reason",
+    ),
     "SIG-KR-REGULAR-VALIDATION-CACHE-001": (
         "tests.test_regular_session_prices."
         "test_regular_loader_reuses_only_identical_validated_content",
