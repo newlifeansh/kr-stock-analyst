@@ -279,6 +279,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_signal_transition.test_forward_entry_policy_does_not_reuse_legacy_confirmation",
         "tests.test_regular_signal_transition.test_forward_collection_does_not_call_sources_before_first_close",
         "tests.test_regular_signal_transition.test_forward_market_feed_preserves_published_returns_without_legacy_alerts",
+        "tests.test_regular_signal_transition.test_forward_detail_and_feed_do_not_inherit_or_block_a_frozen_legacy_holding",
         "tests.test_regular_signal_transition.test_forward_feed_freezes_current_entry_evidence_before_old_path_is_quarantined",
         "tests.test_regular_signal_transition.test_forward_shadow_uses_same_verified_paths_and_never_promotes",
         "tests.test_regular_signal_transition.test_forward_execution_uses_prior_close_risk_not_current_day_hindsight",
