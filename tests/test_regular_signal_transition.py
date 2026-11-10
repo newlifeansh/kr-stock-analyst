@@ -106,11 +106,13 @@ def test_forward_inputs_never_fall_back_to_display_ohlc(db):
 
 
 def _flat_replay_fixture(db, monkeypatch, *, conflict_date=date(2026, 10, 30),
-                         published_event=False, stale=False, observed=False):
+                         published_event=False, stale=False, observed=False,
+                         warmup_date=None):
     from app.services.regular_price_replay import RegularPriceEnvelope
 
     code = "005930"
-    warmup = transition.FLAT_REPLAY_WARMUP_DATE
+    warmup = warmup_date or transition.FLAT_REPLAY_WARMUP_DATE
+    source_day = warmup - timedelta(days=1) if stale else warmup
     rows = history(code) + [DailyPrice(
         code=code, trade_date=warmup, open=100, high=101, low=99,
         close=100, volume=1000, trading_value=101_000_000_000,
@@ -123,14 +125,14 @@ def _flat_replay_fixture(db, monkeypatch, *, conflict_date=date(2026, 10, 30),
     for days in (30, 90):
         payload = {
             "strategy_version": transition.REGULAR_FORWARD_STRATEGY_VERSION,
-            "as_of": "2026-11-02T22:00:00+09:00" if stale else "2026-11-03T22:00:00+09:00",
-            "universe_as_of": "2026-11-02" if stale else "2026-11-03",
+            "as_of": f"{source_day.isoformat()}T22:00:00+09:00",
+            "universe_as_of": source_day.isoformat(),
             "items": [item] if item else [],
         }
         key = qs.market_quant_signal_snapshot_key(150, 0, days)
         record = MarketQuantSignalSnapshot(
             cache_key=key, payload=json.dumps(payload),
-            generated_at=datetime(2026, 11, 2 if stale else 3, 13),
+            generated_at=datetime(source_day.year, source_day.month, source_day.day, 13),
         )
         db.add(record)
         sources[key] = record.payload
@@ -315,6 +317,61 @@ def test_flat_replay_rejects_stale_universe_even_with_new_generation_clock(db, m
         )
     assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
 
+
+
+def test_rolling_flat_replay_recovers_proven_flat_stock_before_next_open(db, monkeypatch):
+    warmup = date(2026, 11, 10)
+    code, envelope, timeline, sources, calls = _flat_replay_fixture(
+        db, monkeypatch, warmup_date=warmup,
+    )
+    now = datetime(2026, 11, 11, 8, 30, tzinfo=qs.KST)
+    paths, lifecycle_start, baseline = transition.prepare_forward_paths_with_flat_replay(
+        db, code, envelope, now=now, evidence_timeline=timeline,
+    )
+    assert paths == {warmup: []}
+    assert lifecycle_start == warmup
+    assert baseline["policy"] == transition.FLAT_REPLAY_ROLLING_POLICY
+    assert baseline["entry_date"] == "2026-11-11"
+    assert baseline["conflict_date"] == "2026-10-30"
+    assert calls == [None, warmup]
+    assert {key: db.get(MarketQuantSignalSnapshot, key).payload for key in sources} == sources
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") == baseline
+    again = transition.prepare_forward_paths_with_flat_replay(
+        db, code, envelope, now=datetime(2026, 11, 12, 8, tzinfo=qs.KST),
+        evidence_timeline=timeline,
+    )
+    assert again == (paths, lifecycle_start, baseline)
+    assert calls[-1] == warmup
+
+
+@pytest.mark.parametrize("fixture_changes", [
+    {"published_event": True},
+    {"stale": True},
+    {"observed": True},
+    {"conflict_date": date(2026, 11, 10)},
+], ids=["published_event", "stale", "observed", "conflict_date"])
+def test_rolling_flat_replay_keeps_unproven_stocks_quarantined(db, monkeypatch, fixture_changes):
+    code, envelope, timeline, _, _ = _flat_replay_fixture(
+        db, monkeypatch, warmup_date=date(2026, 11, 10), **fixture_changes,
+    )
+    with pytest.raises(UnverifiedRegularSessionPrice):
+        transition.prepare_forward_paths_with_flat_replay(
+            db, code, envelope, now=datetime(2026, 11, 11, 8, 30, tzinfo=qs.KST),
+            evidence_timeline=timeline,
+        )
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
+
+
+def test_rolling_flat_replay_refuses_first_activation_after_market_open(db, monkeypatch):
+    code, envelope, timeline, _, _ = _flat_replay_fixture(
+        db, monkeypatch, warmup_date=date(2026, 11, 10),
+    )
+    with pytest.raises(UnverifiedRegularSessionPrice):
+        transition.prepare_forward_paths_with_flat_replay(
+            db, code, envelope, now=datetime(2026, 11, 11, 9, 0, tzinfo=qs.KST),
+            evidence_timeline=timeline,
+        )
+    assert transition._load(db, f"{transition.REGULAR_FORWARD_VERSION}:flat-replay:{code}") is None
 
 def test_flat_replay_stock_detail_uses_same_start_and_exposes_policy(db, monkeypatch):
     from app.services.regular_price_replay import RegularPriceEnvelope

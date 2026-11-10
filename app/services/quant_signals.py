@@ -6564,6 +6564,10 @@ def load_market_quant_signal_feed(
                 intraday_quote_loader=intraday_quote_loader,
             )
         except (UnverifiedIntradayPathError, UnverifiedRegularSessionPrice) as exc:
+            logger.warning(
+                "Market quant signal replay quarantined: code=%s reason=%s",
+                code, exc,
+            )
             rebased_codes.discard(code)
             unverified_codes.add(code)
             for previous_item in previous_items_by_code.get(code, []):

@@ -29,6 +29,7 @@ LEGACY_MARKET_SNAPSHOT_VERSIONS = ("v36", "v35")
 FLAT_REPLAY_WARMUP_DATE = date(2026, 11, 3)
 FLAT_REPLAY_ENTRY_DATE = date(2026, 11, 4)
 FLAT_REPLAY_POLICY = "krx-regular-flat-replay-v1"
+FLAT_REPLAY_ROLLING_POLICY = "krx-regular-flat-replay-v2"
 
 
 class HistoricalPathConflict(UnverifiedRegularSessionPrice):
@@ -292,63 +293,96 @@ def prepare_forward_paths_with_flat_replay(
     key = f"{REGULAR_FORWARD_VERSION}:flat-replay:{code}"
     baseline = _load(db, key)
     if baseline is not None:
-        if (baseline.get("policy") != FLAT_REPLAY_POLICY or baseline.get("code") != code
-                or baseline.get("warmup_date") != FLAT_REPLAY_WARMUP_DATE.isoformat()
-                or baseline.get("entry_date") != FLAT_REPLAY_ENTRY_DATE.isoformat()):
+        try:
+            warmup_date = date.fromisoformat(str(baseline["warmup_date"]))
+            entry_date = date.fromisoformat(str(baseline["entry_date"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise UnverifiedRegularSessionPrice("재시작 기준선의 날짜가 잘못됐습니다") from exc
+        fixed = (
+            baseline.get("policy") == FLAT_REPLAY_POLICY
+            and warmup_date == FLAT_REPLAY_WARMUP_DATE
+            and entry_date == FLAT_REPLAY_ENTRY_DATE
+        )
+        rolling = (
+            baseline.get("policy") == FLAT_REPLAY_ROLLING_POLICY
+            and warmup_date >= FLAT_REPLAY_WARMUP_DATE
+            and entry_date > warmup_date
+        )
+        if baseline.get("code") != code or not (fixed or rolling):
             raise UnverifiedRegularSessionPrice("재시작 기준선의 정책이 일치하지 않습니다")
         paths = prepare_forward_paths(db, code, envelope, now=now,
-                                      min_trade_date=FLAT_REPLAY_WARMUP_DATE)
-        return paths, FLAT_REPLAY_WARMUP_DATE, baseline
+                                      min_trade_date=warmup_date)
+        return paths, warmup_date, baseline
     try:
         return prepare_forward_paths(db, code, envelope, now=now), REGULAR_FORWARD_START, None
     except HistoricalPathConflict as exc:
-        if now.date() != FLAT_REPLAY_ENTRY_DATE or exc.trade_date >= FLAT_REPLAY_WARMUP_DATE:
+        if now.date() == FLAT_REPLAY_ENTRY_DATE:
+            warmup_date = FLAT_REPLAY_WARMUP_DATE
+            policy = FLAT_REPLAY_POLICY
+        else:
+            # First activation may move to a later session only before the
+            # opening auction. This avoids retroactively executing a touch
+            # from a morning that was already observed while quarantined.
+            from app.services import quant_signals as qs
+
+            warmup_date = qs.latest_completed_korea_market_session_date(now)
+            if (
+                now.date() <= FLAT_REPLAY_ENTRY_DATE
+                or now.time() >= time(9, 0)
+                or not qs.is_korea_market_session_date(now.date(), now)
+                or warmup_date is None
+                or warmup_date < FLAT_REPLAY_WARMUP_DATE
+                or warmup_date >= now.date()
+            ):
+                raise
+            policy = FLAT_REPLAY_ROLLING_POLICY
+        if exc.trade_date >= warmup_date:
             raise
-        if (FLAT_REPLAY_WARMUP_DATE not in envelope.evidence
-                or FLAT_REPLAY_WARMUP_DATE not in evidence_timeline
-                or evidence_timeline[FLAT_REPLAY_WARMUP_DATE].get("strategy_version") != REGULAR_FORWARD_STRATEGY_VERSION
-                or evidence_timeline[FLAT_REPLAY_WARMUP_DATE].get("policy_version") != REGULAR_FORWARD_ENTRY_POLICY):
+        if (warmup_date not in envelope.evidence
+                or warmup_date not in evidence_timeline
+                or evidence_timeline[warmup_date].get("strategy_version") != REGULAR_FORWARD_STRATEGY_VERSION
+                or evidence_timeline[warmup_date].get("policy_version") != REGULAR_FORWARD_ENTRY_POLICY):
             raise UnverifiedRegularSessionPrice("재시작 전일의 독립 근거가 없습니다") from exc
         sources = _flat_replay_publication_sources(db, code, now=now)
         observed = db.scalar(select(QuantSignalObservedEntry.stock_code).where(
             QuantSignalObservedEntry.stock_code == code,
             QuantSignalObservedEntry.trade_date >= REGULAR_FORWARD_START,
-            QuantSignalObservedEntry.trade_date < FLAT_REPLAY_ENTRY_DATE,
+            QuantSignalObservedEntry.trade_date < now.date(),
         ).limit(1))
         if observed is not None:
             raise UnverifiedRegularSessionPrice("기존 장중 관측 이력을 보존해야 합니다") from exc
         paths = prepare_forward_paths(db, code, envelope, now=now,
-                                      min_trade_date=FLAT_REPLAY_WARMUP_DATE)
+                                      min_trade_date=warmup_date)
         from app.services import quant_signals as qs
 
         bars = qs._normalize_prices([row for row in envelope.lower
-                                     if row.trade_date <= FLAT_REPLAY_WARMUP_DATE])
+                                     if row.trade_date <= warmup_date])
         if (len(bars) < qs.MIN_HISTORY_ROWS
-                or bars[-1].trade_date != FLAT_REPLAY_WARMUP_DATE
+                or bars[-1].trade_date != warmup_date
                 or not bars[-1].ohlc_complete):
             raise UnverifiedRegularSessionPrice("재시작 전일의 완전 일봉이 없습니다") from exc
         simulation = qs._simulate(
             bars, qs._indicator_rows(bars), evidence_timeline,
             intraday_minutes_by_date={day: minutes for day, minutes in paths.items()
-                                      if day <= FLAT_REPLAY_WARMUP_DATE},
-            lifecycle_start_date=FLAT_REPLAY_WARMUP_DATE,
+                                      if day <= warmup_date},
+            lifecycle_start_date=warmup_date,
         )
         if (simulation["events"] or simulation["trades"]
                 or simulation["pending"] or simulation["position"]):
             raise UnverifiedRegularSessionPrice("재시작 전일에 열린 전략 상태가 있습니다") from exc
         requested = {
-            "policy": FLAT_REPLAY_POLICY, "code": code,
-            "warmup_date": FLAT_REPLAY_WARMUP_DATE,
-            "entry_date": FLAT_REPLAY_ENTRY_DATE,
+            "policy": policy, "code": code,
+            "warmup_date": warmup_date,
+            "entry_date": now.date(),
             "conflict_date": exc.trade_date,
             "publication_sources": sources,
-            "evidence_hash": sha256(_json(evidence_timeline[FLAT_REPLAY_WARMUP_DATE]).encode()).hexdigest(),
+            "evidence_hash": sha256(_json(evidence_timeline[warmup_date]).encode()).hexdigest(),
             "flat_events": 0, "flat_pending": False, "flat_position": False,
         }
         baseline = _freeze(db, key, requested)
         if baseline != json.loads(_json(requested)):
             raise UnverifiedRegularSessionPrice("동시 재시작 기준선이 일치하지 않습니다") from exc
-        return paths, FLAT_REPLAY_WARMUP_DATE, baseline
+        return paths, warmup_date, baseline
 
 
 def prepare_forward_inputs(db: Session, code: str, rows: list[DailyPrice], *, now: datetime, include_paths: bool = True):
