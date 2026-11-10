@@ -485,6 +485,46 @@ def test_forward_feed_freezes_current_entry_evidence_before_old_path_is_quaranti
     assert result["items"] == []
 
 
+def test_forward_detail_and_feed_do_not_inherit_or_block_a_frozen_legacy_holding(db):
+    code = "005930"
+    db.add(StockMaster(code=code, name="삼성전자", market="KOSPI", is_active=True))
+    db.add_all(history(code))
+    legacy = {"strategy_version": "position-lifecycle-v8.0", "items": [{
+        "code": code, "name": "삼성전자", "market": "KOSPI", "market_cap_rank": 1,
+        "signal_date": "2026-10-12", "execution_date": "2026-10-12",
+        "is_preliminary": False, "status": "confirmed", "event_side": "buy",
+        "side": "buy", "state_after": "holding", "entry_price": 101,
+        "current": {"position_open": True}, "is_current_holding": True,
+        "alert_eligible": True,
+    }]}
+    db.add(MarketQuantSignalSnapshot(
+        cache_key="v35:150:0:90", payload=json.dumps(legacy),
+        generated_at=datetime(2026, 10, 12, 21),
+    ))
+    db.commit()
+    original = db.get(MarketQuantSignalSnapshot, "v35:150:0:90").payload
+    now = datetime(2026, 10, 13, 8, tzinfo=qs.KST)
+
+    detail = qs.load_quant_signal_payload(db, code, now=now)
+    assert detail is not None
+    assert detail["data_state"] == "ready"
+    assert detail["events"] == []
+    assert detail["current"]["position_open"] is False
+    assert detail["performance"]["completed_trades"] == 0
+    assert len(detail["legacy_history"]) == 1
+    assert detail["legacy_history"][0]["history_frozen"] is True
+    assert detail["legacy_history"][0]["is_current_holding"] is False
+    assert detail["legacy_history"][0]["alert_eligible"] is False
+
+    feed = qs.load_market_quant_signal_feed(
+        db, universe_limit=150, limit=0, recent_days=90, now=now,
+    )
+    assert code not in feed["execution_replay_unverified_codes"]
+    assert feed["data_state"] == "ready"
+    assert all(not item.get("alert_eligible") for item in feed["items"])
+    assert db.get(MarketQuantSignalSnapshot, "v35:150:0:90").payload == original
+
+
 def test_forward_shadow_uses_same_verified_paths_and_never_promotes(db, monkeypatch):
     from app.services import entry_filter_backtest as shadow
     class Clock(datetime):

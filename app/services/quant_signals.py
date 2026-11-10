@@ -60,7 +60,7 @@ from app.services.position_lifecycle_core import (
 )
 from app.services.regular_signal_transition import (
     REGULAR_FORWARD_START, REGULAR_FORWARD_STRATEGY_VERSION,
-    archived_market_items, freeze_legacy_market_publication, legacy_open_codes,
+    archived_market_items, freeze_legacy_market_publication,
     prepare_forward_inputs, prepare_forward_envelope, prepare_forward_paths_with_flat_replay,
     forward_entry_timeline,
     publish_forward_metadata,
@@ -5164,8 +5164,8 @@ def load_quant_signal_payload(
     if current_time.date() >= REGULAR_FORWARD_START:
         try:
             archive = freeze_legacy_market_publication(db, MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 90)
-            if code in legacy_open_codes(archive):
-                raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증이 필요하여 새 진입을 보류합니다")
+            # The archived position belongs to the frozen legacy publication.
+            # Forward replay starts at REGULAR_FORWARD_START and never inherits it.
             envelope = prepare_forward_envelope(db, code, rows, now=current_time)
             timeline = forward_entry_timeline(db, stock, envelope.lower, flow_prices=rows, now=current_time)
             paths, lifecycle_start, rebase = prepare_forward_paths_with_flat_replay(
@@ -6427,7 +6427,6 @@ def load_market_quant_signal_feed(
     current_quotes = live_quotes or {}
     forward_mode = current_time.date() >= REGULAR_FORWARD_START
     archive = freeze_legacy_market_publication(db, capped_universe_limit, capped_limit, capped_recent_days) if forward_mode else None
-    legacy_holdings = legacy_open_codes(archive) if archive else set()
     items: list[dict[str, Any]] = archived_market_items(archive, as_of=current_time.date(), recent_days=capped_recent_days) if archive else []
     forward_errors = {}
     extended_qualified_codes: set[str] = set()
@@ -6444,8 +6443,6 @@ def load_market_quant_signal_feed(
         lifecycle_start = REGULAR_FORWARD_START
         if forward_mode:
             try:
-                if code in legacy_holdings:
-                    raise UnverifiedRegularSessionPrice("기존 보유 모델의 승계 검증 대기")
                 # Keep the full envelope for this stock only. Its immutable
                 # regular-session evidence is needed again after today's
                 # independent entry snapshot has been saved.
@@ -6515,8 +6512,6 @@ def load_market_quant_signal_feed(
                     # delays candidate publication without changing a result.
                     peer_prices = {}
                     for peer_code, peer_rows in prices_by_code.items():
-                        if peer_code in legacy_holdings:
-                            continue
                         if peer_code == code:
                             peer_prices[peer_code] = stock_price_rows
                             continue
