@@ -1666,6 +1666,42 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_etf(
     assert payload["signal_action"] is None
 
 
+def test_domestic_e2e_tracks_verified_prices_without_claiming_a_signal(monkeypatch) -> None:
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url):
+            if url.endswith("/quant-signals"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "data_state": "incomplete",
+                        "excluded_session_date": "2026-11-06",
+                        "verified_sessions": [
+                            {"trade_date": "2026-11-10", "close": 198900, "volume": 100}
+                        ],
+                        "current": None,
+                    },
+                )
+            if url.endswith("/quote"):
+                return httpx.Response(200, json={"quote": {"price": 198900}})
+            return httpx.Response(
+                200,
+                json={"code": "005930", "name": "삼성전자", "market": "KOSPI"},
+            )
+
+    monkeypatch.setattr("app.qa.e2e.httpx.Client", lambda **_kwargs: FakeClient())
+    payload = _stock_contract("https://staging.test", 5, "005930")
+    assert payload["signal_data_state"] == "incomplete"
+    assert payload["excluded_session_date"] == "2026-11-06"
+    assert payload["verified_sessions"][0]["trade_date"] == "2026-11-10"
+    assert payload["signal_action"] is None
+
+
 def test_domestic_e2e_suppresses_only_the_verified_replay_pending_http_error() -> None:
     allowed = {(503, "/stocks/069500/quant-signals")}
 
