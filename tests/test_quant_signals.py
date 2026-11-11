@@ -1352,7 +1352,7 @@ def test_kr_next_open_entry_is_signal_date_scoped_and_keeps_old_breakout(monkeyp
             assert buys[0].get("intraday_execution_verified") is None
             with_minutes = qs._simulate(
                 bars, indicators, lifecycle_start_date=signal_day,
-                intraday_minutes=[bars[66]],
+                intraday_minutes_by_date={bars[66].trade_date: [bars[66]]},
             )
             minute_buys = [event for event in with_minutes["events"] if event["side"] == "buy"]
             assert minute_buys[0]["price"] == 100
@@ -1408,6 +1408,28 @@ def test_next_open_policy_metadata_follows_last_completed_signal_date():
     assert new_signal["entry_execution_policy_version"] == quant_signals.NEXT_OPEN_ENTRY_POLICY_VERSION
     assert old_signal["strategy_name"] == quant_signals.STRATEGY_NAME
     assert new_signal["strategy_name"] == quant_signals.NEXT_OPEN_STRATEGY_NAME
+
+
+def test_next_open_entry_does_not_invent_same_day_exit_without_minute_path(monkeypatch):
+    qs = quant_signals
+    monkeypatch.setattr(
+        qs, "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {"allowed": True, "state": "approved", "reason": "fixture"},
+    )
+    bars, indicators = _strategy_test_inputs(67)
+    signal_day = date(2026, 11, 12)
+    bars[65] = qs.PriceBar(signal_day, 100, 101, 99, 100, 1_000_000, 50_000_000_000)
+    bars[66] = qs.PriceBar(date(2026, 11, 13), 100, 106, 99, 105, 1_000_000, 50_000_000_000)
+    _set_entry_indicator(indicators[65])
+    result = qs._simulate(bars, indicators, lifecycle_start_date=signal_day)
+    assert [event["side"] for event in result["events"]] == ["buy"]
+    verified = qs._simulate(
+        bars, indicators, lifecycle_start_date=signal_day,
+        intraday_minutes_by_date={date(2026, 11, 13): [
+            qs.PriceBar(date(2026, 11, 13), 100, 106, 100, 105, 100_000, 10_000_000_000)
+        ]},
+    )
+    assert "partial_sell" in [event["side"] for event in verified["events"]]
 
 
 def test_v8_intraday_sell_is_stop_first_and_emits_every_reached_profit_stage():

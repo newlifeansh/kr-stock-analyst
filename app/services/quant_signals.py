@@ -2575,6 +2575,7 @@ def _simulate(
                     "entry_price": execution_price,
                     "entry_index": index,
                     "signal_date": active_pending["signal_date"],
+                    "entry_execution_policy_version": active_pending.get("entry_execution_policy_version"),
                     "score": active_pending["score"],
                     "entry_setup": active_pending.get("entry_setup") or "trend_continuation",
                     "entry_confirmation": deepcopy(active_pending.get("entry_confirmation")),
@@ -2817,14 +2818,20 @@ def _simulate(
 
         if position and bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
             ordered_minutes = session_minutes
+            same_day_next_open_entry = bool(
+                position["entry_date"] == bar.trade_date
+                and position.get("entry_execution_policy_version")
+                == NEXT_OPEN_ENTRY_POLICY_VERSION
+            )
             if ordered_minutes and position["entry_date"] == bar.trade_date:
                 ordered_minutes = (
-                    ordered_minutes[entry_minute_index + int(close_entry):]
+                    ordered_minutes if same_day_next_open_entry
+                    else ordered_minutes[entry_minute_index + int(close_entry):]
                     if entry_minute_index is not None
                     else None
                 )
             intraday_decisions = (
-                [] if close_entry and not ordered_minutes else
+                [] if (close_entry or same_day_next_open_entry) and not ordered_minutes else
                 _ordered_intraday_exit_decisions(position, ordered_minutes, indicator)
                 if ordered_minutes
                 else _intraday_exit_decisions(position, bar, indicator)
