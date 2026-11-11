@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
-const currentVersion = "20261111v592";
+const currentVersion = "20261111v593";
 const app = fs.readFileSync("app/static/dashboard/app.js", "utf8");
 const worker = fs.readFileSync("app/static/dashboard/dashboard-sw.js", "utf8");
 

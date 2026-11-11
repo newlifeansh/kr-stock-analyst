@@ -407,6 +407,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_live_stock_quote.test_unavailable_live_quote_does_not_label_previous_close_as_live",
         "tests.test_quant_signals.test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_previous_close_at_open",
+        "tests.test_data_signal_qa.test_live_representative_signal_keeps_p0_open_for_verified_price_only",
         "tests.test_data_signal_qa.test_live_korea_market_session_accepts_fresh_minutes_and_quote",
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_stale_minutes_and_quote",
     ),
@@ -813,10 +814,15 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_session_prices.test_regular_backfill_prioritizes_old_unverified_session_under_pair_cap",
         "tests.test_regular_session_prices.test_regular_backfill_cools_down_unverified_source_without_hiding_failure",
         "tests.test_regular_session_prices.test_regular_backfill_reserves_capacity_for_new_sessions_when_old_failures_accumulate",
+        "tests.test_regular_session_prices.test_gap_summary_excludes_unverified_day_and_tampered_other_date",
         "tests.test_app.test_regular_evidence_retry_window_includes_premarket_but_not_closed_market",
         "tests.test_quant_signals.test_stock_signal_detail_names_missing_regular_session_without_claiming_a_signal",
+        "tests.test_quant_signals.test_stock_signal_detail_exposes_only_other_verified_sessions_for_november_gap",
+        "tests.test_quant_signals.test_stock_signal_detail_does_not_apply_november_exception_to_another_date",
         "tests.test_app.test_domestic_signal_detail_503_hides_old_content_and_explains_hold",
         "tests.test_app.test_domestic_signal_detail_503_reads_safe_server_reason",
+        "tests.test_app.test_domestic_signal_gap_shows_only_verified_sessions_and_hides_ready_panel",
+        "tests.test_public_signal.test_public_gap_payload_keeps_verified_prices_and_date_warning_without_signals",
     ),
     "SIG-KR-REGULAR-VALIDATION-CACHE-001": (
         "tests.test_regular_session_prices."
@@ -5105,6 +5111,15 @@ def _live_checks(
             _assert(
                 signal.get("strategy_version") == catalog["strategy_version"],
                 "상세 시그널 버전이 다릅니다.",
+            )
+            _assert(
+                signal.get("data_state") == "ready",
+                "대표 종목 확정 시그널이 검증 대기 상태입니다.",
+                **{
+                    **signal_meta,
+                    "data_state": signal.get("data_state"),
+                    "excluded_session_date": signal.get("excluded_session_date"),
+                },
             )
             context["quote"] = quote
             context["signal"] = signal

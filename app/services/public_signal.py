@@ -497,6 +497,10 @@ def public_quant_signal_payload(
         )
     if "data_message" in result:
         result["data_message"] = (
+            "2026-11-06 정규장 기록을 제외하고 검증된 날짜의 가격만 표시합니다. 매매 순서를 확인하기 전에는 확정 AI 시그널을 표시하지 않습니다."
+            if result.get("data_state") == "incomplete"
+            and str(result.get("excluded_session_date")) == "2026-11-06"
+            else
             (
                 "최신 가격·거래대금 참여도 자료로 계산했습니다."
                 if is_us_candidate

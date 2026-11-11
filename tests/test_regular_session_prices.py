@@ -500,6 +500,34 @@ def test_regular_backfill_reserves_capacity_for_new_sessions_when_old_failures_a
     assert result["deferred"] == 2
 
 
+def test_gap_summary_excludes_unverified_day_and_tampered_other_date(db):
+    from app.services.regular_session_gap import verified_sessions_around_gap
+
+    observed = datetime(2026, 11, 11, 6, tzinfo=rsp.KST)
+    gap = date(2026, 11, 6)
+    bad = rsp.regular_session_evidence("005930", gap, [], observed_at=observed)
+    rsp.store_regular_session_evidence(db, bad, observed_at=observed)
+    for day in (date(2026, 11, 9), date(2026, 11, 10)):
+        rows = minute_rows()
+        for row in rows:
+            row["trade_date"] = day.strftime("%Y%m%d")
+        ready = rsp.regular_session_evidence("005930", day, rows, observed_at=observed)
+        rsp.store_regular_session_evidence(db, ready, observed_at=observed)
+    db.commit()
+    record = db.scalar(select(SignalSessionPrice).where(
+        SignalSessionPrice.code == "005930",
+        SignalSessionPrice.trade_date == date(2026, 11, 9),
+    ))
+    corrupted = json.loads(record.payload)
+    corrupted["evidence"]["prices"]["close"] = 101
+    record.payload = json.dumps(corrupted)
+    db.commit()
+
+    summary = verified_sessions_around_gap(db, "005930", gap)
+    assert [row["trade_date"] for row in summary] == ["2026-11-10"]
+    assert summary[0]["close"] == 100 and summary[0]["volume"] == 3810
+
+
 def test_regular_turnover_accepts_observed_day_boundary_not_assumed_zero():
     rows = minute_rows()[1:]
     for row in rows:
