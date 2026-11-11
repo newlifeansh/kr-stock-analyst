@@ -47,6 +47,7 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0001035267", "Technology", "XLV"),  # Intuitive Surgical
         ("0000107263", "Utilities", "XLE"),  # Williams Companies
         ("0000313838", "Consumer Staples", "XLY"),  # Sony Group ADR
+        ("0001393818", "Technology", "XLF"),  # Blackstone
     ]
     for cik, misleading_display_sector, expected in cases:
         assert (
@@ -87,8 +88,11 @@ def test_publication_history_loader_bypasses_any_preclose_chart_cache(monkeypatc
     ]
 
 
-def _bars(daily_return: float, *, count: int = 150) -> list[USLifecycleBar]:
-    trading_dates = list(recent_us_market_session_dates(date(2026, 9, 8), count))
+def _bars(
+    daily_return: float, *, count: int = 150,
+    through: date = date(2026, 9, 8),
+) -> list[USLifecycleBar]:
+    trading_dates = list(recent_us_market_session_dates(through, count))
     price = 100.0
     result: list[USLifecycleBar] = []
     for index, trading_date in enumerate(trading_dates):
@@ -108,7 +112,7 @@ def _bars(daily_return: float, *, count: int = 150) -> list[USLifecycleBar]:
     return result
 
 
-def _universe() -> dict[str, object]:
+def _universe(*, as_of: date = date(2026, 9, 8)) -> dict[str, object]:
     members = [
         {
             "code": f"A{index:03d}",
@@ -124,7 +128,7 @@ def _universe() -> dict[str, object]:
     return {
         "status": "ready",
         "data_state": "ready",
-        "universe_as_of": date(2026, 9, 8),
+        "universe_as_of": as_of,
         "universe_count": 100,
         "checksum": "fixture",
         "items": members,
@@ -312,7 +316,32 @@ def test_reviewed_wmb_sony_top100_boundary_restores_complete_coverage():
     assert payload["data_coverage_count"] == 100
     assert payload["sector_classification_errors"] == {}
     assert payload["new_entries_allowed"] is True
-    assert payload["sector_classification_version"] == "us-sector-etf-cik-v12"
+    assert payload["sector_classification_version"] == "us-sector-etf-cik-v13"
+
+
+def test_reviewed_bx_top100_boundary_restores_complete_coverage():
+    completed = date(2026, 11, 10)
+    universe = _universe(as_of=completed)
+    universe["items"][-1].update(
+        code="BX", cik="0001393818", sector="Technology",
+    )
+    stock = _bars(0.0017, through=completed)
+    histories = {
+        "SPY": _bars(0.0007, through=completed),
+        "QQQ": _bars(0.0009, through=completed),
+        "XLK": _bars(0.0010, through=completed),
+        "XLF": _bars(0.0010, through=completed),
+        **{str(item["code"]): stock for item in universe["items"]},
+    }
+    payload = build_us_position_lifecycle_feed(
+        limit=100, now=datetime(2026, 11, 11, 13, 50, tzinfo=UTC),
+        universe_payload=universe,
+        history_loader=lambda symbol: histories.get(symbol, []),
+    )
+    assert payload["status"] == "ready"
+    assert payload["data_coverage_count"] == 100
+    assert payload["sector_classification_errors"] == {}
+    assert payload["sector_classification_version"] == "us-sector-etf-cik-v13"
 
 
 def test_one_unreviewed_issuer_sector_blocks_every_new_entry():
