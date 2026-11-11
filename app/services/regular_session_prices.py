@@ -37,6 +37,12 @@ PRICE_FIELDS = ("open", "high", "low", "close", "volume", "trading_value")
 NAVER_REGULAR_COVERAGE_BASIS = (
     "naver_38_buckets_with_complete_opening_volume_anchor"
 )
+NAVER_MINUTE_OPENING_COVERAGE_BASIS = (
+    "naver_38_buckets_and_1m_delayed_open_volume_reconciliation"
+)
+THIRD_SOURCE_BUCKET_OPEN_COVERAGE_BASIS = (
+    "naver_1m_volume_and_yahoo_1m_halt_bucket_open_corroboration"
+)
 NAVER_REGULAR_COVERAGE_BASIS_ALIASES = frozenset(
     {
         NAVER_REGULAR_COVERAGE_BASIS,
@@ -96,8 +102,93 @@ def _integer(value: Any, *, positive: bool = False) -> int:
     return int(number)
 
 
+def _verified_naver_minute_opening_offset(
+    code: str, day: date, regular: list[dict[str, Any]], payload: dict[str, Any],
+) -> int:
+    """Cross-check the opening ten minutes before accepting an offset.
+
+    The weekly ten-minute chart independently checks later buckets. Restrict
+    this extra minute proof to the opening bucket so later transient one-minute
+    cumulative-volume display glitches cannot change a matched bucket result.
+    """
+    opening = [row for row in regular if row["trade_time"] < "091000"]
+    if (
+        payload.get("code") != code
+        or payload.get("trade_date") != day.strftime("%Y%m%d")
+        or payload.get("timeframe") != "minute"
+        or not isinstance(payload.get("rows"), list)
+        or not opening
+        or opening[0]["trade_time"] == "090000"
+    ):
+        raise ValueError("wrong delayed-opening minute source identity")
+    minutes = payload["rows"]
+    times = [str(row.get("trade_time") or "") for row in minutes]
+    expected = [row["trade_time"] for row in opening]
+    if times != expected or len(set(times)) != len(times):
+        raise ValueError("Naver minute trade timestamps conflict with KIS")
+    cumulative = 0
+    offset = None
+    for kis, naver in zip(opening, minutes):
+        if _integer(naver.get("close"), positive=True) != _integer(kis["price"], positive=True):
+            raise ValueError("Naver minute close conflicts with KIS")
+        cumulative += _integer(kis["volume"], positive=True)
+        observed = _integer(naver.get("accumulated_volume")) - cumulative
+        if offset is None:
+            offset = observed
+        if observed < 0 or observed != offset:
+            raise ValueError("Naver minute volume delta conflicts with KIS")
+    return int(offset)
+
+
+def _verify_halt_bucket_open(
+    code: str, day: date, start_time: str, minutes: list[dict[str, Any]],
+    *, cumulative_before: int, offset: int | None, proof: dict[str, Any] | None,
+) -> None:
+    """Resolve one ten-minute opening-price conflict with two dated minute feeds."""
+    if (
+        proof is None or offset is None
+        or proof.get("code") != code
+        or proof.get("trade_date") != day.strftime("%Y%m%d")
+        or proof.get("bucket_start") != start_time
+        or not isinstance(proof.get("naver_minutes"), list)
+        or not isinstance(proof.get("yahoo"), dict)
+        or minutes[0]["trade_time"] <= start_time
+    ):
+        raise ValueError("missing independent halt-bucket opening proof")
+    naver = proof["naver_minutes"]
+    if [row.get("trade_time") for row in naver] != [row["trade_time"] for row in minutes]:
+        raise ValueError("halt-bucket minute timestamps conflict")
+    cumulative = cumulative_before
+    for kis, other in zip(minutes, naver):
+        cumulative += _integer(kis["volume"], positive=True)
+        if (
+            _integer(other.get("close"), positive=True) != _integer(kis["price"], positive=True)
+            or _integer(other.get("accumulated_volume")) - cumulative != offset
+        ):
+            raise ValueError("halt-bucket minute prices or volume conflict")
+    yahoo = proof["yahoo"]
+    ticker = str(yahoo.get("ticker") or "")
+    bars = yahoo.get("rows")
+    if (
+        ticker not in (code + ".KS", code + ".KQ")
+        or yahoo.get("exchange_timezone") != "Asia/Seoul"
+        or yahoo.get("interval") != "1m"
+        or yahoo.get("trade_date") != day.strftime("%Y%m%d")
+        or yahoo.get("bucket_start") != start_time
+        or not isinstance(bars, list) or not bars
+        or bars[0].get("trade_time") != minutes[0]["trade_time"]
+        or len({bar.get("trade_time") for bar in bars}) != len(bars)
+        or [bar.get("trade_time") for bar in bars] != sorted(bar.get("trade_time") for bar in bars)
+        or _integer(bars[0].get("open"), positive=True) != _integer(minutes[0]["open"], positive=True)
+        or _integer(bars[0].get("close"), positive=True) != _integer(minutes[0]["price"], positive=True)
+    ):
+        raise ValueError("Yahoo first minute does not corroborate KIS open")
+
+
 def _verified_naver_closing_auction(
     code: str, day: date, regular: list[dict[str, Any]], payload: dict[str, Any],
+    *, verified_opening_offset: int | None = None,
+    bucket_open_proof: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Verify sparse regular coverage and the presence or absence of an auction.
 
@@ -128,6 +219,7 @@ def _verified_naver_closing_auction(
     offset = None
     last_cumulative = None
     pending_empty_buckets = 0
+    proven_open_conflicts = 0
     for index in range(0, 380, 10):
         expected_start = datetime.combine(day, time(9)) + timedelta(minutes=index)
         expected_end = expected_start + timedelta(minutes=10)
@@ -157,13 +249,24 @@ def _verified_naver_closing_auction(
         actual = [_integer(bucket.get(key), positive=True) for key in ("openPrice", "highPrice", "lowPrice", "currentPrice")]
         expected = [_integer(minutes[0]["open"], positive=True), max(_integer(row["high"], positive=True) for row in minutes), min(_integer(row["low"], positive=True) for row in minutes), _integer(minutes[-1]["price"], positive=True)]
         if actual != expected:
-            raise ValueError("closing source conflicts with KIS pre-auction OHLC")
+            if (
+                actual[1:] != expected[1:]
+                or actual[0] == expected[0]
+                or not _integer(minutes[0]["low"], positive=True) <= actual[0] <= _integer(minutes[0]["high"], positive=True)
+                or proven_open_conflicts
+            ):
+                raise ValueError("closing source conflicts with KIS pre-auction OHLC")
+            _verify_halt_bucket_open(
+                code, day, start_time, minutes, cumulative_before=cumulative,
+                offset=offset, proof=bucket_open_proof,
+            )
+            proven_open_conflicts += 1
         cumulative += sum(_integer(row["volume"], positive=True) for row in minutes)
         last_cumulative = _integer(bucket.get("accumulatedTradingVolume"))
         observed_offset = last_cumulative - cumulative
         if offset is None:
             offset = observed_offset
-            if delayed_opening_trade and offset != 0:
+            if delayed_opening_trade and offset != 0 and offset != verified_opening_offset:
                 # A later first KIS trade is safe only when Naver's first
                 # bucket contains exactly the same total actual volume. Any
                 # offset could hide an omitted opening print or pre-open volume.
@@ -175,6 +278,8 @@ def _verified_naver_closing_auction(
         pending_empty_buckets = 0
     if pending_empty_buckets:
         raise ValueError("unverified trailing empty pre-auction bucket")
+    if bucket_open_proof is not None and proven_open_conflicts != 1:
+        raise ValueError("unused halt-bucket opening proof")
     indicative = buckets.get(day_key + "152000")
     if indicative is not None and _integer(indicative.get("accumulatedTradingVolume")) != last_cumulative:
         raise ValueError("unverified positive-volume closing auction interval")
@@ -199,6 +304,8 @@ def regular_session_evidence(
     code: str, trade_date: date, rows: list[dict[str, Any]], *, observed_at: datetime,
     preopen_baseline: dict[str, Any] | None = None,
     closing_auction_evidence: dict[str, Any] | None = None,
+    minute_coverage_evidence: dict[str, Any] | None = None,
+    bucket_open_proof: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate actual regular trades and preserve the complete source envelope.
 
@@ -224,6 +331,10 @@ def regular_session_evidence(
         "trading_value_basis": "closing_cumulative_minus_preopen_cumulative",
         "coverage_basis": "continuous_actual_minutes",
     }
+    if minute_coverage_evidence is not None:
+        result["minute_coverage_evidence"] = minute_coverage_evidence
+    if bucket_open_proof is not None:
+        result["bucket_open_proof"] = bucket_open_proof
     try:
         parsed = []
         seen = set()
@@ -242,9 +353,16 @@ def regular_session_evidence(
         sparse_prefix_verified = False
         verified_no_closing_trade = False
         verified_closing = None
+        verified_opening_offset = None
         if len(actual_prefix) < 380 and closing_auction_evidence is not None:
+            if actual_prefix and actual_prefix[0]["trade_time"] != "090000" and minute_coverage_evidence is not None:
+                verified_opening_offset = _verified_naver_minute_opening_offset(
+                    code, trade_date, actual_prefix, minute_coverage_evidence
+                )
             verified_closing = _verified_naver_closing_auction(
-                code, trade_date, actual_prefix, closing_auction_evidence
+                code, trade_date, actual_prefix, closing_auction_evidence,
+                verified_opening_offset=verified_opening_offset,
+                bucket_open_proof=bucket_open_proof,
             )
             observed_close = next((row for row in regular if row["trade_time"] == "153000"), None)
             if observed_close is not None and _integer(observed_close.get("volume")) > 0:
@@ -262,6 +380,12 @@ def regular_session_evidence(
             # evidence fail deterministic recomputation.
             result["coverage_basis"] = NAVER_REGULAR_COVERAGE_BASIS
             result["source"] += "+naver_krx_regular_coverage"
+            if verified_opening_offset:
+                result["coverage_basis"] = NAVER_MINUTE_OPENING_COVERAGE_BASIS
+                result["source"] += "+naver_1m_delayed_open"
+            if bucket_open_proof is not None:
+                result["coverage_basis"] += "+" + THIRD_SOURCE_BUCKET_OPEN_COVERAGE_BASIS
+                result["source"] += "+yahoo_1m_halt_bucket_open"
             regular = [
                 row
                 for row in regular
@@ -417,6 +541,8 @@ def store_regular_session_evidence(
         evidence["raw_rows"], observed_at=observed_at,
         preopen_baseline=evidence.get("preopen_baseline"),
         closing_auction_evidence=evidence.get("closing_auction_evidence"),
+        minute_coverage_evidence=evidence.get("minute_coverage_evidence"),
+        bucket_open_proof=evidence.get("bucket_open_proof"),
     )
     if not _matches_recomputed_evidence(evidence, verified):
         raise ValueError("evidence failed deterministic recomputation")
@@ -484,6 +610,8 @@ def load_regular_session_evidence(
                     observed_at=record.observed_at.replace(tzinfo=timezone.utc),
                     preopen_baseline=evidence.get("preopen_baseline"),
                     closing_auction_evidence=evidence.get("closing_auction_evidence"),
+                    minute_coverage_evidence=evidence.get("minute_coverage_evidence"),
+                    bucket_open_proof=evidence.get("bucket_open_proof"),
                 )
                 if (
                     not _matches_recomputed_evidence(evidence, regenerated)
@@ -623,7 +751,7 @@ def collect_regular_session_prices(
         report["attempted"] += 1
         try:
             source = provider.fetch_regular_session_data(code, day)
-            result = regular_session_evidence(code, day, source["rows"], observed_at=observed_at, preopen_baseline=source.get("preopen_baseline"), closing_auction_evidence=source.get("closing_auction_evidence"))
+            result = regular_session_evidence(code, day, source["rows"], observed_at=observed_at, preopen_baseline=source.get("preopen_baseline"), closing_auction_evidence=source.get("closing_auction_evidence"), minute_coverage_evidence=source.get("minute_coverage_evidence"), bucket_open_proof=source.get("bucket_open_proof"))
         except Exception as exc:
             # Provider errors can contain credential-bearing URLs; never export
             # their text to a CLI report or public diagnostic.

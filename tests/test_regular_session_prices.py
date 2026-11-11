@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 import json
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, select, func
@@ -766,6 +767,21 @@ def sparse_regular_fixture(missing="094000"):
     return rows, naver
 
 
+def delayed_open_minute_fixture(rows, naver):
+    prefix = [row for row in rows if "090000" <= row["trade_time"] < "091000" and row["volume"] > 0]
+    opening = naver["priceInfos"]["20261012"][0]
+    offset = opening["accumulatedTradingVolume"] - sum(
+        row["volume"] for row in prefix if row["trade_time"] < "091000"
+    )
+    cumulative = offset
+    minutes = []
+    for row in prefix:
+        cumulative += row["volume"]
+        minutes.append({"trade_time": row["trade_time"], "close": row["price"],
+                        "accumulated_volume": cumulative})
+    return {"code": "005930", "trade_date": "20261012", "timeframe": "minute", "rows": minutes}
+
+
 def halted_regular_fixture(*, keep_zero_volume_rows=False):
     start, end = "124000", "125900"
     rows = minute_rows()
@@ -855,6 +871,255 @@ def test_delayed_first_trade_requires_zero_cross_source_volume_offset():
 
     assert result["state"] == "ready", result["reason"]
     assert result["regular_rows"][0]["trade_time"] == "090100"
+
+
+def test_delayed_open_accepts_only_exact_independent_minute_path(db):
+    rows, naver = sparse_regular_fixture("090000")
+    minutes = delayed_open_minute_fixture(rows, naver)
+    verified = rsp.regular_session_evidence(
+        "005930", DAY, rows, observed_at=OBSERVED,
+        closing_auction_evidence=naver, minute_coverage_evidence=minutes,
+    )
+    assert verified["state"] == "ready", verified["reason"]
+    assert verified["coverage_basis"] == rsp.NAVER_MINUTE_OPENING_COVERAGE_BASIS
+    assert verified["source"].endswith("+naver_1m_delayed_open")
+    rsp.store_regular_session_evidence(db, verified, observed_at=OBSERVED)
+    db.commit()
+    assert rsp.load_regular_session_evidence(db, "005930", DAY)["prices"] == verified["prices"]
+
+    for mutation in ("early_print", "missing_print", "close", "volume_delta", "identity"):
+        changed = deepcopy(minutes)
+        if mutation == "early_print":
+            changed["rows"].insert(0, {"trade_time": "090000", "close": 100,
+                                         "accumulated_volume": 1})
+        elif mutation == "missing_print":
+            changed["rows"].pop(2)
+        elif mutation == "close":
+            changed["rows"][2]["close"] = 101
+        elif mutation == "volume_delta":
+            changed["rows"][2]["accumulated_volume"] += 1
+        else:
+            changed["code"] = "000660"
+        rejected = rsp.regular_session_evidence(
+            "005930", DAY, rows, observed_at=OBSERVED,
+            closing_auction_evidence=naver, minute_coverage_evidence=changed,
+        )
+        assert rejected["state"] == "unverified", mutation
+
+
+def test_naver_minute_parser_rejects_wrong_identity_and_keeps_regular_minutes():
+    from app.collectors.briefing import _parse_naver_minute_coverage
+    xml = b'''<?xml version="1.0" encoding="EUC-KR"?>
+    <protocol><chartdata symbol="005930" timeframe="minute">
+    <item data="202610120901|null|null|null|100|15"/>
+    <item data="202610121530|null|null|null|101|25"/>
+    <item data="202610121540|null|null|null|102|30"/>
+    </chartdata></protocol>'''
+    parsed = _parse_naver_minute_coverage("005930", "20261012", xml)
+    assert parsed["rows"] == [{"trade_time": "090100", "close": "100", "accumulated_volume": "15"}]
+    with pytest.raises(ValueError, match="identity"):
+        _parse_naver_minute_coverage("000660", "20261012", xml)
+
+
+def test_dated_regular_provider_fetches_delayed_open_minute_proof(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.config import Settings
+
+    rows, naver = sparse_regular_fixture("090000")
+    minute = delayed_open_minute_fixture(rows, naver)
+    source = [{"stck_bsop_date": row["trade_date"], "stck_cntg_hour": row["trade_time"],
+               "stck_oprc": row["open"], "stck_hgpr": row["high"],
+               "stck_lwpr": row["low"], "stck_prpr": row["price"],
+               "cntg_vol": row["volume"], "acml_tr_pbmn": row["trading_value"]}
+              for row in rows]
+    provider = KisRestBriefingProvider(Settings(kis_app_key="fixture", kis_app_secret="fixture"))
+    monkeypatch.setattr(provider, "_get", lambda _path, _tr, params: {
+        "output2": [row for row in reversed(source)
+                    if row["stck_cntg_hour"] <= params["FID_INPUT_HOUR_1"]][:120]
+    })
+    minute_xml = ('<protocol><chartdata symbol="005930" timeframe="minute">'
+                  + "".join('<item data="20261012' + row["trade_time"][:4]
+                            + '|null|null|null|' + str(row["close"]) + '|'
+                            + str(row["accumulated_volume"]) + '"/>'
+                            for row in minute["rows"])
+                  + '</chartdata></protocol>').encode("euc-kr")
+    urls = []
+
+    class Response:
+        def __init__(self, content):
+            self.content = content
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return naver
+
+    def request(url, **_kwargs):
+        urls.append(url)
+        return Response(minute_xml if "fchart.stock.naver.com" in url else b"")
+
+    monkeypatch.setattr("app.collectors.briefing.requests.get", request)
+    fetched = provider.fetch_regular_session_data("005930", DAY)
+    assert len(urls) == 2
+    assert [row["trade_time"] for row in fetched["minute_coverage_evidence"]["rows"]] == [
+        row["trade_time"] for row in minute["rows"]
+    ]
+    verified = rsp.regular_session_evidence(
+        "005930", DAY, fetched["rows"], observed_at=OBSERVED,
+        preopen_baseline=fetched["preopen_baseline"],
+        closing_auction_evidence=fetched["closing_auction_evidence"],
+        minute_coverage_evidence=fetched["minute_coverage_evidence"],
+    )
+    assert verified["state"] == "ready", verified["reason"]
+
+
+def test_november_6_halt_bucket_open_requires_third_price_source(db):
+    from app.collectors.briefing import _halt_bucket_open_candidate
+
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "kr_2026-11-06_396500_halt_open.json").read_text())
+    source = fixture["source"]
+    day = date(2026, 11, 6)
+    observed = datetime(2026, 11, 7, 0, tzinfo=rsp.KST)
+    assert _halt_bucket_open_candidate(
+        {row["trade_time"]: row for row in source["rows"]},
+        source["closing_auction_evidence"]["priceInfos"]["20261106"], "20261106",
+    ) == "093000"
+
+    def replay(proof):
+        return rsp.regular_session_evidence(
+            "396500", day, source["rows"], observed_at=observed,
+            preopen_baseline=source["preopen_baseline"],
+            closing_auction_evidence=source["closing_auction_evidence"],
+            minute_coverage_evidence=fixture["minute_coverage_evidence"],
+            bucket_open_proof=proof,
+        )
+
+    assert replay(None)["state"] == "unverified"
+    verified = replay(fixture["bucket_open_proof"])
+    assert verified["state"] == "bounded", verified["reason"]
+    assert verified["regular_rows"][0]["trade_time"] == "090200"
+    assert "+yahoo_1m_halt_bucket_open" in verified["source"]
+    rsp.store_regular_session_evidence(db, verified, observed_at=observed)
+    db.commit()
+    assert rsp.load_regular_session_evidence(db, "396500", day, allow_bounded=True)["prices"] == verified["prices"]
+
+    for mutation in ("yahoo_open", "yahoo_time", "yahoo_ticker", "naver_close", "naver_volume"):
+        changed = deepcopy(fixture["bucket_open_proof"])
+        if mutation == "yahoo_open":
+            changed["yahoo"]["rows"][0]["open"] = 24620
+        elif mutation == "yahoo_time":
+            changed["yahoo"]["rows"][0]["trade_time"] = "093300"
+        elif mutation == "yahoo_ticker":
+            changed["yahoo"]["ticker"] = "000660.KS"
+        elif mutation == "naver_close":
+            changed["naver_minutes"][0]["close"] = 25230
+        else:
+            changed["naver_minutes"][0]["accumulated_volume"] = int(changed["naver_minutes"][0]["accumulated_volume"]) + 1
+        assert replay(changed)["state"] == "unverified", mutation
+
+
+def test_yahoo_halt_bucket_fetch_checks_identity_and_filters_outside_rows(monkeypatch):
+    from app.collectors.briefing import _fetch_yahoo_bucket_open
+
+    start = datetime(2026, 11, 6, 9, 34, tzinfo=rsp.KST)
+    outside = datetime(2026, 11, 6, 15, 0, tzinfo=rsp.KST)
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"chart": {"result": [{
+                "meta": {"symbol": "396500.KS", "exchangeTimezoneName": "Asia/Seoul", "dataGranularity": "1m"},
+                "timestamp": [int(start.timestamp()), int(outside.timestamp())],
+                "indicators": {"quote": [{"open": [24625, 28130], "close": [25235, 28130]}]},
+            }]}}
+
+    def request(url, **kwargs):
+        calls.append((url, kwargs["params"]))
+        return Response()
+
+    monkeypatch.setattr("app.collectors.briefing.requests.get", request)
+    result = _fetch_yahoo_bucket_open("396500", date(2026, 11, 6), "093000")
+    assert result["ticker"] == "396500.KS"
+    assert result["rows"] == [{"trade_time": "093400", "open": 24625, "close": 25235}]
+    assert calls[0][1]["interval"] == "1m"
+
+
+def test_dated_provider_attaches_halt_bucket_open_proof(monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.config import Settings
+
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "kr_2026-11-06_396500_halt_open.json").read_text())
+    source = fixture["source"]
+    raw = [{"stck_bsop_date": row["trade_date"], "stck_cntg_hour": row["trade_time"],
+            "stck_oprc": row["open"], "stck_hgpr": row["high"], "stck_lwpr": row["low"],
+            "stck_prpr": row["price"], "cntg_vol": row["volume"],
+            "acml_tr_pbmn": row["trading_value"]} for row in source["rows"]]
+    provider = KisRestBriefingProvider(Settings(kis_app_key="fixture", kis_app_secret="fixture"))
+
+    def kis(_path, _tr, params):
+        cursor = params["FID_INPUT_HOUR_1"]
+        dated = [row for row in reversed(raw) if row["stck_cntg_hour"] <= cursor][:120]
+        if not dated:
+            return {"output2": [{"stck_bsop_date": "20261105", "stck_cntg_hour": "195900"}]}
+        return {"output2": dated}
+
+    monkeypatch.setattr(provider, "_get", kis)
+    minute_rows = fixture["minute_coverage_evidence"]["rows"] + fixture["bucket_open_proof"]["naver_minutes"]
+    xml = ('<protocol><chartdata symbol="396500" timeframe="minute">'
+           + "".join('<item data="20261106' + row["trade_time"][:4]
+                     + '|null|null|null|' + str(row["close"]) + '|'
+                     + str(row["accumulated_volume"]) + '"/>' for row in minute_rows)
+           + '</chartdata></protocol>').encode("euc-kr")
+    yahoo = fixture["bucket_open_proof"]["yahoo"]
+    stamps = [int(datetime(2026, 11, 6, int(row["trade_time"][:2]), int(row["trade_time"][2:4]), tzinfo=rsp.KST).timestamp())
+              for row in yahoo["rows"]]
+    yahoo_json = {"chart": {"result": [{
+        "meta": {"symbol": yahoo["ticker"], "exchangeTimezoneName": "Asia/Seoul", "dataGranularity": "1m"},
+        "timestamp": stamps,
+        "indicators": {"quote": [{"open": [row["open"] for row in yahoo["rows"]],
+                                  "close": [row["close"] for row in yahoo["rows"]]}]},
+    }]}}
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, body=None, content=b""):
+            self.body, self.content = body, content
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    def request(url, **_kwargs):
+        calls.append(url)
+        if "fchart.stock.naver.com" in url:
+            return Response(content=xml)
+        if "query1.finance.yahoo.com" in url:
+            return Response(body=yahoo_json)
+        return Response(body=source["closing_auction_evidence"])
+
+    monkeypatch.setattr("app.collectors.briefing.requests.get", request)
+    fetched = provider.fetch_regular_session_data("396500", date(2026, 11, 6))
+    assert len(calls) == 3
+    assert fetched["bucket_open_proof"] == fixture["bucket_open_proof"]
+    result = rsp.regular_session_evidence(
+        "396500", date(2026, 11, 6), fetched["rows"],
+        observed_at=datetime(2026, 11, 7, 0, tzinfo=rsp.KST),
+        preopen_baseline=fetched["preopen_baseline"],
+        closing_auction_evidence=fetched["closing_auction_evidence"],
+        minute_coverage_evidence=fetched["minute_coverage_evidence"],
+        bucket_open_proof=fetched["bucket_open_proof"],
+    )
+    assert result["state"] == "bounded", result["reason"]
 
 
 def test_sparse_regular_coverage_accepts_missing_last_preauction_minute():
