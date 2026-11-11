@@ -886,6 +886,12 @@ def test_delayed_open_accepts_only_exact_independent_minute_path(db):
     rsp.store_regular_session_evidence(db, verified, observed_at=OBSERVED)
     db.commit()
     assert rsp.load_regular_session_evidence(db, "005930", DAY)["prices"] == verified["prices"]
+    from app.services.regular_price_replay import regular_price_envelope, regular_ordered_paths
+    envelope = regular_price_envelope(
+        db, "005930", [DailyPrice(code="005930", trade_date=DAY, close=100)],
+        completed_through=DAY, effective_from=DAY,
+    )
+    assert len(regular_ordered_paths(envelope)[DAY]) == len(verified["regular_rows"])
 
     for mutation in ("early_print", "missing_print", "close", "volume_delta", "identity"):
         changed = deepcopy(minutes)
@@ -1003,6 +1009,13 @@ def test_november_6_halt_bucket_open_requires_third_price_source(db):
     rsp.store_regular_session_evidence(db, verified, observed_at=observed)
     db.commit()
     assert rsp.load_regular_session_evidence(db, "396500", day, allow_bounded=True)["prices"] == verified["prices"]
+    from app.services.regular_price_replay import regular_price_envelope, regular_ordered_paths
+    envelope = regular_price_envelope(
+        db, "396500", [DailyPrice(code="396500", trade_date=day, close=verified["prices"]["close"])],
+        completed_through=day, effective_from=day,
+    )
+    path = regular_ordered_paths(envelope)[day]
+    assert len(path) == 349 and path[0].open == 23720
 
     for mutation in ("yahoo_open", "yahoo_time", "yahoo_ticker", "naver_close", "naver_volume"):
         changed = deepcopy(fixture["bucket_open_proof"])
