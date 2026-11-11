@@ -296,6 +296,8 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "Run domestic production read-only checks" in workflow
     assert "Run US production read-only checks" in workflow
     assert "Verify current US screen through the canonical gateway" in workflow
+    assert "playwright install chromium" in workflow
+    assert "playwright install --with-deps chromium" not in workflow
     verify = workflow.split("  verify_production:", 1)[1].split(
         "  retire_unused_ollama:", 1
     )[0]

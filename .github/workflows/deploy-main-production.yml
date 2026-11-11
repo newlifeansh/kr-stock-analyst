@@ -331,7 +331,7 @@ jobs:
           echo "QA_DASHBOARD_INVITE_CODE=$invite_code" >> "$GITHUB_ENV"
           unset invite_code
       - name: Install Chromium for canonical US screen verification
-        run: playwright install --with-deps chromium
+        run: playwright install chromium
       - id: us_ui_e2e
         name: Verify current US screen through the canonical gateway
         continue-on-error: true
