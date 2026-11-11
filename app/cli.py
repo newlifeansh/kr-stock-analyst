@@ -1382,6 +1382,35 @@ def regular_session_prices_command(
         raise typer.Exit(code=1)
 
 
+@app.command("corroborate-regular-path")
+def corroborate_regular_path_command(
+    code: str = typer.Option(..., "--code", help="One six-character KRX symbol"),
+    trade_date: str = typer.Option(..., "--trade-date", help="Completed session YYYY-MM-DD"),
+    proof_file: Optional[Path] = typer.Option(None, "--proof-file", help="Saved independent source payload, keyed by code"),
+    persist: bool = typer.Option(False, "--persist", help="Append proof and seal only this verified path"),
+) -> None:
+    """Corroborate a historical unsealed path without publishing a signal."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.services.regular_path_repair import corroborate_unfinalized_regular_path
+
+    code = code.strip().upper()
+    if len(code) != 6 or not code.isascii() or not code.isalnum():
+        raise typer.BadParameter("--code requires one six-character KRX symbol")
+    day = datetime.strptime(trade_date, "%Y-%m-%d").date()
+    source_proof = None
+    if proof_file is not None:
+        source_proof = json.loads(proof_file.read_text(encoding="utf-8")).get(code)
+        if not isinstance(source_proof, dict):
+            raise typer.BadParameter("--proof-file must contain the selected code")
+    with SessionLocal() as db:
+        payload = corroborate_unfinalized_regular_path(
+            db, code, day, observed_at=datetime.now(ZoneInfo("Asia/Seoul")),
+            persist=persist, source_proof=source_proof,
+        )
+    typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 @app.command("migrate-performance-indexes")
 def migrate_performance_indexes_command(
     dry_run: bool = typer.Option(

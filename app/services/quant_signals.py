@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
+from hashlib import sha256
 import json
 import logging
 from math import isfinite, sqrt
@@ -1588,9 +1589,13 @@ def _store_verified_intraday_path(
     *,
     observed_at: datetime,
     is_final: bool,
+    expected_prior_path_hash: str | None = None,
+    independently_corroborated_terminal_revision: bool = False,
 ) -> QuantSignalIntradayPathSnapshot:
     # Store only executable minutes. Indicative auction rows can revise before
     # the close and must not invalidate a previously observed trade prefix.
+    if independently_corroborated_terminal_revision and not expected_prior_path_hash:
+        raise UnverifiedIntradayPathError("취소 후 분봉 보정에는 이전 경로 해시가 필요합니다")
     rows = [row for row in rows if not _non_trade_closing_auction_row(row)]
     snapshot = db.get(QuantSignalIntradayPathSnapshot, (code, trade_date))
     if snapshot is not None:
@@ -1604,6 +1609,10 @@ def _store_verified_intraday_path(
             raise UnverifiedIntradayPathError("저장된 분봉 근거를 읽을 수 없습니다") from exc
         if not isinstance(previous, list) or not previous:
             raise UnverifiedIntradayPathError("저장된 분봉 근거가 불완전합니다")
+        if expected_prior_path_hash is not None and sha256(
+            json.dumps(previous, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest() != expected_prior_path_hash:
+            raise UnverifiedIntradayPathError("독립 근거의 이전 분봉 해시가 일치하지 않습니다")
         watcher = db.get(QuantSignalObservedEntry, (code, trade_date))
         allow_revision = bool(
             not snapshot.is_final
@@ -1616,6 +1625,27 @@ def _store_verified_intraday_path(
                 )
             )
         )
+        if (
+            not allow_revision and independently_corroborated_terminal_revision
+            and not snapshot.is_final and watcher is not None
+            and watcher.status == "cancelled"
+            and watcher.policy_version == observed_entry.POLICY_VERSION
+        ):
+            try:
+                watcher_payload = json.loads(watcher.payload)
+                cancelled_at = datetime.fromisoformat(str(watcher_payload["cancelled_at"]))
+                terminal_time = datetime.combine(
+                    trade_date,
+                    datetime.strptime(str(previous[-1]["trade_time"]), "%H%M%S").time(),
+                    KST,
+                )
+                allow_revision = bool(
+                    watcher_payload.get("status") == "cancelled"
+                    and cancelled_at.tzinfo is not None
+                    and cancelled_at.astimezone(KST) < terminal_time
+                )
+            except (KeyError, TypeError, ValueError):
+                allow_revision = False
         if not _intraday_path_preserves_prior_touches(
             previous, rows, allow_terminal_no_trade_revision=allow_revision,
             allow_dropped_no_trade_placeholders=allow_revision,

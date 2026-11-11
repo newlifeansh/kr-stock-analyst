@@ -143,6 +143,47 @@ def _fetch_yahoo_bucket_open(code: str, day: date, bucket_start: str) -> dict[st
     raise ValueError("independent halt-bucket open unavailable")
 
 
+def fetch_regular_path_corroboration(
+    code: str, day: date, regular_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Capture a dated full-day Naver minute path and one Yahoo open if disputed."""
+    response = requests.get(
+        f"https://api.stock.naver.com/chart/domestic/item/{code}",
+        params={"periodType": "day"}, headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if (
+        payload.get("code") != code or payload.get("periodType") != "day"
+        or payload.get("stockExchangeType") != "KRX"
+        or not isinstance(payload.get("priceInfos"), list)
+    ):
+        raise ValueError("wrong dated Naver minute chart identity")
+    target = day.strftime("%Y%m%d")
+    rows = [
+        row for row in payload["priceInfos"]
+        if str(row.get("localDateTime") or "").startswith(target)
+        and "090000" <= str(row.get("localDateTime") or "")[8:] <= "153000"
+    ]
+    proof = {"naver": {
+        "code": code, "trade_date": target, "periodType": "day",
+        "stockExchangeType": "KRX", "rows": rows,
+    }}
+    by_time = {str(row.get("localDateTime") or "")[8:]: row for row in rows}
+    disputed = [
+        row["trade_time"] for row in regular_rows
+        if row["trade_time"] in by_time
+        and int(row["open"]) != int(by_time[row["trade_time"]]["openPrice"])
+    ]
+    if len(disputed) == 1:
+        minute = disputed[0]
+        bucket_start = datetime.strptime(minute, "%H%M%S").replace(
+            minute=(int(minute[2:4]) // 10) * 10,
+        ).strftime("%H%M%S")
+        proof["yahoo"] = _fetch_yahoo_bucket_open(code, day, bucket_start)
+    return proof
+
+
 @dataclass
 class BriefingMetricPayload:
     metric_key: str

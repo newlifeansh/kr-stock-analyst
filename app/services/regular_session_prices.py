@@ -43,6 +43,8 @@ NAVER_MINUTE_OPENING_COVERAGE_BASIS = (
 THIRD_SOURCE_BUCKET_OPEN_COVERAGE_BASIS = (
     "naver_1m_volume_and_yahoo_1m_halt_bucket_open_corroboration"
 )
+NAVER_COMPLETE_MINUTE_PATH_BASIS = "naver_full_day_1m_path_corroboration"
+THIRD_SOURCE_MINUTE_OPEN_BASIS = "yahoo_1m_disputed_minute_open_corroboration"
 NAVER_REGULAR_COVERAGE_BASIS_ALIASES = frozenset(
     {
         NAVER_REGULAR_COVERAGE_BASIS,
@@ -55,6 +57,8 @@ NAVER_REGULAR_COVERAGE_BASIS_ALIASES = frozenset(
 NAVER_SPARSE_PATH_COVERAGE_BASES = NAVER_REGULAR_COVERAGE_BASIS_ALIASES | frozenset({
     NAVER_MINUTE_OPENING_COVERAGE_BASIS,
     NAVER_MINUTE_OPENING_COVERAGE_BASIS + "+" + THIRD_SOURCE_BUCKET_OPEN_COVERAGE_BASIS,
+    NAVER_COMPLETE_MINUTE_PATH_BASIS,
+    NAVER_COMPLETE_MINUTE_PATH_BASIS + "+" + THIRD_SOURCE_MINUTE_OPEN_BASIS,
 })
 
 
@@ -104,6 +108,93 @@ def _integer(value: Any, *, positive: bool = False) -> int:
     if not number.is_finite() or number != number.to_integral_value() or number < (1 if positive else 0):
         raise ValueError("invalid non-negative integer")
     return int(number)
+
+
+def _corroborated_full_minute_path(
+    code: str, trade_date: date, rows: list[dict[str, Any]], proof: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Check every executed minute before accepting one independently observed open."""
+    naver = proof.get("naver") or {}
+    prior = proof.get("prior_path")
+    if (
+        not isinstance(naver, dict) or naver.get("code") != code
+        or naver.get("trade_date") != trade_date.strftime("%Y%m%d")
+        or naver.get("periodType") != "day"
+        or naver.get("stockExchangeType") != "KRX"
+        or not isinstance(prior, list) or not prior
+        or proof.get("prior_path_hash") != sha256(_json(prior).encode()).hexdigest()
+    ):
+        raise ValueError("full minute path source or prior snapshot identity mismatch")
+    minute_rows = naver.get("rows")
+    if not isinstance(minute_rows, list) or len(minute_rows) != len(rows):
+        raise ValueError("independent full minute path coverage is incomplete")
+    corrected = [dict(row) for row in rows]
+    discrepancy = None
+    cumulative_offset = None
+    running = 0
+    previous_time = None
+    for row, observed in zip(corrected, minute_rows):
+        stamp = str(observed.get("localDateTime") or "")
+        if (
+            len(stamp) != 14 or not stamp.isdigit()
+            or stamp != trade_date.strftime("%Y%m%d") + row["trade_time"]
+            or (previous_time is not None and stamp <= previous_time)
+        ):
+            raise ValueError("independent minute timestamp conflicts with KIS")
+        previous_time = stamp
+        observed_values = {
+            "open": _integer(observed.get("openPrice"), positive=True),
+            "high": _integer(observed.get("highPrice"), positive=True),
+            "low": _integer(observed.get("lowPrice"), positive=True),
+            "price": _integer(observed.get("currentPrice"), positive=True),
+        }
+        if any(_integer(row.get(key), positive=True) != observed_values[key]
+               for key in ("high", "low", "price")):
+            raise ValueError("independent minute OHLC conflicts with KIS")
+        if _integer(row.get("open"), positive=True) != observed_values["open"]:
+            if discrepancy is not None or not (
+                observed_values["low"] <= observed_values["open"] <= observed_values["high"]
+            ):
+                raise ValueError("more than one disputed minute open")
+            discrepancy = row["trade_time"]
+            row["open"] = observed_values["open"]
+        running += _integer(row.get("volume"), positive=True)
+        observed_cumulative = _integer(observed.get("accumulatedTradingVolume"), positive=True)
+        if cumulative_offset is None:
+            cumulative_offset = observed_cumulative - running
+            if not 0 <= cumulative_offset <= max(1, _integer(row["volume"]) // 1000):
+                raise ValueError("independent minute opening volume offset is unsafe")
+        if observed_cumulative != running + cumulative_offset:
+            raise ValueError("independent minute volume path conflicts with KIS")
+    yahoo = proof.get("yahoo")
+    if discrepancy is None:
+        if yahoo is not None:
+            raise ValueError("unneeded third-source minute proof")
+    else:
+        if not isinstance(yahoo, dict):
+            raise ValueError("disputed minute open lacks a third source")
+        bucket_start = str(yahoo.get("bucket_start") or "")
+        bucket_end = (
+            datetime.strptime(bucket_start, "%H%M%S") + timedelta(minutes=10)
+        ).strftime("%H%M%S")
+        if (
+            yahoo.get("ticker") not in {f"{code}.KS", f"{code}.KQ"}
+            or yahoo.get("trade_date") != trade_date.strftime("%Y%m%d")
+            or yahoo.get("exchange_timezone") != "Asia/Seoul"
+            or yahoo.get("interval") != "1m"
+            or not bucket_start <= discrepancy < bucket_end
+            or not isinstance(yahoo.get("rows"), list)
+        ):
+            raise ValueError("third-source minute identity mismatch")
+        matches = [item for item in yahoo["rows"] if item.get("trade_time") == discrepancy]
+        corrected_row = next(row for row in corrected if row["trade_time"] == discrepancy)
+        if (
+            len(matches) != 1
+            or _integer(matches[0].get("open"), positive=True) != corrected_row["open"]
+            or _integer(matches[0].get("close"), positive=True) != corrected_row["price"]
+        ):
+            raise ValueError("third-source minute open does not corroborate Naver")
+    return corrected, discrepancy
 
 
 def _verified_naver_minute_opening_offset(
@@ -310,6 +401,7 @@ def regular_session_evidence(
     closing_auction_evidence: dict[str, Any] | None = None,
     minute_coverage_evidence: dict[str, Any] | None = None,
     bucket_open_proof: dict[str, Any] | None = None,
+    full_minute_path_proof: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate actual regular trades and preserve the complete source envelope.
 
@@ -339,6 +431,8 @@ def regular_session_evidence(
         result["minute_coverage_evidence"] = minute_coverage_evidence
     if bucket_open_proof is not None:
         result["bucket_open_proof"] = bucket_open_proof
+    if full_minute_path_proof is not None:
+        result["full_minute_path_proof"] = full_minute_path_proof
     try:
         parsed = []
         seen = set()
@@ -459,6 +553,15 @@ def regular_session_evidence(
                 prior["trade_time"] in {"151900", "152000"} and following["trade_time"] == "153000"
             ) and not sparse_prefix_verified:
                 raise ValueError("missing regular minute")
+        if full_minute_path_proof is not None:
+            executable, disputed_open = _corroborated_full_minute_path(
+                code, trade_date, executable, full_minute_path_proof,
+            )
+            result["coverage_basis"] = NAVER_COMPLETE_MINUTE_PATH_BASIS
+            result["source"] += "+naver_full_day_1m"
+            if disputed_open is not None:
+                result["coverage_basis"] += "+" + THIRD_SOURCE_MINUTE_OPEN_BASIS
+                result["source"] += "+yahoo_1m_disputed_open"
         prices = {
             "open": _integer(executable[0]["open"], positive=True),
             "high": max(_integer(row["high"], positive=True) for row in executable),
@@ -547,6 +650,7 @@ def store_regular_session_evidence(
         closing_auction_evidence=evidence.get("closing_auction_evidence"),
         minute_coverage_evidence=evidence.get("minute_coverage_evidence"),
         bucket_open_proof=evidence.get("bucket_open_proof"),
+        full_minute_path_proof=evidence.get("full_minute_path_proof"),
     )
     if not _matches_recomputed_evidence(evidence, verified):
         raise ValueError("evidence failed deterministic recomputation")
@@ -616,6 +720,7 @@ def load_regular_session_evidence(
                     closing_auction_evidence=evidence.get("closing_auction_evidence"),
                     minute_coverage_evidence=evidence.get("minute_coverage_evidence"),
                     bucket_open_proof=evidence.get("bucket_open_proof"),
+                    full_minute_path_proof=evidence.get("full_minute_path_proof"),
                 )
                 if (
                     not _matches_recomputed_evidence(evidence, regenerated)
@@ -644,6 +749,13 @@ def load_regular_session_evidence(
         accepted.append(evidence)
     if len({_json(item["prices"]) for item in accepted}) != 1 or len({_json(item["turnover_bounds"]) for item in accepted}) != 1:
         raise UnverifiedRegularSessionPrice("동일 정규장의 원천 가격 근거가 충돌합니다")
+    independently_corroborated = [
+        item for item in accepted if item.get("full_minute_path_proof") is not None
+    ]
+    if independently_corroborated:
+        if len({_json(item["regular_rows"]) for item in independently_corroborated}) != 1:
+            raise UnverifiedRegularSessionPrice("독립 분봉 보정 근거가 서로 충돌합니다")
+        return independently_corroborated[0]
     return accepted[0]
 
 
@@ -755,7 +867,7 @@ def collect_regular_session_prices(
         report["attempted"] += 1
         try:
             source = provider.fetch_regular_session_data(code, day)
-            result = regular_session_evidence(code, day, source["rows"], observed_at=observed_at, preopen_baseline=source.get("preopen_baseline"), closing_auction_evidence=source.get("closing_auction_evidence"), minute_coverage_evidence=source.get("minute_coverage_evidence"), bucket_open_proof=source.get("bucket_open_proof"))
+            result = regular_session_evidence(code, day, source["rows"], observed_at=observed_at, preopen_baseline=source.get("preopen_baseline"), closing_auction_evidence=source.get("closing_auction_evidence"), minute_coverage_evidence=source.get("minute_coverage_evidence"), bucket_open_proof=source.get("bucket_open_proof"), full_minute_path_proof=source.get("full_minute_path_proof"))
         except Exception as exc:
             # Provider errors can contain credential-bearing URLs; never export
             # their text to a CLI report or public diagnostic.
