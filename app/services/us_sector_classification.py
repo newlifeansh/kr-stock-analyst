@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v12"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v13"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -52,6 +52,11 @@ def _cik_map(etf: str, values: str) -> dict[str, str]:
 # https://www.ssga.com/us/en/institutional/etfs/state-street-energy-select-sector-spdr-etf-xle
 # https://www.sec.gov/Archives/edgar/data/313838/000119312525143137/0001193125-25-143137-index.htm
 # https://www.msci.com/documents/10199/255599/msci-world-consumer-discretionary-index-usd-net.pdf
+# v13 adds BX (SEC CIK 1393818) to XLF. The SEC classifies Blackstone
+# as investment advice (SIC 6282); State Street's Financial Select Sector
+# SPDR annual report lists Blackstone Inc. among its financial holdings.
+# https://www.sec.gov/Archives/edgar/data/1393818/000119312526432790/0001193125-26-432790-index.htm
+# https://www.ssga.com/ch/en_gb/institutional/library-content/products/fund-docs/etfs/emea/us-etf/select-sector-annual-report-emea-ch.pdf
 US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
     **_cik_map(
         "XLK",
@@ -91,7 +96,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         0001067983 0000019617 0001403161 0001141391 0000070858 0001089113
         0000895421 0000886982 0001000275 0000067088 0000072971 0000831001
         0000004962 0000891478 0000947263 0000316709 0001610520 0002012383
-        0000842180 0001022837
+        0000842180 0001022837 0001393818
         """,
     ),
     **_cik_map(

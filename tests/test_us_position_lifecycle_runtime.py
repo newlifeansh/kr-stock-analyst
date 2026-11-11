@@ -775,7 +775,8 @@ def test_sector_v10_snapshot_is_preserved_until_v11_rebuild(snapshot_db):
     assert row.payload == frozen_payload
 
 
-def test_sector_v11_snapshot_is_preserved_until_v12_rebuild(snapshot_db):
+@pytest.mark.parametrize("source_version", ["v11", "v12"])
+def test_sector_v11_v12_snapshots_are_preserved_until_v13_rebuild(snapshot_db, source_version):
     generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
     lifecycle.save_us_position_lifecycle_snapshot(
         snapshot_db, _complete_feed(), generated_at=generated_at,
@@ -784,15 +785,15 @@ def test_sector_v11_snapshot_is_preserved_until_v12_rebuild(snapshot_db):
         MarketQuantSignalSnapshot, lifecycle.US_POSITION_LIFECYCLE_SNAPSHOT_KEY,
     )
     payload = json.loads(row.payload)
-    payload["sector_classification_version"] = "us-sector-etf-cik-v11"
+    payload["sector_classification_version"] = f"us-sector-etf-cik-{source_version}"
     frozen_payload = json.dumps(payload)
     row.payload = frozen_payload
     snapshot_db.commit()
 
     loaded = lifecycle.load_us_position_lifecycle_snapshot(snapshot_db, now=generated_at)
 
-    assert loaded["source_sector_classification_version"] == "us-sector-etf-cik-v11"
-    assert loaded["sector_classification_version"] == "us-sector-etf-cik-v12"
+    assert loaded["source_sector_classification_version"] == f"us-sector-etf-cik-{source_version}"
+    assert loaded["sector_classification_version"] == "us-sector-etf-cik-v13"
     assert loaded["schema_upgrade_required"] is True
     assert loaded["new_entries_allowed"] is False
     assert loaded["items"] == []
