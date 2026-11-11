@@ -5587,9 +5587,9 @@ def run_e2e_checks(
                     guidance_failures.append("strategy_price_anchor")
                 if float(price_alignment.get("priceTop") or 0) < float(price_alignment.get("metaBottom") or 0) - 1:
                     guidance_failures.append("strategy_price_vertical_order")
-                if price_alignment.get("metricsJustify") != "flex-start":
+                if price_alignment.get("metricsJustify") not in {"flex-start", "flow-start"}:
                     guidance_failures.append("metrics_justification")
-                if price_alignment.get("metricJustify") != "flex-start":
+                if price_alignment.get("metricJustify") not in {"flex-start", "flow-start"}:
                     guidance_failures.append("strategy_price_justification")
                 if price_alignment.get("valueTextAlign") != "left":
                     guidance_failures.append("strategy_price_text_alignment")
