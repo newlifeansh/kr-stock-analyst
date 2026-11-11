@@ -1321,6 +1321,117 @@ def test_v8_intraday_buy_waits_for_frozen_breakout_and_keeps_gap_guard():
     assert quant_signals._intraday_entry_execution_price(incomplete, pending) is None
 
 
+def test_kr_next_open_entry_is_signal_date_scoped_and_keeps_old_breakout(monkeypatch):
+    qs = quant_signals
+    monkeypatch.setattr(
+        qs, "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {"allowed": True, "state": "approved", "reason": "fixture"},
+    )
+    for signal_day, expected_model in (
+        (date(2026, 11, 11), None),
+        (date(2026, 11, 12), qs.NEXT_OPEN_ENTRY_EXECUTION_MODEL),
+    ):
+        bars, indicators = _strategy_test_inputs(67)
+        bars[65] = qs.PriceBar(signal_day, 100, 101, 99, 100, 1_000_000, 50_000_000_000)
+        bars[66] = qs.PriceBar(
+            signal_day + timedelta(days=1), 100, 100.4, 99.5, 100,
+            1_000_000, 50_000_000_000,
+        )
+        _set_entry_indicator(indicators[65])
+        result = qs._simulate(bars, indicators, lifecycle_start_date=signal_day)
+        buys = [event for event in result["events"] if event["side"] == "buy"]
+        if expected_model is None:
+            assert buys == []  # Pre-cutover v8.1 still requires a breakout.
+        else:
+            assert len(buys) == 1
+            assert buys[0]["signal_date"] == signal_day
+            assert buys[0]["execution_date"] == bars[66].trade_date
+            assert buys[0]["price"] == 100
+            assert buys[0]["execution_model"] == expected_model
+            assert buys[0]["entry_execution_policy_version"] == qs.NEXT_OPEN_ENTRY_POLICY_VERSION
+            assert buys[0].get("intraday_execution_verified") is None
+            with_minutes = qs._simulate(
+                bars, indicators, lifecycle_start_date=signal_day,
+                intraday_minutes_by_date={bars[66].trade_date: [bars[66]]},
+            )
+            minute_buys = [event for event in with_minutes["events"] if event["side"] == "buy"]
+            assert minute_buys[0]["price"] == 100
+            assert minute_buys[0].get("confirmed_at") is None
+            assert qs._profit_ladder_steps(bars[66].trade_date) == qs.PROFIT_LADDER_STEPS
+
+
+def test_kr_next_open_entry_waits_for_completed_regular_bar_and_rejects_gap(monkeypatch):
+    qs = quant_signals
+    pending = {
+        "side": "buy", "signal_price": 100, "entry_trigger_price": 102,
+        "atr": 2, "entry_execution_policy_version": qs.NEXT_OPEN_ENTRY_POLICY_VERSION,
+    }
+    bar = qs.PriceBar(date(2026, 11, 13), 100, 100.5, 99.5, 100, 1_000_000, 50_000_000_000)
+    assert qs._intraday_entry_execution_price(bar, pending) == 100
+    assert qs._intraday_entry_execution_price(
+        qs.PriceBar(date(2026, 11, 13), 105, 106, 104, 105, 1_000_000, 50_000_000_000), pending
+    ) is None
+    assert qs._intraday_entry_execution_price(
+        qs.PriceBar(date(2026, 11, 13), 100, 101, 99, 100, 1_000_000, 50_000_000_000,
+                    ohlc_complete=False), pending
+    ) is None
+    monkeypatch.setattr(
+        qs, "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {"allowed": True, "state": "approved", "reason": "fixture"},
+    )
+    bars, indicators = _strategy_test_inputs(67)
+    bars[65] = qs.PriceBar(date(2026, 11, 12), 100, 101, 99, 100, 1_000_000, 50_000_000_000)
+    bars[66] = bar
+    _set_entry_indicator(indicators[65])
+    forming = qs._simulate(
+        bars, indicators, lifecycle_start_date=bars[65].trade_date,
+        forming_bar_date=bar.trade_date, intraday_minutes=[bar],
+    )
+    assert not [event for event in forming["events"] if event["side"] == "buy"]
+    assert forming["pending"]["entry_execution_policy_version"] == qs.NEXT_OPEN_ENTRY_POLICY_VERSION
+
+
+def test_next_open_policy_metadata_follows_last_completed_signal_date():
+    rows = _price_rows("005930", count=130)
+    previous = DailyPrice(
+        code="005930", trade_date=date(2026, 11, 11), open=100, high=101,
+        low=99, close=100, volume=1_000_000, trading_value=50_000_000_000,
+    )
+    current = DailyPrice(
+        code="005930", trade_date=date(2026, 11, 12), open=100, high=101,
+        low=99, close=100, volume=1_000_000, trading_value=50_000_000_000,
+    )
+    at_close = datetime(2026, 11, 12, 16, 20, tzinfo=quant_signals.KST)
+    old_signal = build_quant_signal_payload(_stock(), [*rows, previous], now=at_close)
+    new_signal = build_quant_signal_payload(_stock(), [*rows, previous, current], now=at_close)
+    assert old_signal["entry_execution_policy_version"] is None
+    assert new_signal["entry_execution_policy_version"] == quant_signals.NEXT_OPEN_ENTRY_POLICY_VERSION
+    assert old_signal["strategy_name"] == quant_signals.STRATEGY_NAME
+    assert new_signal["strategy_name"] == quant_signals.NEXT_OPEN_STRATEGY_NAME
+
+
+def test_next_open_entry_does_not_invent_same_day_exit_without_minute_path(monkeypatch):
+    qs = quant_signals
+    monkeypatch.setattr(
+        qs, "entry_confirmation_decision",
+        lambda *_args, **_kwargs: {"allowed": True, "state": "approved", "reason": "fixture"},
+    )
+    bars, indicators = _strategy_test_inputs(67)
+    signal_day = date(2026, 11, 12)
+    bars[65] = qs.PriceBar(signal_day, 100, 101, 99, 100, 1_000_000, 50_000_000_000)
+    bars[66] = qs.PriceBar(date(2026, 11, 13), 100, 106, 99, 105, 1_000_000, 50_000_000_000)
+    _set_entry_indicator(indicators[65])
+    result = qs._simulate(bars, indicators, lifecycle_start_date=signal_day)
+    assert [event["side"] for event in result["events"]] == ["buy"]
+    verified = qs._simulate(
+        bars, indicators, lifecycle_start_date=signal_day,
+        intraday_minutes_by_date={date(2026, 11, 13): [
+            qs.PriceBar(date(2026, 11, 13), 100, 106, 100, 105, 100_000, 10_000_000_000)
+        ]},
+    )
+    assert "partial_sell" in [event["side"] for event in verified["events"]]
+
+
 def test_v8_intraday_sell_is_stop_first_and_emits_every_reached_profit_stage():
     position = {
         "entry_date": date(2026, 10, 3),

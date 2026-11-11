@@ -84,6 +84,7 @@ V8_STRATEGY_VERSION = "position-lifecycle-v8.0"
 STRATEGY_VERSION = REGULAR_FORWARD_STRATEGY_VERSION
 CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v8.1-rc1"
 STRATEGY_NAME = "독립 근거 확인·장중 돌파 진입·장중 위험관리 전략"
+NEXT_OPEN_STRATEGY_NAME = "독립 근거 확인·종가 매수 후보·장중 위험관리 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65
 BACKTEST_ROWS = 252
@@ -125,6 +126,12 @@ REENTRY_RETEST_EMA20_BUFFER = 0.02
 REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE = date(2026, 9, 9)
 INTRADAY_EXECUTION_EFFECTIVE_DATE = date(2026, 10, 3)
 EXECUTION_MODEL = "close-confirmed-intraday-trigger-v1"
+# Entry execution is independently versioned so the verified v8.1 ledger and
+# its evidence snapshots remain replayable. Only signals made on or after this
+# date use the next completed KRX session's open; exits keep their v8.1 rules.
+NEXT_OPEN_ENTRY_EFFECTIVE_DATE = date(2026, 11, 12)
+NEXT_OPEN_ENTRY_POLICY_VERSION = "kr-close-next-open-entry-v1"
+NEXT_OPEN_ENTRY_EXECUTION_MODEL = "close-confirmed-next-open-v2"
 MAX_ENTRY_GAP_ATR = 1.5
 MAX_ENTRY_GAP_PERCENT = 0.05
 MIN_AVERAGE_TRADING_VALUE = 5_000_000_000.0
@@ -925,6 +932,9 @@ def _intraday_entry_execution_price(
 
     if not bar.ohlc_complete:
         return None
+    if pending.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION:
+        next_open = float(bar.open)
+        return next_open if _entry_execution_allowed(next_open, pending) else None
     if bar.trade_date < INTRADAY_EXECUTION_EFFECTIVE_DATE:
         legacy_price = float(bar.open)
         return legacy_price if _entry_execution_allowed(legacy_price, pending) else None
@@ -2456,11 +2466,24 @@ def _simulate(
         if pending:
             active_pending = pending
             pending = None
+            next_open_entry = bool(
+                active_pending["side"] == "buy"
+                and active_pending.get("entry_execution_policy_version")
+                == NEXT_OPEN_ENTRY_POLICY_VERSION
+            )
             execution_price: Optional[float] = float(bar.open)
             if active_pending["side"] == "buy":
                 if close_entry:
                     execution_price = float(active_pending["price"])
                     entry_minute_index = int(active_pending["minute_index"])
+                elif next_open_entry:
+                    # A forming quote can confirm today's open, but it cannot
+                    # prove that an after-close model replay was publishable
+                    # at the open. Wait for the completed regular-session bar.
+                    execution_price = (
+                        None if forming_bar_date == bar.trade_date
+                        else _intraday_entry_execution_price(bar, active_pending)
+                    )
                 elif session_minutes:
                     execution_price, entry_minute_index = (
                         _ordered_intraday_entry_execution(
@@ -2474,7 +2497,7 @@ def _simulate(
                 execution_confirmed_at = observed_entry.timestamp(
                     active_pending.get("confirmed_at") or active_pending.get("signal_at")
                 )
-            elif session_minutes:
+            elif session_minutes and not next_open_entry:
                 execution_minute = (
                     session_minutes[entry_minute_index]
                     if entry_minute_index is not None
@@ -2515,7 +2538,9 @@ def _simulate(
                     "reason": "수익확정 예정 후 시가가 수익 보호선을 하회해 잔여비중 전량 매도",
                     "target_sell_price": protective_floor,
                 }
-            if not execution_data_available:
+            if next_open_entry and forming_bar_date == bar.trade_date:
+                pending = active_pending
+            elif not execution_data_available:
                 rejected_missing_open_executions += 1
             elif not execution_allowed:
                 if (
@@ -2550,6 +2575,7 @@ def _simulate(
                     "entry_price": execution_price,
                     "entry_index": index,
                     "signal_date": active_pending["signal_date"],
+                    "entry_execution_policy_version": active_pending.get("entry_execution_policy_version"),
                     "score": active_pending["score"],
                     "entry_setup": active_pending.get("entry_setup") or "trend_continuation",
                     "entry_confirmation": deepcopy(active_pending.get("entry_confirmation")),
@@ -2583,8 +2609,9 @@ def _simulate(
                         "execution_date": bar.trade_date,
                         "side": "buy",
                         "label": (
-                            "장중 매수 확정" if close_entry else "장중 돌파 진입"
-                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            "장중 매수 확정" if close_entry
+                            else "다음 거래일 시가 진입" if next_open_entry
+                            else "장중 돌파 진입" if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else "전략상 진입"
                         ),
                         "price": _price(execution_price),
@@ -2600,10 +2627,13 @@ def _simulate(
                         "position_percent": _decimal(100.0),
                         "state_after": "holding",
                         "execution_model": (
-                            observed_execution_model if close_entry else EXECUTION_MODEL
-                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            observed_execution_model if close_entry
+                            else NEXT_OPEN_ENTRY_EXECUTION_MODEL if next_open_entry
+                            else EXECUTION_MODEL if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                             else "close-confirmed-next-open"
                         ),
+                        **({"entry_execution_policy_version": NEXT_OPEN_ENTRY_POLICY_VERSION}
+                           if next_open_entry else {}),
                         **execution_clock_fields,
                         **(
                             {
@@ -2617,7 +2647,7 @@ def _simulate(
                                 "intraday_execution_verified": forming_bar_date == bar.trade_date,
                                 "intraday_order_verified": bool(session_minutes),
                             }
-                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                            if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE and not next_open_entry
                             else {}
                         ),
                     }
@@ -2788,14 +2818,20 @@ def _simulate(
 
         if position and bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
             ordered_minutes = session_minutes
+            same_day_next_open_entry = bool(
+                position["entry_date"] == bar.trade_date
+                and position.get("entry_execution_policy_version")
+                == NEXT_OPEN_ENTRY_POLICY_VERSION
+            )
             if ordered_minutes and position["entry_date"] == bar.trade_date:
                 ordered_minutes = (
-                    ordered_minutes[entry_minute_index + int(close_entry):]
+                    ordered_minutes if same_day_next_open_entry
+                    else ordered_minutes[entry_minute_index + int(close_entry):]
                     if entry_minute_index is not None
                     else None
                 )
             intraday_decisions = (
-                [] if close_entry and not ordered_minutes else
+                [] if (close_entry or same_day_next_open_entry) and not ordered_minutes else
                 _ordered_intraday_exit_decisions(position, ordered_minutes, indicator)
                 if ordered_minutes
                 else _intraday_exit_decisions(position, bar, indicator)
@@ -3101,6 +3137,8 @@ def _simulate(
                 pending = {
                     "side": "buy",
                     "signal_date": bar.trade_date,
+                    **({"entry_execution_policy_version": NEXT_OPEN_ENTRY_POLICY_VERSION}
+                       if bar.trade_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE else {}),
                     "score": indicator["score"],
                     "reason": (
                         f"{_signal_reason(reason_indicator, 'buy')} · "
@@ -4157,11 +4195,17 @@ def _current_signal(
         elif position["entry_date"] == bar.trade_date:
             state = "entered"
             label = (
+                "다음 거래일 시가 진입 완료"
+                if position.get("signal_date") >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+                else
                 "장중 돌파 진입 완료"
                 if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                 else "전략상 진입 완료"
             )
             reasons.append(
+                "전일 장마감 매수 신호를 검증된 다음 정규장 시가와 갭 제한으로 확인함"
+                if position.get("signal_date") >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+                else
                 "전일 종가 신호의 확인선을 KRX 정규장에서 돌파해 장중 체결함"
                 if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                 else "전일 종가 신호를 다음 거래일 시가에 반영함"
@@ -4230,17 +4274,24 @@ def _current_signal(
         and bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
     ):
         state = "entry_pending"
-        label = "장중 매수 트리거 대기"
+        next_open_entry = (
+            pending_action.get("entry_execution_policy_version")
+            == NEXT_OPEN_ENTRY_POLICY_VERSION
+        )
+        label = "다음 거래일 시가 확인 대기" if next_open_entry else "장중 매수 트리거 대기"
         entry_setup = str(pending_action.get("entry_setup") or "trend_continuation")
         entry_confirmation = deepcopy(pending_action.get("entry_confirmation"))
         trigger_price = _safe_number(pending_action.get("entry_trigger_price"))
         reasons.append(str(pending_action.get("reason") or "전일 종가 매수 조건 확인"))
-        next_confirmation = "KRX 정규장에서 고정된 진입 확인선을 돌파하면 장중 체결"
+        next_confirmation = (
+            "다음 KRX 정규장 시가와 신호 종가의 갭 제한을 확인해 장마감 후 매수 여부를 확정"
+            if next_open_entry else "KRX 정규장에서 고정된 진입 확인선을 돌파하면 장중 체결"
+        )
         levels.append(
             {
-                "key": "intraday_entry_trigger",
-                "label": "장중 매수 확인선",
-                "price": _price(trigger_price),
+                "key": "next_open_reference" if next_open_entry else "intraday_entry_trigger",
+                "label": "전일 종가 기준" if next_open_entry else "장중 매수 확인선",
+                "price": _price(pending_action.get("signal_price") if next_open_entry else trigger_price),
                 "condition": next_confirmation,
             }
         )
@@ -4279,12 +4330,18 @@ def _current_signal(
             next_confirmation = "최근 30일 완료 거래의 평균 수익률이 0% 이상으로 회복되는지 확인"
         elif entry_confirmation["allowed"]:
             state = "entry_pending"
-            label = "매수 조건 확정"
+            label = (
+                "다음 거래일 매수 후보"
+                if bar.trade_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+                else "매수 조건 확정"
+            )
             reasons.append(_signal_reason(reason_indicator, "buy"))
             if entry_confirmation["state"] != "legacy":
                 reasons.append(str(entry_confirmation["reason"]))
             next_confirmation = (
-                "독립 근거 확인 후 다음 KRX 정규장에서 고정 확인선 돌파 시 장중 매수"
+                "장마감 확정 신호입니다. 다음 KRX 거래일 시가의 갭 제한을 확인해 매수 여부를 결정합니다."
+                if bar.trade_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+                else "독립 근거 확인 후 다음 KRX 정규장에서 고정 확인선 돌파 시 장중 매수"
                 if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
                 else "독립 근거 확인 후 다음 거래일 시가의 갭 범위를 확인해 매수"
             )
@@ -4542,11 +4599,21 @@ def build_quant_signal_payload(
         "market": stock.market,
         **investment_sector_fields(stock.sector, stock.industry),
         "as_of": current_time,
-        "strategy_name": STRATEGY_NAME,
+        "strategy_name": (
+            NEXT_OPEN_STRATEGY_NAME
+            if price_through is not None and price_through >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+            else STRATEGY_NAME
+        ),
         "strategy_version": STRATEGY_VERSION,
         "candidate_strategy_version": CANDIDATE_STRATEGY_VERSION,
         "strategy_version_history": [dict(item) for item in STRATEGY_VERSION_HISTORY],
         "execution_model": EXECUTION_MODEL,
+        "entry_execution_policy_version": (
+            NEXT_OPEN_ENTRY_POLICY_VERSION
+            if price_through is not None and price_through >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+            else None
+        ),
+        "next_open_entry_effective_date": NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "entry_filter_version": ENTRY_FILTER_VERSION,
         "entry_filter_effective_date": ENTRY_FILTER_EFFECTIVE_DATE,
@@ -4570,11 +4637,12 @@ def build_quant_signal_payload(
             "EMA 10·20·60일, 5·10·20일 흐름, 20일 고점, 거래량, ATR14를 동일 규칙으로 계산합니다.",
             "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
-            "신호와 독립 근거는 완료 종가에서 확정하고, 다음 KRX 정규장에서 고정된 확인선을 돌파할 때 장중 매수합니다.",
-            "2026-10-22부터 실제 관측한 예비 후보는 동시간대 누적 거래량 0.75배에서 포착하고, 이후 완료된 정규장 1분봉에서 H1 1.0배·기존 가격 조건·최신 독립 근거를 충족하면 같은 날 매수 확정합니다. 일시적 입력 장애는 당일 관측을 중지했다가 새 완료 분봉부터 재개하며, 진입 관측가 이후 분봉만 매도 판단에 사용합니다.",
+            "2026-11-12부터 신규 매수 후보는 완료된 KRX 종가와 독립 근거로 장마감에 확정하고, 다음 거래일 시가가 갭 제한 안에 있으면 장마감 후 모델 매수로 확인합니다.",
+            "2026-11-11까지의 종가 후보는 다음 KRX 정규장에서 고정된 확인선 돌파를 장중 확인하며, 기존 확정 이력은 다시 계산하지 않습니다.",
+            "2026-10-22부터 2026-11-11까지 실제 관측한 예비 후보는 동시간대 누적 거래량 0.75배에서 포착하고, 이후 완료된 정규장 1분봉에서 H1 1.0배·기존 가격 조건·최신 독립 근거를 충족하면 같은 날 매수 확정합니다. 기존 관측 기록은 보존합니다.",
             "장중 매도는 종료된 KRX 1분봉이 당일 현재가의 누적 고저가 범위 안에 있을 때 최대 1분 늦게 시각순으로 판정합니다. 첫 분봉 검증이 불가능하면 일중 OHLC는 조회 후보로만 쓰고 확정 매매를 보류하며, 이미 확정한 분봉 이력이 있으면 그 종목만 재검증 대기로 분리합니다. 같은 1분봉에서 손절선과 목표에 모두 닿으면 손절을 먼저 반영합니다.",
             "시가·고가·저가·종가가 모두 확인된 일봉과 현재 KRX 정규장의 검증된 형성 봉만 체결 판정에 사용합니다.",
-            f"{INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat()}부터 종가 확정·다음 시가 체결을 종가 확정·다음 세션 장중 돌파 체결로 전환합니다.",
+            f"{INTRADAY_EXECUTION_EFFECTIVE_DATE.isoformat()}부터 {NEXT_OPEN_ENTRY_EFFECTIVE_DATE.isoformat()} 전까지 종가 확정·다음 시가 체결 대신 다음 세션 장중 돌파 체결을 사용했습니다.",
             f"{STABLE_PROFIT_EFFECTIVE_DATE.isoformat()}부터 +3%에서 50%, +5%에서 잔여 50%를 수익확정하고 수익이 큰 종목도 빠르게 전량 확정합니다.",
             f"{PROFIT_PRESERVATION_EFFECTIVE_DATE.isoformat()}의 2R·4R·6R 규칙과 그 이전 3R·5R·8R 이력은 각 결정일 기준으로 보존하고 소급해 바꾸지 않습니다.",
             f"기존 보유 종목을 단기 전술형으로 전환할 때는 하루 최대 {MAX_TACTICAL_TRANSITION_SELL_FRACTION * 100:.0f}%만 수익확정합니다.",
@@ -4588,7 +4656,7 @@ def build_quant_signal_payload(
             "OpenDART 중대 위험 공시와 시장 급락·고변동 국면은 점수와 무관하게 신규매수를 보류합니다.",
             "외부 근거는 종목·신호일·전략 버전별 스냅샷으로 고정하여 나중 데이터가 과거 매수 판단을 바꾸지 못하게 합니다.",
             f"매수 확정 전에는 {PRE_ENTRY_SCORE:.0f}점 이상·단기 흐름 개선 종목을 예비 포착으로 분리해 다음 부족 조건을 표시합니다.",
-            f"장중 돌파 체결가가 신호 종가에서 {MAX_ENTRY_GAP_ATR:.1f}ATR 또는 {MAX_ENTRY_GAP_PERCENT * 100:.0f}% 범위를 벗어나면 추격 매수를 취소합니다.",
+            f"신규 다음 시가 또는 과거 장중 돌파 체결가가 신호 종가에서 {MAX_ENTRY_GAP_ATR:.1f}ATR 또는 {MAX_ENTRY_GAP_PERCENT * 100:.0f}% 범위를 벗어나면 추격 매수를 취소합니다.",
             "매수가 대비 +2%에 도달하면 매수·매도 예상 비용을 반영한 수익 보호선을 적용합니다.",
             "수익확정 예정 다음 시가가 이미 수익 보호선 아래면 소량만 매도하지 않고 잔여비중을 전량 매도합니다.",
             f"{REENTRY_COOLDOWN_REMOVAL_EFFECTIVE_DATE.isoformat()}부터 전량 매도 후 고정 재진입 유예를 적용하지 않습니다. 다만 기존 조건을 그대로 승계하지 않고 새 돌파 또는 20일선 눌림·회복을 요구합니다.",
@@ -5941,7 +6009,12 @@ def _market_preliminary_signal_item(
         "market": stock.market,
         **investment_sector_fields(stock.sector, stock.industry),
         "market_cap_rank": market_cap_rank,
-        "signal": "예비 포착" if action == "entry_watch" else "예비 매수" if side == "buy" else "예비 매도",
+        "signal": (
+            "다음 거래일 매수 후보"
+            if action == "entry_pending" and signal_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+            else "예비 포착" if action == "entry_watch"
+            else "예비 매수" if side == "buy" else "예비 매도"
+        ),
         "side": side,
         "event_side": "partial_sell" if action == "partial_exit_pending" else side,
         "signal_date": signal_date,
@@ -5959,6 +6032,11 @@ def _market_preliminary_signal_item(
         "is_preliminary": True,
         "updated_at": signal_at,
         "current": current,
+        "entry_execution_policy_version": (
+            NEXT_OPEN_ENTRY_POLICY_VERSION
+            if action == "entry_pending" and signal_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+            else None
+        ),
         "is_current_holding": bool(current.get("position_open")),
         "public_reasons": public_reasons,
         "observed_entry": current.get("observed_entry"),
@@ -6014,7 +6092,7 @@ def _market_stock_payload_with_intraday_path(
         observed_entries.get(current_time.date(), {}).get("status") == "watching"
     )
     can_observe_entry = bool(
-        observe_entry and current_time.date() >= observed_entry.EFFECTIVE_DATE
+        observe_entry and observed_entry.EFFECTIVE_DATE <= current_time.date() < NEXT_OPEN_ENTRY_EFFECTIVE_DATE
         and entry_universe_eligible and entry_universe_eligible(payload)
     )
     initial_quote_fresh = bool(
@@ -6235,6 +6313,11 @@ def load_market_quant_signal_feed(
         "status": "ready",
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
+        "entry_execution_policy_version": (
+            NEXT_OPEN_ENTRY_POLICY_VERSION
+            if current_time.date() >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE else None
+        ),
+        "next_open_entry_effective_date": NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "as_of": current_time,
         "universe_as_of": market_cap_date,
@@ -6910,6 +6993,11 @@ def load_market_quant_signal_feed(
         "unverified_codes_isolated": isolated_unverified,
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
+        "entry_execution_policy_version": (
+            NEXT_OPEN_ENTRY_POLICY_VERSION
+            if current_time.date() >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE else None
+        ),
+        "next_open_entry_effective_date": NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
         "as_of": current_time,
         "universe_as_of": market_cap_date,

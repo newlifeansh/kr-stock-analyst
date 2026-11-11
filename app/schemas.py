@@ -1070,6 +1070,7 @@ class QuantSignalEventOut(BaseModel):
     source_strategy_version: Optional[str] = None
     reconciliation_id: Optional[str] = None
     execution_model: Optional[str] = None
+    entry_execution_policy_version: Optional[str] = None
     entry_policy_version: Optional[str] = None
     candidate_id: Optional[str] = None
     first_observed_at: Optional[datetime] = None
@@ -1155,6 +1156,7 @@ class QuantLifecycleTransitionOut(BaseModel):
     signal_origin: Optional[str] = None
     reconciliation_id: Optional[str] = None
     execution_model: Optional[str] = None
+    entry_execution_policy_version: Optional[str] = None
     entry_policy_version: Optional[str] = None
     confirmed_at: Optional[datetime] = None
     decision_minute_at: Optional[datetime] = None
@@ -1278,6 +1280,8 @@ class StockQuantSignalsOut(BaseModel):
     candidate_strategy_version: Optional[str] = None
     strategy_version_history: list[dict[str, object]] = Field(default_factory=list)
     execution_model: Optional[str] = None
+    entry_execution_policy_version: Optional[str] = None
+    next_open_entry_effective_date: Optional[date] = None
     intraday_execution_effective_date: Optional[date] = None
     entry_filter_version: Optional[str] = None
     entry_filter_effective_date: Optional[date] = None

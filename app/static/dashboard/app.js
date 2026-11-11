@@ -28260,7 +28260,8 @@ function recommendationSignalStageView(signal = null, item = {}) {
   if (action === "entry_pending") {
     return {
       key: "buy_wait",
-      headline: "매수 대기",
+      headline: signal.entry_execution_policy_version === "kr-close-next-open-entry-v1"
+        ? "다음 거래일 매수 후보" : "매수 대기",
       tone: "buy",
       changedAt: current.as_of || signal.as_of,
       next,
@@ -28686,7 +28687,9 @@ function renderRecommendationDetail(
     : signalStage.key === "buy_wait"
       ? isUsItem
         ? "종가 후보의 정규장 완료 분봉과 갭 위험을 확인한 뒤 장중 매수를 확정합니다."
-        : "종가 조건이 확정돼 다음 정규장 장중 돌파를 기다립니다."
+        : effectiveSignal?.entry_execution_policy_version === "kr-close-next-open-entry-v1"
+          ? "장마감 매수 후보입니다. 다음 거래일 시가의 갭 제한을 확인합니다."
+          : "종가 조건이 확정돼 다음 정규장 장중 돌파를 기다립니다."
       : signalStage.key === "holding"
         ? "현재 보유 상태이므로 새 매수보다 보유·매도 조건을 확인합니다."
         : signalStage.key === "sell_wait"
