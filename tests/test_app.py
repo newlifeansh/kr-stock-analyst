@@ -1801,6 +1801,7 @@ def test_regular_price_retry_waits_for_first_publication(monkeypatch):
     monkeypatch.setattr(main_module.asyncio, "sleep", sleep_once)
     monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
     monkeypatch.setattr(main_module, "is_korea_regular_market_session", lambda _now: True)
+    monkeypatch.setattr(main_module, "_regular_evidence_retry_window", lambda _now: True)
     monkeypatch.setattr(
         main_module, "_retry_market_quant_signal_regular_evidence",
         lambda: calls.append("collected"),
