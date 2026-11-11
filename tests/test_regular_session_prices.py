@@ -1294,3 +1294,185 @@ def test_delayed_first_trade_still_requests_explicit_preopen_boundary(monkeypatc
         assert result['preopen_baseline']=={'kind':'observed_day_boundary','requested_date':'20261012',
             'requested_time':'085900','previous_trade_date':'20261008','previous_trade_time':'153000','value':None}
         assert len(result['rows'])==1 and result['rows'][0]['trade_time']==first
+
+
+def _november_11_path_fixture():
+    return json.loads(
+        (Path(__file__).parent / "fixtures" / "kr_2026-11-11_path_corroboration.json").read_text()
+    )
+
+
+def _seed_november_11_unsealed_path(db, code, fixture, *, cancelled_at="2026-11-11T09:36:53+09:00"):
+    from app.models import QuantSignalIntradayPathSnapshot, QuantSignalObservedEntry
+    from app.services import observed_entry, quant_signals as qs
+
+    day = date(2026, 11, 11)
+    observed = datetime(2026, 11, 12, 1, 30, tzinfo=rsp.KST)
+    source = fixture["source"]
+    original = rsp.regular_session_evidence(
+        code, day, source["raw_rows"], observed_at=observed,
+        preopen_baseline=source["preopen_baseline"],
+        closing_auction_evidence=source["closing_auction_evidence"],
+    )
+    assert original["state"] == "bounded", original["reason"]
+    rsp.store_regular_session_evidence(db, original, observed_at=observed)
+    db.add(QuantSignalIntradayPathSnapshot(
+        stock_code=code, trade_date=day, strategy_version=qs.STRATEGY_VERSION,
+        source="kis_rest" if code == "068270" else "kis_rest+ccnl_auction",
+        payload=json.dumps(fixture["prior_path"], ensure_ascii=False),
+        is_final=False, observed_at=datetime(2026, 11, 11, 6, 31),
+    ))
+    if code == "068270":
+        db.add(QuantSignalObservedEntry(
+            stock_code=code, trade_date=day, policy_version=observed_entry.POLICY_VERSION,
+            status="cancelled", payload=json.dumps({
+                "status": "cancelled", "cancelled_at": cancelled_at,
+            }), updated_at=datetime(2026, 11, 11, 0, 36),
+        ))
+    db.commit()
+    return original, observed
+
+
+@pytest.mark.parametrize("code", ["068270", "458730"])
+def test_full_day_independent_minute_proof_seals_only_the_recorded_path(db, code):
+    from app.models import QuantSignalIntradayPathSnapshot
+    from app.services.regular_path_repair import corroborate_unfinalized_regular_path
+
+    fixture = _november_11_path_fixture()[code]
+    original, observed = _seed_november_11_unsealed_path(db, code, fixture)
+    proof = {"naver": fixture["naver"]}
+    if code == "458730":
+        proof["yahoo"] = fixture["yahoo"]
+    packaged = json.loads(Path("app/evidence/kr_2026-11-11_full_minute_paths.json").read_text())
+    assert packaged[code] == proof
+    day = date(2026, 11, 11)
+    dry = corroborate_unfinalized_regular_path(
+        db, code, day, observed_at=observed, source_proof=proof,
+    )
+    assert dry["state"] == "verified" and dry["persisted"] is False
+    assert db.get(QuantSignalIntradayPathSnapshot, (code, day)).is_final is False
+    assert db.scalar(select(func.count()).select_from(SignalSessionPrice)) == 1
+
+    report = corroborate_unfinalized_regular_path(
+        db, code, day, observed_at=observed, persist=True, source_proof=proof,
+    )
+    assert report["persisted"] is True and report["notifications_sent"] == 0
+    assert report["history_overwrite"] is False
+    assert db.get(QuantSignalIntradayPathSnapshot, (code, day)).is_final is True
+    assert db.scalar(select(func.count()).select_from(SignalSessionPrice)) == 2
+    selected = rsp.load_regular_session_evidence(db, code, day, allow_bounded=True)
+    assert selected["prices"] == original["prices"]
+    assert selected["turnover_bounds"] == original["turnover_bounds"]
+    assert selected["full_minute_path_proof"]["prior_path"] == fixture["prior_path"]
+    assert len(selected["regular_rows"]) == 381
+    from app.services.regular_price_replay import regular_price_envelope, regular_ordered_paths
+    envelope = regular_price_envelope(
+        db, code, [DailyPrice(code=code, trade_date=day, close=selected["prices"]["close"])],
+        completed_through=day, effective_from=day,
+    )
+    assert len(regular_ordered_paths(envelope)[day]) == 381
+    if code == "458730":
+        assert next(row for row in selected["regular_rows"] if row["trade_time"] == "131300")["open"] == 15145
+    else:
+        assert next(row for row in selected["regular_rows"] if row["trade_time"] == "151900")["volume"] == 867
+
+
+@pytest.mark.parametrize("mutation", [
+    "yahoo_open", "missing_yahoo", "naver_high", "naver_volume", "naver_time", "second_open", "prior_hash",
+])
+def test_disputed_minute_open_rejects_mutated_independent_proof(mutation):
+    from hashlib import sha256
+
+    fixture = _november_11_path_fixture()["458730"]
+    source = fixture["source"]
+    proof = {
+        "naver": deepcopy(fixture["naver"]), "yahoo": deepcopy(fixture["yahoo"]),
+        "prior_path": fixture["prior_path"],
+        "prior_path_hash": sha256(rsp._json(fixture["prior_path"]).encode()).hexdigest(),
+    }
+    naver_row = next(row for row in proof["naver"]["rows"] if row["localDateTime"] == "20261111131300")
+    if mutation == "yahoo_open":
+        next(row for row in proof["yahoo"]["rows"] if row["trade_time"] == "131300")["open"] = 15140
+    elif mutation == "missing_yahoo":
+        proof.pop("yahoo")
+    elif mutation == "naver_high":
+        naver_row["highPrice"] = 15150
+    elif mutation == "naver_volume":
+        naver_row["accumulatedTradingVolume"] += 1
+    elif mutation == "naver_time":
+        naver_row["localDateTime"] = "20261111131400"
+    elif mutation == "second_open":
+        next(row for row in proof["naver"]["rows"] if row["localDateTime"] == "20261111131200")["openPrice"] = 15145
+    else:
+        proof["prior_path_hash"] = "0" * 64
+    result = rsp.regular_session_evidence(
+        "458730", date(2026, 11, 11), source["raw_rows"],
+        observed_at=datetime(2026, 11, 12, 1, 30, tzinfo=rsp.KST),
+        preopen_baseline=source["preopen_baseline"],
+        closing_auction_evidence=source["closing_auction_evidence"],
+        full_minute_path_proof=proof,
+    )
+    assert result["state"] == "unverified"
+
+
+def test_full_day_source_fetches_only_dated_regular_minutes_and_one_disputed_bucket(monkeypatch):
+    from app.collectors import briefing
+
+    fixture = _november_11_path_fixture()["458730"]
+    class Response:
+        status_code = 200
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {
+                "code": "458730", "periodType": "day", "stockExchangeType": "KRX",
+                "priceInfos": fixture["naver"]["rows"] + [{
+                    "localDateTime": "20261111160000", "openPrice": 15140,
+                }],
+            }
+    requests_seen = []
+    yahoo_seen = []
+    def fetch(url, **kwargs):
+        requests_seen.append((url, kwargs["params"]))
+        return Response()
+    def yahoo(code, day, bucket_start):
+        yahoo_seen.append((code, day, bucket_start))
+        return fixture["yahoo"]
+    monkeypatch.setattr(briefing.requests, "get", fetch)
+    monkeypatch.setattr(briefing, "_fetch_yahoo_bucket_open", yahoo)
+    source = fixture["source"]
+    original = rsp.regular_session_evidence(
+        "458730", date(2026, 11, 11), source["raw_rows"],
+        observed_at=datetime(2026, 11, 12, 1, 30, tzinfo=rsp.KST),
+        preopen_baseline=source["preopen_baseline"],
+        closing_auction_evidence=source["closing_auction_evidence"],
+    )
+    proof = briefing.fetch_regular_path_corroboration(
+        "458730", date(2026, 11, 11), original["regular_rows"],
+    )
+    assert len(proof["naver"]["rows"]) == 381
+    assert proof["yahoo"] == fixture["yahoo"]
+    assert requests_seen == [
+        ("https://api.stock.naver.com/chart/domestic/item/458730", {"periodType": "day"}),
+    ]
+    assert yahoo_seen == [("458730", date(2026, 11, 11), "131000")]
+
+
+@pytest.mark.parametrize("cancelled_at", ["2026-11-11T15:19:00+09:00", "invalid"])
+def test_cancelled_watcher_never_allows_prior_or_undated_minute_revision(db, cancelled_at):
+    from app.models import QuantSignalIntradayPathSnapshot
+    from app.services.regular_path_repair import corroborate_unfinalized_regular_path
+    from app.services.quant_signals import UnverifiedIntradayPathError
+
+    code = "068270"
+    fixture = _november_11_path_fixture()[code]
+    _original, observed = _seed_november_11_unsealed_path(
+        db, code, fixture, cancelled_at=cancelled_at,
+    )
+    with pytest.raises(UnverifiedIntradayPathError):
+        corroborate_unfinalized_regular_path(
+            db, code, date(2026, 11, 11), observed_at=observed,
+            persist=True, source_proof={"naver": fixture["naver"]},
+        )
+    assert db.get(QuantSignalIntradayPathSnapshot, (code, date(2026, 11, 11))).is_final is False
+    assert db.scalar(select(func.count()).select_from(SignalSessionPrice)) == 1

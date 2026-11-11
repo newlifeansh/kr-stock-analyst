@@ -904,6 +904,20 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_data_signal_qa."
         "test_live_krx_holiday_still_passes_valid_dated_replay",
     ),
+    "SIG-KR-INTRADAY-CORROBORATION-001": (
+        "tests.test_regular_session_prices.test_full_day_source_fetches_only_dated_regular_minutes_and_one_disputed_bucket",
+        "tests.test_regular_session_prices.test_full_day_independent_minute_proof_seals_only_the_recorded_path[068270]",
+        "tests.test_regular_session_prices.test_full_day_independent_minute_proof_seals_only_the_recorded_path[458730]",
+        "tests.test_regular_session_prices.test_disputed_minute_open_rejects_mutated_independent_proof[yahoo_open]",
+        "tests.test_regular_session_prices.test_disputed_minute_open_rejects_mutated_independent_proof[missing_yahoo]",
+        "tests.test_regular_session_prices.test_disputed_minute_open_rejects_mutated_independent_proof[naver_high]",
+        "tests.test_regular_session_prices.test_disputed_minute_open_rejects_mutated_independent_proof[naver_volume]",
+        "tests.test_regular_session_prices.test_disputed_minute_open_rejects_mutated_independent_proof[naver_time]",
+        "tests.test_regular_session_prices.test_disputed_minute_open_rejects_mutated_independent_proof[second_open]",
+        "tests.test_regular_session_prices.test_disputed_minute_open_rejects_mutated_independent_proof[prior_hash]",
+        "tests.test_regular_session_prices.test_cancelled_watcher_never_allows_prior_or_undated_minute_revision[2026-11-11T15:19:00+09:00]",
+        "tests.test_regular_session_prices.test_cancelled_watcher_never_allows_prior_or_undated_minute_revision[invalid]",
+    ),
     "SIG-UI-030": (
         "tests.test_domestic_market_scope."
         "test_domestic_market_is_the_default_product_boundary",
