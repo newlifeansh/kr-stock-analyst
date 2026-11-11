@@ -50,6 +50,8 @@ from app.services.market_calendar import (
 from app.services.recommendations import build_recommendations
 from app.services.quant_signals import (
     EXECUTION_MODEL,
+    NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
+    NEXT_OPEN_ENTRY_POLICY_VERSION,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     SNAPSHOT_MAX_FUTURE_SKEW_SECONDS,
     load_external_market_quant_signal_feed,
@@ -630,6 +632,11 @@ def _ai_signal_candidate(
         "full_exit_pending": "전량 매도 대기",
         "exited": "전량 매도",
     }
+    if (
+        effective_action == "entry_pending"
+        and payload.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
+    ):
+        signal_labels["entry_pending"] = "다음 거래일 매수 후보"
     label = signal_labels.get(effective_action)
     if not label:
         return None
@@ -794,7 +801,13 @@ def _recommendation_signal_state(item: dict[str, object]) -> tuple[str, Optional
     detail = str(current.get("next_confirmation") or "종목 상세에서 다음 확인 조건을 확인하세요.")
 
     if action == "entry_pending":
-        return "buy-pending", "예비 매수", detail
+        return (
+            "buy-pending",
+            "다음 거래일 매수 후보"
+            if signal.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
+            else "예비 매수",
+            detail,
+        )
     if action in {"entered", "holding"}:
         return "holding", "매수 확정·보유", detail
     if action == "partial_exit_pending":
@@ -1775,7 +1788,12 @@ class WebPushRuntime:
             side = str(item.get("side") or "").strip()
             preliminary = bool(item.get("is_preliminary")) or item.get("status") == "preliminary"
             if preliminary:
-                if not preliminary_window:
+                next_open_candidate = bool(
+                    side == "buy"
+                    and item.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
+                    and current_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+                )
+                if not (confirmed_window if next_open_candidate else preliminary_window):
                     continue
                 signal_date = str(item.get("signal_date") or "").strip()
                 try:
@@ -1784,17 +1802,26 @@ class WebPushRuntime:
                     continue
                 if preliminary_date != current_date or not code or side not in {"buy", "sell"}:
                     continue
-                action = "예비 매수" if side == "buy" else "예비 매도"
+                action = (
+                    "다음 거래일 매수 후보" if next_open_candidate
+                    else "예비 매수" if side == "buy" else "예비 매도"
+                )
                 observed = item.get("observed_entry") or {}
                 if observed.get("status") == "watching":
                     action = "예비 포착"
                 notification_state = "preliminary_buy" if side == "buy" else "preliminary_sell"
                 candidates.append(
                     NotificationCandidate(
-                        event_key=f"market-ai-preliminary:{code}:{side}:{signal_date}",
+                        event_key=(
+                            f"market-ai-next-open:{code}:buy:{signal_date}"
+                            if next_open_candidate else
+                            f"market-ai-preliminary:{code}:{side}:{signal_date}"
+                        ),
                         kind="market_ai_signal",
                         title=_signal_notification_title(name, action, notification_state),
                         body=(
+                            "장마감 종가와 독립 근거로 확인한 후보입니다. 다음 정규장 시가의 갭 제한을 확인한 뒤 매수 여부를 결정합니다."
+                            if next_open_candidate else
                             "예비 후보가 포착됐어요. 이후 완료 분봉에서 조건을 충족하면 장중 매수 확정을 별도로 알려드려요."
                             if observed.get("status") == "watching" else
                             f"{current.strftime('%H:%M')} 기준 장중 관찰 신호예요. 15:40 확정 전에는 바뀔 수 있어요."

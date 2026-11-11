@@ -14,6 +14,30 @@ def app_source() -> str:
     return APP_JS.read_text(encoding="utf-8")
 
 
+def test_kr_next_open_candidate_uses_next_session_label() -> None:
+    source = app_source()
+    start = source.index("function recommendationSignalStageView(")
+    end = source.index("function recommendationAiSignalStageView(", start)
+    script = f"""
+function recommendationShouldCollectSignal() {{ return false; }}
+function recommendationReleasedPreliminary() {{ return null; }}
+{source[start:end]}
+const current = {{ action: "entry_pending", next_confirmation: "다음 거래일 시가 확인" }};
+console.log(JSON.stringify({{
+  nextOpen: recommendationSignalStageView({{
+    data_state: "ready", current,
+    entry_execution_policy_version: "kr-close-next-open-entry-v1",
+  }}).headline,
+  legacy: recommendationSignalStageView({{ data_state: "ready", current }}).headline,
+}}));
+"""
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout) == {
+        "nextOpen": "다음 거래일 매수 후보",
+        "legacy": "매수 대기",
+    }
+
+
 def dashboard_styles() -> str:
     return DASHBOARD_CSS.read_text(encoding="utf-8")
 

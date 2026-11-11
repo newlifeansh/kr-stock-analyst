@@ -76,6 +76,22 @@ def test_live_order_guard_fails_closed(change, reason):
     assert result["reason"] == reason
 
 
+def test_next_open_model_event_cannot_be_promoted_to_intraday_order():
+    now = datetime(2026, 11, 13, 10, 0, tzinfo=KST)
+    candidate = {
+        "status": "confirmed",
+        "side": "buy",
+        "event_side": "buy",
+        "execution_date": date(2026, 11, 13),
+        "execution_model": "close-confirmed-next-open-v2",
+        "entry_execution_policy_version": "kr-close-next-open-entry-v1",
+        "price": 100_000,
+    }
+    result = live_order_guard.evaluate_live_order_candidate(candidate, now=now)
+    assert result["eligible"] is False
+    assert result["reason"] == "execution_not_verified"
+
+
 def test_us_live_order_guard_requires_fresh_completed_regular_minute():
     now = datetime(2026, 10, 22, 10, 0, tzinfo=ZoneInfo("America/New_York"))
     candidate = {
