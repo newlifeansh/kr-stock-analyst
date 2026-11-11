@@ -407,6 +407,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_live_stock_quote.test_unavailable_live_quote_does_not_label_previous_close_as_live",
         "tests.test_quant_signals.test_v8_verified_live_krx_bar_confirms_three_percent_half_sale",
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_previous_close_at_open",
+        "tests.test_data_signal_qa.test_live_representative_signal_keeps_p0_open_for_verified_price_only",
         "tests.test_data_signal_qa.test_live_korea_market_session_accepts_fresh_minutes_and_quote",
         "tests.test_data_signal_qa.test_live_korea_market_session_rejects_stale_minutes_and_quote",
     ),
@@ -5110,6 +5111,15 @@ def _live_checks(
             _assert(
                 signal.get("strategy_version") == catalog["strategy_version"],
                 "상세 시그널 버전이 다릅니다.",
+            )
+            _assert(
+                signal.get("data_state") == "ready",
+                "대표 종목 확정 시그널이 검증 대기 상태입니다.",
+                **{
+                    **signal_meta,
+                    "data_state": signal.get("data_state"),
+                    "excluded_session_date": signal.get("excluded_session_date"),
+                },
             )
             context["quote"] = quote
             context["signal"] = signal

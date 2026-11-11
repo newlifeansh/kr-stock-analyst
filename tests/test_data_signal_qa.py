@@ -2743,6 +2743,7 @@ class FakeReadOnlyApi:
         if path == "/stocks/005930/quant-signals":
             return {
                 "strategy_version": "position-lifecycle-v8.1",
+                "data_state": "ready",
                 "current": {"action": "hold"},
                 "as_of": "2026-08-29T10:00:00+09:00",
             }, self._meta(path)
@@ -3749,6 +3750,31 @@ def test_live_intraday_push_qa_rejects_prior_session_preliminary(monkeypatch) ->
     check = next(item for item in report["checks"] if item["id"] == "SIG-PUSH-INTRADAY-001")
     assert check["status"] == "fail"
     assert check["evidence"]["expired_preliminary_codes"] == ["035720"]
+
+
+@pytest.mark.qa_live
+def test_live_representative_signal_keeps_p0_open_for_verified_price_only(monkeypatch) -> None:
+    from app.qa import runner
+
+    class VerifiedPriceOnlyApi(FakeReadOnlyApi):
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/stocks/005930/quant-signals":
+                payload = {
+                    **payload,
+                    "data_state": "incomplete",
+                    "excluded_session_date": "2026-11-06",
+                    "current": None,
+                }
+            return payload, meta
+
+    monkeypatch.setattr(runner, "ReadOnlyApi", VerifiedPriceOnlyApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
+    check = next(item for item in report["checks"] if item["id"] == "DATA-KIS-002")
+    assert check["status"] == "fail"
+    assert "검증 대기" in check["message"]
+    assert check["evidence"]["excluded_session_date"] == "2026-11-06"
 
 
 @pytest.mark.qa_live
