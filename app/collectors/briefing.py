@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from threading import Lock
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
+from xml.etree import ElementTree
 
 import requests
 from sqlalchemy import delete, select
@@ -40,6 +41,106 @@ KIS_TOKEN_FAILURE_RETRY_SECONDS = 30
 _KIS_TOKEN_CACHE: dict[str, tuple[str, datetime]] = {}
 _KIS_TOKEN_FAILURE_RETRY_AT: dict[str, float] = {}
 _KIS_TOKEN_CACHE_LOCK = Lock()
+
+
+def _parse_naver_minute_coverage(
+    code: str, target: str, content: bytes, *, bucket_start: str = "090000",
+) -> dict[str, Any]:
+    """Retain only one dated ten-minute bucket from the minute chart."""
+    if len(content) > 2_000_000:
+        raise ValueError("Naver minute response is too large")
+    root = ElementTree.fromstring(content.decode("euc-kr"))
+    chart = root.find("chartdata")
+    if chart is None or chart.get("symbol") != code or chart.get("timeframe") != "minute":
+        raise ValueError("wrong Naver minute source identity")
+    bucket_end = (datetime.strptime(bucket_start, "%H%M%S") + timedelta(minutes=10)).strftime("%H%M%S")
+    rows = []
+    for item in chart.findall("item"):
+        fields = str(item.get("data") or "").split("|")
+        stamp = fields[0]
+        if not stamp.startswith(target):
+            continue
+        if len(fields) != 6 or len(stamp) != 12 or not stamp.isdigit():
+            raise ValueError("invalid dated Naver minute row")
+        trade_time = stamp[8:] + "00"
+        if bucket_start <= trade_time < bucket_end:
+            rows.append({
+                "trade_time": trade_time,
+                "close": fields[4],
+                "accumulated_volume": fields[5],
+            })
+    return {"code": code, "trade_date": target, "timeframe": "minute", "rows": rows}
+
+
+def _halt_bucket_open_candidate(
+    points: dict[str, dict[str, object]], weekly_rows: list[dict[str, Any]], target: str,
+) -> str | None:
+    """Identify exactly one post-halt bucket whose only dispute is its open."""
+    candidate = None
+    try:
+        for bucket in weekly_rows:
+            stamp = str(bucket.get("localDateTime") or "")
+            if not stamp.startswith(target):
+                continue
+            start = stamp[8:]
+            if not "090000" <= start <= "151000":
+                continue
+            end = (datetime.strptime(start, "%H%M%S") + timedelta(minutes=10)).strftime("%H%M%S")
+            minutes = [points[t] for t in sorted(points) if start <= t < end and int(points[t].get("volume") or 0) > 0]
+            if not minutes:
+                continue
+            actual = [int(bucket[key]) for key in ("openPrice", "highPrice", "lowPrice", "currentPrice")]
+            expected = [int(minutes[0]["open"]), max(int(row["high"]) for row in minutes),
+                        min(int(row["low"]) for row in minutes), int(minutes[-1]["price"])]
+            if actual == expected:
+                continue
+            if (
+                candidate is not None or actual[1:] != expected[1:]
+                or actual[0] == expected[0] or not int(minutes[0]["low"]) <= actual[0] <= int(minutes[0]["high"])
+                or min(t for t in points if start <= t < end and int(points[t].get("volume") or 0) > 0) <= start
+            ):
+                return None
+            candidate = start
+    except (KeyError, TypeError, ValueError):
+        return None
+    return candidate
+
+
+def _fetch_yahoo_bucket_open(code: str, day: date, bucket_start: str) -> dict[str, Any]:
+    start = datetime.combine(day, datetime.strptime(bucket_start, "%H%M%S").time(), KST)
+    end = start + timedelta(minutes=10)
+    for suffix in ("KS", "KQ"):
+        ticker = f"{code}.{suffix}"
+        response = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+            params={"period1": int(start.timestamp()), "period2": int(end.timestamp()), "interval": "1m"},
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+        )
+        if response.status_code == 404:
+            continue
+        response.raise_for_status()
+        data = (response.json().get("chart") or {}).get("result") or []
+        if not data:
+            continue
+        chart = data[0]
+        meta = chart.get("meta") or {}
+        if (
+            meta.get("symbol") != ticker or meta.get("exchangeTimezoneName") != "Asia/Seoul"
+            or meta.get("dataGranularity") != "1m"
+        ):
+            continue
+        quote = ((chart.get("indicators") or {}).get("quote") or [{}])[0]
+        bars = []
+        for index, stamp in enumerate(chart.get("timestamp") or []):
+            instant = datetime.fromtimestamp(int(stamp), KST)
+            if start <= instant < end:
+                bars.append({"trade_time": instant.strftime("%H%M%S"),
+                             "open": quote["open"][index], "close": quote["close"][index]})
+        if bars:
+            return {"ticker": ticker, "trade_date": day.strftime("%Y%m%d"),
+                    "bucket_start": bucket_start, "exchange_timezone": "Asia/Seoul",
+                    "interval": "1m", "rows": bars}
+    raise ValueError("independent halt-bucket open unavailable")
 
 
 @dataclass
@@ -808,6 +909,53 @@ class KisRestBriefingProvider:
                 } | {"priceInfos": {target: (payload.get("priceInfos") or {}).get(target)}}
             except (requests.RequestException, ValueError, TypeError, AttributeError):
                 pass  # missing auction stays unverified, never fabricated
+        actual_prefix_times = sorted(
+            stamp for stamp, row in points.items()
+            if "090000" <= stamp <= "151900" and int(row.get("volume") or 0) > 0
+        )
+        weekly_rows = (
+            ((result["closing_auction_evidence"] or {}).get("priceInfos") or {}).get(target) or []
+        )
+        opening_bucket = next(
+            (row for row in weekly_rows if row.get("localDateTime") == target + "090000"), None
+        )
+        try:
+            opening_offset = (
+                int(opening_bucket["accumulatedTradingVolume"])
+                - sum(int(points[stamp]["volume"]) for stamp in actual_prefix_times if stamp < "091000")
+                if opening_bucket is not None else None
+            )
+        except (KeyError, TypeError, ValueError):
+            opening_offset = None
+        open_conflict_bucket = _halt_bucket_open_candidate(points, weekly_rows, target)
+        if (
+            result["closing_auction_evidence"] is not None
+            and actual_prefix_times
+            and actual_prefix_times[0] != "090000"
+            and ((opening_offset is not None and opening_offset > 0) or open_conflict_bucket is not None)
+        ):
+            try:
+                response = requests.get(
+                    "https://fchart.stock.naver.com/sise.nhn",
+                    params={"symbol": code, "timeframe": "minute", "count": "5000", "requestType": "0"},
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+                )
+                response.raise_for_status()
+                if opening_offset is not None and opening_offset > 0:
+                    result["minute_coverage_evidence"] = _parse_naver_minute_coverage(
+                        code, target, response.content
+                    )
+                if open_conflict_bucket is not None:
+                    minute_bucket = _parse_naver_minute_coverage(
+                        code, target, response.content, bucket_start=open_conflict_bucket,
+                    )
+                    result["bucket_open_proof"] = {
+                        "code": code, "trade_date": target, "bucket_start": open_conflict_bucket,
+                        "naver_minutes": minute_bucket["rows"],
+                        "yahoo": _fetch_yahoo_bucket_open(code, trade_date, open_conflict_bucket),
+                    }
+            except (requests.RequestException, ValueError, TypeError, AttributeError, ElementTree.ParseError):
+                pass  # A missing minute path never weakens the delayed-open guard.
         return result
 
     def _fetch_fluctuation(self, list_type: str, limit: int, min_rate: str, max_rate: str) -> list[BriefingMoverPayload]:
