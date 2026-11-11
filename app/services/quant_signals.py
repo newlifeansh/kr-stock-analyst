@@ -83,7 +83,8 @@ V7_5_RC4_CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v7.5-rc4"
 V8_STRATEGY_VERSION = "position-lifecycle-v8.0"
 STRATEGY_VERSION = REGULAR_FORWARD_STRATEGY_VERSION
 CANDIDATE_STRATEGY_VERSION = "position-lifecycle-v8.1-rc1"
-STRATEGY_NAME = "독립 근거 확인·종가 매수 후보·장중 위험관리 전략"
+STRATEGY_NAME = "독립 근거 확인·장중 돌파 진입·장중 위험관리 전략"
+NEXT_OPEN_STRATEGY_NAME = "독립 근거 확인·종가 매수 후보·장중 위험관리 전략"
 MIN_HISTORY_ROWS = 125
 WARMUP_ROWS = 65
 BACKTEST_ROWS = 252
@@ -4591,7 +4592,11 @@ def build_quant_signal_payload(
         "market": stock.market,
         **investment_sector_fields(stock.sector, stock.industry),
         "as_of": current_time,
-        "strategy_name": STRATEGY_NAME,
+        "strategy_name": (
+            NEXT_OPEN_STRATEGY_NAME
+            if price_through is not None and price_through >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+            else STRATEGY_NAME
+        ),
         "strategy_version": STRATEGY_VERSION,
         "candidate_strategy_version": CANDIDATE_STRATEGY_VERSION,
         "strategy_version_history": [dict(item) for item in STRATEGY_VERSION_HISTORY],

@@ -1406,6 +1406,8 @@ def test_next_open_policy_metadata_follows_last_completed_signal_date():
     new_signal = build_quant_signal_payload(_stock(), [*rows, previous, current], now=at_close)
     assert old_signal["entry_execution_policy_version"] is None
     assert new_signal["entry_execution_policy_version"] == quant_signals.NEXT_OPEN_ENTRY_POLICY_VERSION
+    assert old_signal["strategy_name"] == quant_signals.STRATEGY_NAME
+    assert new_signal["strategy_name"] == quant_signals.NEXT_OPEN_STRATEGY_NAME
 
 
 def test_v8_intraday_sell_is_stop_first_and_emits_every_reached_profit_stage():
