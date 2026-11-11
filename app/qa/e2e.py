@@ -366,6 +366,9 @@ def _stock_contract(
         "signal_http": signal_response.status_code,
         "signal_replay_pending": signal_replay_pending,
         "signal_failure_detail": signal_detail if signal_replay_pending else None,
+        "signal_data_state": signal.get("data_state"),
+        "excluded_session_date": signal.get("excluded_session_date"),
+        "verified_sessions": signal.get("verified_sessions"),
         "signal_as_of": signal.get("as_of"),
         "signal_action": current.get("action"),
         "signal_label": current.get("label"),
@@ -3922,6 +3925,47 @@ def run_e2e_checks(
                             """() => ({
                               action: 'replay_pending',
                               expected: '검증 전 시그널 비노출',
+                              displayed: document.querySelector('#quant-signal-status')
+                                ?.textContent?.trim() || '',
+                            })"""
+                        )
+                    elif (
+                        stock["code"] == "005930"
+                        and stock.get("signal_data_state") == "incomplete"
+                        and stock.get("excluded_session_date") == "2026-11-06"
+                    ):
+                        verified = stock.get("verified_sessions") or []
+                        if not verified or any(
+                            row.get("trade_date") == "2026-11-06"
+                            for row in verified
+                        ):
+                            raise QaFailure(
+                                "검증된 가격 목록에 제외 날짜가 있거나 확인된 날짜가 없습니다.",
+                                {"code": stock["code"]},
+                            )
+                        _wait_for_ui_contract(
+                            page,
+                            """expected => {
+                              const payload = state.stockQuantSignals;
+                              const status = document.querySelector('#quant-signal-status');
+                              const panel = document.querySelector('#quant-verified-sessions');
+                              const rows = [...document.querySelectorAll('#quant-verified-list .quant-verified-row')];
+                              return payload?.data_state === 'incomplete'
+                                && payload.excluded_session_date === '2026-11-06'
+                                && payload.current == null
+                                && status && !status.hidden && status.textContent.includes('2026-11-06')
+                                && panel && !panel.hidden && rows.length === expected
+                                && rows.every(row => !row.textContent.includes('2026.11.06'))
+                                && document.querySelector('#quant-signal-content')?.hidden;
+                            }""",
+                            arg=len(verified),
+                            stage=f"{stock['code']} 검증 날짜만 표시하는 AI 화면",
+                            timeout_ms=int(timeout * 1000),
+                        )
+                        signal_stage_contract = page.evaluate(
+                            """() => ({
+                              action: 'verified_prices_only',
+                              expected: '확정 시그널 비노출',
                               displayed: document.querySelector('#quant-signal-status')
                                 ?.textContent?.trim() || '',
                             })"""
