@@ -579,13 +579,13 @@ PUSH_CONDITION_OPTIONS = [
     {
         "id": "ai_signal",
         "label": "AI 시그널",
-        "description": "관심종목의 장중 예비·장 마감 확정 신호를 알려드립니다.",
+        "description": "관심종목의 전일 장마감 매수 후보와 매도·수익확정 신호를 알려드립니다.",
         "required": True,
     },
     {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "국내장 장중 예비 신호와 검증된 장중·장 마감 확정 매수·매도 신호를 알려드립니다.",
+        "description": "국내장 전일 종가로 확인한 다음 거래일 매수 후보와 검증된 매도·수익확정 신호를 알려드립니다.",
     },
     {
         "id": "recommendation_update",
