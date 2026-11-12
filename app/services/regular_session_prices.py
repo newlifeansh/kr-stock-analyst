@@ -13,6 +13,7 @@ from hashlib import sha256
 import json
 from threading import Lock
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 import zlib
 
@@ -84,14 +85,17 @@ def verified_revised_dated_kis_rows(
     *,
     original_baseline: dict[str, Any] | None,
     complete_baseline: dict[str, Any] | None,
+    code: str | None = None,
+    toss_dated_minute_proof: dict[str, Any] | None = None,
+    yahoo_minute_proof: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Accept a historical KIS correction only when both dated cursors agree.
+    """Accept a historical KIS correction with cursor or independent consensus.
 
     KIS can return different minute OHLCV for the same date when the first
     query cursor is 15:30 versus 15:31. The regular collector starts at 15:31;
-    the historical chart starts at 15:30. A correction is publishable only
-    when their complete regular-session rows are identical and the previously
-    observed opening monetary boundary remains unchanged.
+    the historical chart starts at 15:30. Cursor disagreement is publishable
+    only for one OHLC-only minute independently confirmed by both Toss and
+    Yahoo; the original monetary boundary must remain unchanged.
     """
     target = trade_date.strftime("%Y%m%d")
     if complete_baseline != original_baseline or original_baseline is None:
@@ -116,7 +120,53 @@ def verified_revised_dated_kis_rows(
     complete = regular(complete_rows)
     alternate = regular(alternate_rows)
     if complete != alternate:
-        raise ValueError("dated KIS cursor paths disagree")
+        if (
+            not code or original != alternate
+            or not isinstance(toss_dated_minute_proof, dict)
+            or not isinstance(yahoo_minute_proof, dict)
+            or len(complete) != len(alternate)
+            or [row["trade_time"] for row in complete]
+               != [row["trade_time"] for row in alternate]
+        ):
+            raise ValueError("dated KIS cursor paths disagree")
+        changed = [(old, new) for old, new in zip(alternate, complete) if old != new]
+        if len(changed) != 1:
+            raise ValueError("dated KIS cursor paths disagree")
+        old, new = changed[0]
+        if (
+            {key for key in old.keys() | new.keys() if old.get(key) != new.get(key)}
+            != {"open", "low"}
+            or any(old.get(key) != new.get(key) for key in
+                   ("trade_date", "trade_time", "high", "price", "volume", "trading_value"))
+        ):
+            raise ValueError("dated KIS cursor revision is not OHLC-only")
+        independent = _verified_yahoo_minute_rows(
+            code, trade_date, yahoo_minute_proof, (new["trade_time"],)
+        )[new["trade_time"]]
+        if any(_integer(independent[yahoo_key], positive=True) != _integer(new[kis_key], positive=True)
+               for yahoo_key, kis_key in (("open", "open"), ("high", "high"),
+                                          ("low", "low"), ("close", "price"))):
+            raise ValueError("Yahoo minute disagrees with revised KIS OHLC")
+        candles = toss_dated_minute_proof.get("candles")
+        expected_stamp = (
+            datetime.combine(trade_date, datetime.strptime(new["trade_time"], "%H%M%S").time(), KST)
+            + timedelta(minutes=1)
+        ).isoformat()
+        matching = [candle for candle in candles if isinstance(candle, dict)
+                    and candle.get("dt") == expected_stamp] if isinstance(candles, list) else []
+        if (
+            toss_dated_minute_proof.get("code") != code
+            or toss_dated_minute_proof.get("date") != trade_date.isoformat()
+            or toss_dated_minute_proof.get("exchange") != "krx"
+            or toss_dated_minute_proof.get("interval") != "1m"
+            or toss_dated_minute_proof.get("use_adjusted_rate") is not False
+            or len(matching) != 1
+            or any(_integer(matching[0][toss_key], positive=True) != _integer(new[kis_key], positive=True)
+                   for toss_key, kis_key in (("open", "open"), ("high", "high"),
+                                             ("low", "low"), ("close", "price"),
+                                             ("volume", "volume")))
+        ):
+            raise ValueError("Toss minute disagrees with revised KIS OHLCV")
     if complete == original:
         raise ValueError("dated KIS requery did not revise a regular minute")
     if [row for row in complete_rows if row["trade_time"] < "090000"] != [
@@ -124,6 +174,39 @@ def verified_revised_dated_kis_rows(
     ]:
         raise ValueError("dated KIS preopen rows changed")
     return complete_rows
+
+
+def _verified_yahoo_minute_rows(
+    code: str, trade_date: date, proof: dict[str, Any], times: tuple[str, ...]
+) -> dict[str, dict[str, Any]]:
+    """Check the dated third-source identity and exact requested 1m bars."""
+    if not isinstance(proof, dict):
+        raise ValueError("dated Yahoo minute source missing")
+    parsed_url = urlparse(str(proof.get("url") or ""))
+    params = parse_qs(parsed_url.query)
+    expected_start = int(datetime.combine(trade_date, time(8, 50), KST).timestamp())
+    expected_end = int(datetime.combine(trade_date, time(16, 50), KST).timestamp())
+    raw_hash = proof.get("raw_sha256")
+    if (
+        set(proof) != {"code", "date", "ticker", "url", "status", "raw_sha256", "meta", "rows"}
+        or proof.get("code") != code or proof.get("date") != trade_date.isoformat()
+        or proof.get("ticker") != f"{code}.KS" or proof.get("status") != 200
+        or parsed_url.scheme != "https" or parsed_url.netloc != "query1.finance.yahoo.com"
+        or parsed_url.path != f"/v8/finance/chart/{code}.KS"
+        or params != {"period1": [str(expected_start)], "period2": [str(expected_end)], "interval": ["1m"]}
+        or not isinstance(raw_hash, str) or len(raw_hash) != 64
+        or any(character not in "0123456789abcdef" for character in raw_hash)
+        or not isinstance(proof.get("meta"), dict)
+        or proof["meta"].get("symbol") != f"{code}.KS"
+        or proof["meta"].get("exchangeTimezoneName") != "Asia/Seoul"
+        or proof["meta"].get("dataGranularity") != "1m"
+        or not isinstance(proof.get("rows"), list)
+    ):
+        raise ValueError("dated Yahoo minute source identity mismatch")
+    rows = proof["rows"]
+    if len(rows) != len(times) or {row.get("trade_time") for row in rows if isinstance(row, dict)} != set(times):
+        raise ValueError("dated Yahoo minute proof incomplete")
+    return {row["trade_time"]: row for row in rows}
 
 
 def _json(value: Any) -> str:
@@ -474,6 +557,67 @@ def _verified_toss_auction_with_postmarket(
     return {**auction, "volume": _integer(chart_auction["volume"], positive=True), "trading_value": corrected_cash}
 
 
+def _verified_adjacent_minute_volume_shift(
+    code: str, trade_date: date, regular: list[dict[str, Any]],
+    chart: dict[str, dict[str, Any]], proof: dict[str, Any],
+) -> set[str]:
+    """Allow a bounded two-minute trade allocation dispute with three-source totals."""
+    if (
+        set(proof) != {"code", "trade_date", "first_time", "yahoo_minute_proof"}
+        or proof.get("code") != code or proof.get("trade_date") != trade_date.isoformat()
+        or not isinstance(proof.get("first_time"), str)
+        or len(proof["first_time"]) != 6 or not proof["first_time"].isdigit()
+        or not "090000" <= proof["first_time"] < "151900"
+    ):
+        raise ValueError("adjacent minute volume proof identity mismatch")
+    first_time = proof["first_time"]
+    first = datetime.combine(trade_date, datetime.strptime(first_time, "%H%M%S").time(), KST)
+    times = (first_time, (first + timedelta(minutes=1)).strftime("%H%M%S"))
+    independent = _verified_yahoo_minute_rows(
+        code, trade_date, proof["yahoo_minute_proof"], times
+    )
+    kis = {row["trade_time"]: row for row in regular}
+    prior = next((row for row in reversed(regular) if row["trade_time"] < first_time), None)
+    if prior is None or any(stamp not in kis for stamp in times):
+        raise ValueError("adjacent minute KIS path incomplete")
+    source_volumes = []
+    chart_volumes = []
+    yahoo_volumes = []
+    previous_cash = _integer(prior["trading_value"], positive=True)
+    for stamp in times:
+        row = kis[stamp]
+        chart_stamp = (
+            datetime.combine(trade_date, datetime.strptime(stamp, "%H%M%S").time(), KST)
+            + timedelta(minutes=1)
+        ).strftime("%H%M%S")
+        candle = chart.get(chart_stamp)
+        yahoo = independent[stamp]
+        if candle is None:
+            raise ValueError("adjacent minute Toss path incomplete")
+        volume = _integer(row["volume"], positive=True)
+        source_volumes.append(volume)
+        chart_volumes.append(_integer(candle.get("volume"), positive=True))
+        yahoo_volumes.append(_integer(yahoo.get("volume"), positive=True))
+        if any(
+            _integer(yahoo.get(yahoo_key), positive=True) != _integer(row.get(kis_key), positive=True)
+            for yahoo_key, kis_key in (("open", "open"), ("high", "high"),
+                                       ("low", "low"), ("close", "price"))
+        ):
+            raise ValueError("adjacent minute Yahoo OHLC conflicts with KIS")
+        cash = _integer(row["trading_value"], positive=True)
+        if not volume * _integer(row["low"], positive=True) <= cash - previous_cash <= volume * _integer(row["high"], positive=True):
+            raise ValueError("adjacent minute KIS monetary path conflicts with volume")
+        previous_cash = cash
+    shift = chart_volumes[0] - source_volumes[0]
+    if (
+        not shift or abs(shift) > 10
+        or chart_volumes[1] - source_volumes[1] != -shift
+        or sum(yahoo_volumes) != sum(source_volumes)
+    ):
+        raise ValueError("adjacent minute volumes do not reconcile")
+    return set(times)
+
+
 def _verified_toss_dated_minute_path(
     code: str, trade_date: date, regular: list[dict[str, Any]], proof: dict[str, Any],
 ) -> tuple[bool, dict[str, Any] | None]:
@@ -526,6 +670,13 @@ def _verified_toss_dated_minute_path(
         if stamp in by_time and _integer(by_time[stamp].get("volume")) != 0:
             raise ValueError("dated minute auction window has unverified trades")
     kis = {row["trade_time"]: row for row in regular}
+    shifted = (
+        _verified_adjacent_minute_volume_shift(
+            code, trade_date, regular, by_time, proof["minute_volume_reallocation"]
+        )
+        if proof.get("minute_volume_reallocation") is not None else set()
+    )
+    observed_shift: set[str] = set()
     if any("152000" <= stamp < "153000" and _integer(row.get("volume")) > 0 for stamp, row in kis.items()):
         raise ValueError("dated minute proof cannot classify 15:20 trade")
     for i in range(380):
@@ -535,14 +686,18 @@ def _verified_toss_dated_minute_path(
         source = kis.get(stamp)
         source_volume = _integer(source.get("volume")) if source is not None else 0
         chart_volume = _integer(candle.get("volume"))
-        if chart_volume != source_volume:
+        if chart_volume != source_volume and stamp not in shifted:
             raise ValueError("dated minute volume conflicts with KIS")
+        if chart_volume != source_volume:
+            observed_shift.add(stamp)
         if chart_volume:
             if source is None or any(
                 _integer(source.get(left), positive=True) != _integer(candle.get(right), positive=True)
                 for left, right in (("open", "open"), ("high", "high"), ("low", "low"), ("price", "close"))
             ):
                 raise ValueError("dated minute OHLC conflicts with KIS")
+    if observed_shift != shifted:
+        raise ValueError("unneeded adjacent minute volume proof")
     auction = kis.get("153000")
     chart_auction = by_time["153000"]
     if auction is None or _integer(auction.get("volume")) == 0:
