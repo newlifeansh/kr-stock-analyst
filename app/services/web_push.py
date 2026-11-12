@@ -479,6 +479,25 @@ def _signal_date(value: object) -> Optional[datetime]:
         return None
 
 
+def _previous_session_for_next_open_alert(now: datetime) -> Optional[date]:
+    current = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    if not (
+        is_korea_market_session_date(current.date(), current)
+        and time(9, 0) <= current.time() < time(9, 10)
+    ):
+        return None
+    return next(
+        (
+            current.date() - timedelta(days=days_back)
+            for days_back in range(1, 15)
+            if is_scheduled_korea_market_session_date(
+                current.date() - timedelta(days=days_back)
+            )
+        ),
+        None,
+    )
+
+
 PROFIT_STAGE_PATTERN = re.compile(r"(\d+)\s*차\s*수익확정")
 ORDERED_AFTER_MARKET_ACTIONS = frozenset(
     {
@@ -649,11 +668,26 @@ def _ai_signal_candidate(
         else transition.get("transition_date") if completed else payload.get("price_through")
     )
     basis = _signal_date(basis_value)
-    if basis is None or basis.date() != now.date():
+    next_open_candidate = bool(
+        effective_action == "entry_pending"
+        and payload.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
+    )
+    if next_open_candidate and (
+        payload.get("execution_replay_state") == "unverified"
+        or payload.get("alert_eligible") is False
+    ):
+        return None
+    previous_session = _previous_session_for_next_open_alert(local_now) if next_open_candidate else None
+    if basis is None or (
+        basis.date() != previous_session if next_open_candidate
+        else basis.date() != local_now.date()
+    ):
         return None
     detail = str(current.get("next_confirmation") or "종목 상세에서 시그널 기준을 확인하세요.")
     return NotificationCandidate(
         event_key=(
+            f"market-ai-next-open:{item.code}:buy:{basis.date().isoformat()}"
+            if next_open_candidate else
             f"market-ai-preliminary:{item.code}:buy:{basis.date().isoformat()}"
             if observed.get("status") == "watching" else
             f"market-ai-signal:{item.code}:buy:{basis.date().isoformat()}"
@@ -1751,10 +1785,7 @@ class WebPushRuntime:
         )
         confirmed_window = is_korea_daily_signal_window(current)
         preliminary_window = not confirmed_window and is_korea_regular_market_session(current)
-        next_open_window = (
-            is_korea_market_session_date(current.date(), current)
-            and time(9, 0) <= current.time() < time(9, 10)
-        )
+        previous_next_open_session = _previous_session_for_next_open_alert(current)
         intraday_window = (
             is_korea_market_session_date(current.date(), current)
             and time(9, 0) <= current.time() < time(15, 40)
@@ -1798,7 +1829,7 @@ class WebPushRuntime:
                     and item.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
                     and current_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
                 )
-                if not (next_open_window if next_open_candidate else preliminary_window):
+                if not (previous_next_open_session if next_open_candidate else preliminary_window):
                     continue
                 signal_date = str(item.get("signal_date") or "").strip()
                 try:
@@ -1808,18 +1839,8 @@ class WebPushRuntime:
                 if not code or side not in {"buy", "sell"}:
                     continue
                 if next_open_candidate:
-                    previous_session = next(
-                        (
-                            current_date - timedelta(days=days_back)
-                            for days_back in range(1, 15)
-                            if is_scheduled_korea_market_session_date(
-                                current_date - timedelta(days=days_back)
-                            )
-                        ),
-                        None,
-                    )
                     snapshot_date = str(snapshot.get("universe_as_of") or "")[:10]
-                    if preliminary_date != previous_session or snapshot_date != signal_date:
+                    if preliminary_date != previous_next_open_session or snapshot_date != preliminary_date.isoformat():
                         continue
                 elif preliminary_date != current_date:
                     continue

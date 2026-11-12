@@ -1920,6 +1920,34 @@ def test_kr_next_open_buy_candidate_alerts_at_next_session_open_only(monkeypatch
         db.close()
 
 
+def test_watchlist_next_open_candidate_alert_uses_prior_close_and_shared_key(monkeypatch):
+    monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+    monkeypatch.setattr(
+        web_push, "is_scheduled_korea_market_session_date",
+        lambda day: day.weekday() < 5,
+    )
+    watch = WatchlistItem(share_id="tester", code="005930", name="삼성전자", market="KOSPI")
+    payload = {
+        "price_through": "2026-11-12",
+        "entry_execution_policy_version": web_push.NEXT_OPEN_ENTRY_POLICY_VERSION,
+        "current": {
+            "action": "entry_pending",
+            "position_open": False,
+            "live_observation": False,
+            "next_confirmation": "다음 거래일 시가의 갭 제한을 확인합니다.",
+        },
+    }
+    assert web_push._ai_signal_candidate(watch, payload, datetime(2026, 11, 12, 16)) is None
+    candidate = web_push._ai_signal_candidate(watch, payload, datetime(2026, 11, 13, 9, 3))
+    assert candidate is not None
+    assert candidate.title == "✨ [다음 거래일 매수 후보] 삼성전자"
+    assert candidate.event_key == "market-ai-next-open:005930:buy:2026-11-12"
+    assert web_push._ai_signal_candidate(watch, payload, datetime(2026, 11, 13, 9, 10)) is None
+    assert web_push._ai_signal_candidate(watch, payload, datetime(2026, 11, 16, 9, 3)) is None
+    payload["execution_replay_state"] = "unverified"
+    assert web_push._ai_signal_candidate(watch, payload, datetime(2026, 11, 13, 9, 3)) is None
+
+
 def test_us_market_ai_signal_candidates_emit_ready_close_entry_pending(monkeypatch):
     db = _session()
     try:
