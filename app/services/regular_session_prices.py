@@ -873,6 +873,35 @@ def collect_regular_session_prices(
             # their text to a CLI report or public diagnostic.
             report["unverified"].append({"code": code, "trade_date": day.isoformat(), "reason": "source_unavailable", "error_type": type(exc).__name__})
             continue
+        if result["state"] == "unverified" and result.get("reason") in {
+            "closing source conflicts with KIS pre-auction OHLC",
+            "closing source conflicts with KIS pre-auction volume",
+            "cumulative turnover does not reconcile with actual trades",
+        }:
+            # Dated KIS pages can intermittently omit one actual minute. A
+            # later page read may be complete, but one lucky response is not
+            # enough to clear an isolated session. Accept only two identical,
+            # independently revalidated complete reads; otherwise preserve
+            # the original failure and the normal retry cooldown.
+            stable: list[dict[str, Any]] = []
+            for _ in range(2):
+                try:
+                    retry_source = provider.fetch_regular_session_data(code, day)
+                    retry = regular_session_evidence(
+                        code, day, retry_source["rows"], observed_at=observed_at,
+                        preopen_baseline=retry_source.get("preopen_baseline"),
+                        closing_auction_evidence=retry_source.get("closing_auction_evidence"),
+                        minute_coverage_evidence=retry_source.get("minute_coverage_evidence"),
+                        bucket_open_proof=retry_source.get("bucket_open_proof"),
+                        full_minute_path_proof=retry_source.get("full_minute_path_proof"),
+                    )
+                except Exception:
+                    break
+                if retry["state"] not in {"ready", "bounded"}:
+                    break
+                stable.append(retry)
+            if len(stable) == 2 and _json(stable[0]) == _json(stable[1]):
+                result = stable[1]
         if persist:
             store_regular_session_evidence(db, result, observed_at=observed_at)
             db.commit()
