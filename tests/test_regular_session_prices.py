@@ -47,7 +47,11 @@ def _toss_dated_evidence(case):
 
 
 def test_toss_dated_complete_krx_minute_path_recovers_halts_and_late_open(toss_dated_fixture, db):
-    for key, opening, closing in (("001040_2026-10-14", "090000", 125400), ("273130_2026-10-22", "090200", 111770)):
+    for key, opening, closing in (
+        ("001040_2026-10-14", "090000", 125400),
+        ("273130_2026-10-22", "090200", 111770),
+        ("273130_2026-10-21", "090000", 111730),
+    ):
         case = toss_dated_fixture[key]
         without_proof = rsp.regular_session_evidence(
             key[:6], date.fromisoformat(key[7:]), case["raw_rows"],
@@ -60,6 +64,8 @@ def test_toss_dated_complete_krx_minute_path_recovers_halts_and_late_open(toss_d
         assert result["coverage_basis"] == rsp.TOSS_DATED_MINUTE_PATH_BASIS
         assert result["regular_rows"][0]["trade_time"] == opening
         assert result["prices"]["close"] == closing
+        if key == "273130_2026-10-21":
+            assert result["regular_rows"][-1]["trade_time"] == "151900"
         assert result["prices"]["volume"] == sum(row["volume"] for row in result["regular_rows"])
         record = rsp.store_regular_session_evidence(db, result, observed_at=datetime(2026, 11, 13, 2, tzinfo=rsp.KST))
         db.commit()
@@ -80,6 +86,17 @@ def test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts(to
     elif mutation == "minute_price": next(c for c in candles if c["dt"].endswith("09:01:00+09:00"))["close"] += 100
     elif mutation == "auction_volume": next(c for c in candles if c["dt"].endswith("15:30:00+09:00"))["volume"] += 1
     elif mutation == "after_close_trade": next(c for c in candles if c["dt"].endswith("15:31:00+09:00"))["volume"] = 1
+    assert _toss_dated_evidence(case)["state"] == "unverified"
+
+
+def test_toss_dated_absent_auction_requires_both_sources_to_show_no_trade(toss_dated_fixture):
+    case = deepcopy(toss_dated_fixture["273130_2026-10-21"])
+    assert _toss_dated_evidence(case)["state"] == "bounded"
+    next(c for c in case["toss_dated_minute_proof"]["candles"] if c["dt"].endswith("15:30:00+09:00"))["volume"] = 1
+    assert _toss_dated_evidence(case)["state"] == "unverified"
+    case = deepcopy(toss_dated_fixture["273130_2026-10-21"])
+    prior = case["raw_rows"][-1]
+    case["raw_rows"].append({**prior, "trade_time": "153000", "volume": 0, "trading_value": prior["trading_value"] + 1})
     assert _toss_dated_evidence(case)["state"] == "unverified"
 
 

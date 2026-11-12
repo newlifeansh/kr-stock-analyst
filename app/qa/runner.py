@@ -394,6 +394,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "DATA-KR-REGULAR-TOSS-001": (
         "tests.test_regular_session_prices.test_toss_dated_complete_krx_minute_path_recovers_halts_and_late_open",
+        "tests.test_regular_session_prices.test_toss_dated_absent_auction_requires_both_sources_to_show_no_trade",
         "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[date]",
         "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[venue]",
         "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[cursor]",

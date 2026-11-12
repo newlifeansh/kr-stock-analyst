@@ -114,7 +114,7 @@ def _integer(value: Any, *, positive: bool = False) -> int:
 
 def _verified_toss_dated_minute_path(
     code: str, trade_date: date, regular: list[dict[str, Any]], proof: dict[str, Any],
-) -> None:
+) -> bool:
     """Corroborate every KIS minute against a complete dated KRX chart.
 
     Toss stamps continuous trades at the minute end, one minute after the KIS
@@ -182,11 +182,20 @@ def _verified_toss_dated_minute_path(
                 raise ValueError("dated minute OHLC conflicts with KIS")
     auction = kis.get("153000")
     chart_auction = by_time["153000"]
-    if auction is None or _integer(auction.get("volume")) <= 0 or any(
+    if auction is None or _integer(auction.get("volume")) == 0:
+        if _integer(chart_auction.get("volume")) != 0:
+            raise ValueError("dated minute closing auction conflicts with KIS")
+        if auction is not None:
+            prior = next((row for row in reversed(regular) if row["trade_time"] < "153000" and _integer(row.get("volume")) > 0), None)
+            if prior is None or _integer(auction.get("trading_value")) != _integer(prior.get("trading_value")):
+                raise ValueError("zero-volume auction changes cumulative turnover")
+        return True  # Both dated sources omit a closing execution.
+    if any(
         _integer(auction.get(left), positive=True) != _integer(chart_auction.get(right), positive=True)
         for left, right in (("open", "open"), ("high", "high"), ("low", "low"), ("price", "close"), ("volume", "volume"))
     ):
         raise ValueError("dated minute closing auction conflicts with KIS")
+    return False
 
 
 def _corroborated_full_minute_path(
@@ -567,13 +576,18 @@ def regular_session_evidence(
         verified_closing = None
         verified_opening_offset = None
         if toss_dated_minute_proof is not None:
-            _verified_toss_dated_minute_path(code, trade_date, regular, toss_dated_minute_proof)
+            verified_no_closing_trade = _verified_toss_dated_minute_path(
+                code, trade_date, regular, toss_dated_minute_proof,
+            )
             sparse_prefix_verified = True
             result["coverage_basis"] = TOSS_DATED_MINUTE_PATH_BASIS
             result["source"] += "+toss_krx_dated_1m"
             regular = [
                 row for row in regular
-                if not ("090000" <= row["trade_time"] <= "151900" and _integer(row.get("volume")) == 0)
+                if not (
+                    ("090000" <= row["trade_time"] <= "151900" or row["trade_time"] == "153000")
+                    and _integer(row.get("volume")) == 0
+                )
             ]
         if len(actual_prefix) < 380 and closing_auction_evidence is not None:
             if actual_prefix and actual_prefix[0]["trade_time"] != "090000" and minute_coverage_evidence is not None:
