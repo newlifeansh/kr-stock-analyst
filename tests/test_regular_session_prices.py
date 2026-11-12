@@ -52,6 +52,11 @@ def kis_revised_fixture():
     return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_kis_revised_202610.json").read_text())
 
 
+@pytest.fixture(scope="module")
+def delayed_auction_fixture():
+    return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_delayed_auction_20261015.json").read_text())
+
+
 def _toss_dated_evidence(case):
     proof = case["toss_dated_minute_proof"]
     return rsp.regular_session_evidence(
@@ -310,6 +315,74 @@ def test_dated_kis_revision_requires_complete_independent_reconciliation(kis_rev
         code, date.fromisoformat(day_text), case["revised_raw_rows"],
         observed_at=datetime(2026, 11, 13, 4, tzinfo=rsp.KST),
         preopen_baseline=case["preopen_baseline"], toss_dated_minute_proof=proof,
+    )
+    assert rejected["state"] == "unverified"
+
+
+def test_dated_kis_1532_print_is_verified_as_delayed_closing_auction(delayed_auction_fixture, db):
+    case = delayed_auction_fixture
+    day = date(2026, 10, 15)
+    observed = datetime(2026, 11, 13, 5, tzinfo=rsp.KST)
+    assert not any(row["trade_time"] == "153000" for row in case["raw_rows"])
+    original = rsp.regular_session_evidence(
+        "001040", day, case["raw_rows"], observed_at=observed,
+        preopen_baseline=case["preopen_baseline"],
+    )
+    assert original["state"] == "unverified"
+    result = rsp.regular_session_evidence(
+        "001040", day, case["raw_rows"], observed_at=observed,
+        preopen_baseline=case["preopen_baseline"],
+        toss_dated_minute_proof=case["toss_dated_minute_proof"],
+    )
+    assert result["state"] == "bounded", result["reason"]
+    assert result["coverage_basis"] == rsp.TOSS_DELAYED_AUCTION_BASIS
+    assert result["prices"]["volume"] == 132955
+    assert result["prices"]["close"] == 123500
+    assert result["raw_rows"] == case["raw_rows"]
+    assert result["regular_rows"][-1] == {
+        "trade_date": "20261015", "trade_time": "153000", "open": 123500,
+        "high": 123500, "low": 123500, "price": 123500,
+        "volume": 2303, "trading_value": 16128207000,
+    }
+    old_record = rsp.store_regular_session_evidence(db, original, observed_at=observed)
+    old_hash = old_record.evidence_hash
+    new_record = rsp.store_regular_session_evidence(db, result, observed_at=observed)
+    db.commit()
+    assert old_record.id != new_record.id and old_record.evidence_hash == old_hash
+    assert rsp.load_regular_session_evidence(db, "001040", day, allow_bounded=True)["prices"] == result["prices"]
+
+
+@pytest.mark.parametrize("mutation", [
+    "missing", "wrong_delay", "kis_page_venue", "fake_tick", "kis_delayed_volume",
+    "kis_delayed_cash", "toss_delayed_volume", "toss_extra_trade", "after_trade",
+    "daily_volume", "daily_cash", "prior_regular_cash", "zero_row_cash",
+])
+def test_dated_kis_delayed_auction_requires_full_same_day_reconciliation(delayed_auction_fixture, mutation):
+    case = deepcopy(delayed_auction_fixture)
+    chart = case["toss_dated_minute_proof"]
+    proof = chart["delayed_auction_reconciliation"]
+    kis = proof["kis_late_pages"][0]
+    delayed = next(row for row in kis["output2"] if row["stck_cntg_hour"] == "153200")
+    if mutation == "missing": chart.pop("delayed_auction_reconciliation")
+    elif mutation == "wrong_delay": proof["delayed_kis_auction_time"] = "153300"
+    elif mutation == "kis_page_venue": kis["request"]["FID_COND_MRKT_DIV_CODE"] = "UN"
+    elif mutation == "fake_tick": kis["request"]["FID_FAKE_TICK_INCU_YN"] = "Y"
+    elif mutation == "kis_delayed_volume": delayed["cntg_vol"] = "2304"
+    elif mutation == "kis_delayed_cash": delayed["acml_tr_pbmn"] = "1"
+    elif mutation == "toss_delayed_volume": proof["toss_postmarket"]["candles"][-1]["volume"] += 1
+    elif mutation == "toss_extra_trade": next(c for c in proof["toss_postmarket"]["candles"] if c["dt"].endswith("15:33:00+09:00"))["volume"] = 1
+    elif mutation == "after_trade": next(row for row in kis["output2"] if row["stck_cntg_hour"] == "161500")["cntg_vol"] = "22"
+    elif mutation == "daily_volume": proof["kis_daily"]["row"]["acml_vol"] = "134139"
+    elif mutation == "daily_cash": proof["kis_daily"]["row"]["acml_tr_pbmn"] = "1"
+    elif mutation == "prior_regular_cash": case["raw_rows"][-1]["trading_value"] += 1
+    elif mutation == "zero_row_cash":
+        prior = case["raw_rows"][-1]
+        case["raw_rows"].append({**prior, "trade_time": "153000", "volume": 0,
+                                 "trading_value": prior["trading_value"] + 1})
+    rejected = rsp.regular_session_evidence(
+        "001040", date(2026, 10, 15), case["raw_rows"],
+        observed_at=datetime(2026, 11, 13, 5, tzinfo=rsp.KST),
+        preopen_baseline=case["preopen_baseline"], toss_dated_minute_proof=chart,
     )
     assert rejected["state"] == "unverified"
 

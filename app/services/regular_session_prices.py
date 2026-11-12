@@ -49,6 +49,9 @@ TOSS_DATED_MINUTE_PATH_BASIS = "toss_krx_dated_1m_full_path_corroboration"
 TOSS_AUCTION_RECONCILIATION_BASIS = (
     TOSS_DATED_MINUTE_PATH_BASIS + "+kis_j_daily_verified_auction_separation"
 )
+TOSS_DELAYED_AUCTION_BASIS = (
+    TOSS_DATED_MINUTE_PATH_BASIS + "+kis_1532_delayed_closing_auction"
+)
 NAVER_REGULAR_COVERAGE_BASIS_ALIASES = frozenset(
     {
         NAVER_REGULAR_COVERAGE_BASIS,
@@ -65,6 +68,7 @@ NAVER_SPARSE_PATH_COVERAGE_BASES = NAVER_REGULAR_COVERAGE_BASIS_ALIASES | frozen
     NAVER_COMPLETE_MINUTE_PATH_BASIS + "+" + THIRD_SOURCE_MINUTE_OPEN_BASIS,
     TOSS_DATED_MINUTE_PATH_BASIS,
     TOSS_AUCTION_RECONCILIATION_BASIS,
+    TOSS_DELAYED_AUCTION_BASIS,
 })
 
 
@@ -280,12 +284,19 @@ def _verified_toss_auction_reconciliation(
 
 def _verified_toss_auction_with_postmarket(
     code: str, trade_date: date, regular: list[dict[str, Any]],
-    auction: dict[str, Any], chart_auction: dict[str, Any], proof: dict[str, Any],
+    auction: dict[str, Any] | None, chart_auction: dict[str, Any], proof: dict[str, Any],
 ) -> dict[str, Any]:
     """Separate a missing closing execution from fully observed later KRX trades."""
     day = trade_date.isoformat()
     target = trade_date.strftime("%Y%m%d")
-    if set(proof) != {"code", "trade_date", "kis_daily", "kis_late_pages", "toss_postmarket"} or proof["code"] != code or proof["trade_date"] != day:
+    delayed = auction is None
+    required_keys = {"code", "trade_date", "kis_daily", "kis_late_pages", "toss_postmarket"}
+    if delayed:
+        required_keys.add("delayed_kis_auction_time")
+    if (
+        set(proof) != required_keys or proof["code"] != code or proof["trade_date"] != day
+        or (delayed and proof.get("delayed_kis_auction_time") != "153200")
+    ):
         raise ValueError("after-market reconciliation identity mismatch")
     daily = proof["kis_daily"]
     pages = proof["kis_late_pages"]
@@ -312,6 +323,7 @@ def _verified_toss_auction_with_postmarket(
             or request.get("FID_INPUT_DATE_1") != target
             or request.get("FID_INPUT_HOUR_1") != cursor
             or request.get("FID_PW_DATA_INCU_YN") != "Y"
+            or request.get("FID_FAKE_TICK_INCU_YN") != ""
             or not isinstance(rows, list) or len(rows) != 120
         ):
             raise ValueError("dated KRX late-session page identity mismatch")
@@ -328,21 +340,32 @@ def _verified_toss_auction_with_postmarket(
         kis_rows.extend(rows)
         cursor = (datetime.strptime(stamps[-1], "%H%M%S") - timedelta(minutes=1)).strftime("%H%M%S")
     stamps = [str(row["stck_cntg_hour"]) for row in kis_rows]
+    close_time = "153200" if delayed else "153000"
     if (
         any(left <= right for left, right in zip(stamps, stamps[1:]))
-        or "153000" not in stamps or stamps[-1] >= "153000"
+        or close_time not in stamps or stamps[-1] >= close_time
         or stamps[0] > "195900"
+        or (delayed and any("153000" <= stamp < close_time for stamp in stamps))
     ):
         raise ValueError("dated KRX late-session path does not reach closing trade")
-    close_row = kis_rows[stamps.index("153000")]
-    if any(
+    close_row = kis_rows[stamps.index(close_time)]
+    if delayed:
+        if any(
+            _integer(close_row.get(kis_key), positive=True)
+            != _integer(chart_auction.get(chart_key), positive=True)
+            for kis_key, chart_key in (("stck_oprc", "open"), ("stck_hgpr", "high"),
+                                       ("stck_lwpr", "low"), ("stck_prpr", "close"),
+                                       ("cntg_vol", "volume"))
+        ):
+            raise ValueError("delayed KIS closing print conflicts with dated chart")
+    elif any(
         _integer(close_row.get(kis_key), positive=True) != _integer(auction.get(row_key), positive=True)
         for kis_key, row_key in (("stck_oprc", "open"), ("stck_hgpr", "high"),
                                  ("stck_lwpr", "low"), ("stck_prpr", "price"),
                                  ("cntg_vol", "volume"), ("acml_tr_pbmn", "trading_value"))
     ):
         raise ValueError("later KIS source conflicts with stored closing trade")
-    after = [row for row in kis_rows if row["stck_cntg_hour"] > "153000"]
+    after = [row for row in kis_rows if row["stck_cntg_hour"] > close_time]
     if not after or any(not "160000" <= row["stck_cntg_hour"] <= "195900" for row in after):
         raise ValueError("late-session trades outside supported window")
     if (
@@ -398,13 +421,26 @@ def _verified_toss_auction_with_postmarket(
                                        ("stck_lwpr", "low"), ("stck_prpr", "close"))
         ):
             raise ValueError("independent late-session minute OHLC conflicts with KIS")
-    if any(_integer(auction.get(key), positive=True) != _integer(auction.get("price"), positive=True)
-           for key in ("open", "high", "low")):
+    auction_price = _integer(close_row["stck_prpr"], positive=True) if delayed else _integer(auction["price"], positive=True)
+    if any(
+        _integer(close_row.get(key), positive=True) != auction_price
+        for key in ("stck_oprc", "stck_hgpr", "stck_lwpr")
+    ):
         raise ValueError("closing auction is not single-price")
-    delta = _integer(chart_auction.get("volume"), positive=True) - _integer(auction.get("volume"), positive=True)
-    if delta <= 0:
-        raise ValueError("closing auction has no verified missing volume")
-    corrected_cash = _integer(auction["trading_value"], positive=True) + delta * _integer(auction["price"], positive=True)
+    actual = [row for row in regular if _integer(row.get("volume")) > 0]
+    if not actual:
+        raise ValueError("regular session has no earlier trade")
+    if delayed:
+        delayed_volume = _integer(close_row["cntg_vol"], positive=True)
+        delta = delayed_volume
+        corrected_cash = _integer(close_row["acml_tr_pbmn"], positive=True)
+        if corrected_cash != _integer(actual[-1]["trading_value"], positive=True) + delayed_volume * auction_price:
+            raise ValueError("delayed KIS closing print cash does not reconcile")
+    else:
+        delta = _integer(chart_auction.get("volume"), positive=True) - _integer(auction.get("volume"), positive=True)
+        if delta <= 0:
+            raise ValueError("closing auction has no verified missing volume")
+        corrected_cash = _integer(auction["trading_value"], positive=True) + delta * auction_price
     prior_cash = corrected_cash
     for row in reversed(after):
         volume = _integer(row["cntg_vol"], positive=True)
@@ -412,13 +448,12 @@ def _verified_toss_auction_with_postmarket(
         if not volume * _integer(row["stck_lwpr"], positive=True) <= cash - prior_cash <= volume * _integer(row["stck_hgpr"], positive=True):
             raise ValueError("KIS late-session cumulative money discontinuity")
         prior_cash = cash
-    actual = [row for row in regular if _integer(row.get("volume")) > 0]
     daily_row = daily["row"]
     expected_ohlc = (
         _integer(actual[0]["open"], positive=True),
-        max(_integer(row["high"], positive=True) for row in actual),
-        min(_integer(row["low"], positive=True) for row in actual),
-        _integer(auction["price"], positive=True),
+        max([_integer(row["high"], positive=True) for row in actual] + [auction_price]),
+        min([_integer(row["low"], positive=True) for row in actual] + [auction_price]),
+        auction_price,
     )
     if (
         tuple(_integer(daily_row.get(key), positive=True) for key in
@@ -429,6 +464,13 @@ def _verified_toss_auction_with_postmarket(
         or _integer(daily_row.get("acml_tr_pbmn"), positive=True) != prior_cash
     ):
         raise ValueError("KRX daily counters do not reconcile with both sessions")
+    if delayed:
+        return {
+            "trade_date": target, "trade_time": "153000", "open": auction_price,
+            "high": auction_price, "low": auction_price, "price": auction_price,
+            "volume": _integer(close_row["cntg_vol"], positive=True),
+            "trading_value": corrected_cash,
+        }
     return {**auction, "volume": _integer(chart_auction["volume"], positive=True), "trading_value": corrected_cash}
 
 
@@ -507,7 +549,18 @@ def _verified_toss_dated_minute_path(
         if proof.get("auction_reconciliation") is not None:
             raise ValueError("auction correction cannot replace an absent KIS closing trade")
         if _integer(chart_auction.get("volume")) != 0:
+            delayed_proof = proof.get("delayed_auction_reconciliation")
+            if delayed_proof is not None:
+                if auction is not None:
+                    prior = next((row for row in reversed(regular) if row["trade_time"] < "153000" and _integer(row.get("volume")) > 0), None)
+                    if prior is None or _integer(auction.get("trading_value")) != _integer(prior.get("trading_value")):
+                        raise ValueError("zero-volume KIS auction changes cumulative turnover")
+                return False, _verified_toss_auction_with_postmarket(
+                    code, trade_date, regular, None, chart_auction, delayed_proof,
+                )
             raise ValueError("dated minute closing auction conflicts with KIS")
+        if proof.get("delayed_auction_reconciliation") is not None:
+            raise ValueError("unneeded delayed closing print proof")
         if auction is not None:
             prior = next((row for row in reversed(regular) if row["trade_time"] < "153000" and _integer(row.get("volume")) > 0), None)
             if prior is None or _integer(auction.get("trading_value")) != _integer(prior.get("trading_value")):
@@ -518,6 +571,8 @@ def _verified_toss_dated_minute_path(
         for left, right in (("open", "open"), ("high", "high"), ("low", "low"), ("price", "close"))
     ):
         raise ValueError("dated minute closing auction conflicts with KIS")
+    if proof.get("delayed_auction_reconciliation") is not None:
+        raise ValueError("delayed closing print conflicts with stored KIS auction")
     if _integer(auction.get("volume"), positive=True) != _integer(chart_auction.get("volume"), positive=True):
         reconciliation = proof.get("auction_reconciliation")
         if reconciliation is None:
@@ -915,8 +970,12 @@ def regular_session_evidence(
             result["coverage_basis"] = TOSS_DATED_MINUTE_PATH_BASIS
             result["source"] += "+toss_krx_dated_1m"
             if revised_auction is not None:
-                result["coverage_basis"] = TOSS_AUCTION_RECONCILIATION_BASIS
-                result["source"] += "+kis_j_daily_no_postmarket_auction_correction"
+                if toss_dated_minute_proof.get("delayed_auction_reconciliation") is not None:
+                    result["coverage_basis"] = TOSS_DELAYED_AUCTION_BASIS
+                    result["source"] += "+kis_1532_delayed_closing_auction"
+                else:
+                    result["coverage_basis"] = TOSS_AUCTION_RECONCILIATION_BASIS
+                    result["source"] += "+kis_j_daily_no_postmarket_auction_correction"
             regular = [
                 revised_auction if row["trade_time"] == "153000" and revised_auction is not None else row
                 for row in regular
@@ -925,6 +984,8 @@ def regular_session_evidence(
                     and _integer(row.get("volume")) == 0
                 )
             ]
+            if revised_auction is not None and not any(row["trade_time"] == "153000" for row in regular):
+                regular.append(revised_auction)
         if len(actual_prefix) < 380 and closing_auction_evidence is not None:
             if actual_prefix and actual_prefix[0]["trade_time"] != "090000" and minute_coverage_evidence is not None:
                 verified_opening_offset = _verified_naver_minute_opening_offset(
