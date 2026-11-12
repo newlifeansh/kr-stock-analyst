@@ -22,7 +22,7 @@
   const DOCUMENT_TITLE_KEY_PREFIX = "analyst.desktop.documentTitle.";
   const DOCUMENT_TITLE_PENDING_PREFIX = "analyst.desktop.documentTitlePending.";
   const SIDE_PANEL_COLLAPSED_KEY = "analyst.desktop.sidePanelCollapsed";
-  const DESKTOP_SW_VERSION = "20260829h4";
+  const DESKTOP_SW_VERSION = "20261113h5";
   const state = {
     active: "home",
     details: new Map(),
@@ -38,6 +38,7 @@
     notificationRetentionDays: 3,
     desktopPushConfig: null,
     desktopPushEnabled: false,
+    desktopPushRotationRequired: false,
     desktopPushConditions: [],
     desktopPushBusy: false,
     desktopPushMessage: "알림 상태 확인 중…",
@@ -2211,6 +2212,13 @@
         return;
       }
       const status = await api(`/push/subscriptions/${encodeURIComponent(state.watchlistId)}/status?endpoint=${encodeURIComponent(subscription.endpoint)}`);
+      state.desktopPushRotationRequired = status.key_rotation_required === true;
+      if (state.desktopPushRotationRequired) {
+        state.desktopPushEnabled = false;
+        state.desktopPushConditions = normalizeDesktopPushConditions(status.conditions || state.desktopPushConditions);
+        setDesktopPushMessage("알림 키가 변경됐습니다. 이 PC에서 알림 받기를 눌러 다시 연결해주세요.");
+        return;
+      }
       state.desktopPushEnabled = status.enabled === true;
       state.desktopPushConditions = normalizeDesktopPushConditions(status.conditions || state.desktopPushConditions);
       setDesktopPushMessage(state.desktopPushEnabled ? "이 PC에서 선택한 알림을 받고 있습니다." : "이 PC의 서버 등록이 필요합니다.", state.desktopPushEnabled ? "success" : "");
@@ -2269,7 +2277,13 @@
       if (permission !== "granted") permission = await Notification.requestPermission();
       if (permission !== "granted") throw new Error("브라우저 알림 권한이 필요합니다.");
       let subscription = await registration.pushManager.getSubscription();
-      if (subscription && !desktopPushSubscriptionUsesKey(subscription, state.desktopPushConfig.public_key)) {
+      if (subscription && (state.desktopPushRotationRequired || !desktopPushSubscriptionUsesKey(subscription, state.desktopPushConfig.public_key))) {
+        const response = await fetch(`/push/subscriptions/${encodeURIComponent(state.watchlistId)}`, {
+          method: "DELETE", credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "X-Write-Token": await ensureWriteToken() },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        if (!response.ok) throw new Error(await responseError(response, "이전 알림 등록을 해제하지 못했습니다."));
         await subscription.unsubscribe(); subscription = null;
       }
       if (!subscription) {
@@ -2283,6 +2297,7 @@
       if (!response.ok) throw new Error(await responseError(response, "알림 설정을 저장하지 못했습니다."));
       const result = await response.json();
       state.desktopPushEnabled = result.enabled === true;
+      state.desktopPushRotationRequired = false;
       state.desktopPushConditions = normalizeDesktopPushConditions(result.conditions || state.desktopPushConditions);
       setDesktopPushMessage(result.test_sent === true ? "알림 설정 완료 · 시험 알림을 보냈습니다." : "알림 설정을 저장했습니다.", "success");
     } catch (error) {

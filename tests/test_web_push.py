@@ -3,6 +3,7 @@ from decimal import Decimal
 import json
 from types import SimpleNamespace
 import pytest
+from fastapi.testclient import TestClient
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -38,6 +39,95 @@ def _settings(**overrides) -> Settings:
     return Settings(
         **values,
     )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "message", "requires_rotation"),
+    [
+        (400, 'Push failed: 400 Bad Request {"reason":"VapidPkHashMismatch"}', True),
+        (403, "Push failed: 403 Forbidden: the VAPID credentials in the authorization header do not correspond to the credentials used to create the subscriptions.", True),
+        (403, "Push failed: 403 Forbidden: quota exceeded", False),
+    ],
+    ids=["400-vapid-hash", "403-vapid-credentials", "403-unrelated"],
+)
+def test_provider_proven_vapid_rotation_disables_only_incompatible_subscription(
+    monkeypatch, status_code, message, requires_rotation,
+):
+    from app.db import get_db
+    from app.main import app
+
+    db = _session()
+    subscription = PushSubscription(
+        share_id="kr-rotation-test",
+        endpoint="https://push.example/rotation-test",
+        p256dh="p" * 64,
+        auth="a" * 24,
+        market_scope="kr",
+        notification_preferences='["market_ai_signal"]',
+    )
+    db.add(subscription)
+    db.commit()
+
+    def rejected(**_kwargs):
+        raise web_push.WebPushException(
+            message, response=SimpleNamespace(status_code=status_code)
+        )
+
+    monkeypatch.setattr(web_push, "webpush", rejected)
+    candidate = web_push.NotificationCandidate(
+        event_key="market-ai-next-open:005930:buy:2026-11-12",
+        kind="market_ai_signal",
+        title="다음 거래일 매수 후보",
+        body="전일 종가 확인",
+        url="/dashboard?view=signals",
+        tag="market-ai-signal-005930",
+    )
+    try:
+        assert web_push.WebPushRuntime(_settings())._send(db, subscription, candidate) is False
+        db.refresh(subscription)
+        assert subscription.enabled is not requires_rotation
+        assert web_push.push_subscription_requires_key_rotation(db, subscription) is requires_rotation
+        delivery = db.query(PushDelivery).filter_by(subscription_id=subscription.id).one()
+        assert delivery.status == "failed"
+        assert delivery.attempts == 1
+
+        app.dependency_overrides[get_db] = lambda: db
+        response = TestClient(app).get(
+            "/push/subscriptions/kr-rotation-test/status",
+            params={"endpoint": subscription.endpoint},
+        )
+        assert response.status_code == 200
+        assert response.json()["enabled"] is not requires_rotation
+        assert response.json()["key_rotation_required"] is requires_rotation
+        assert "market_ai_signal" in response.json()["conditions"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        db.close()
+
+
+def test_later_success_clears_stale_vapid_rotation_indicator():
+    db = _session()
+    subscription = PushSubscription(
+        share_id="kr-restored", endpoint="https://push.example/restored",
+        p256dh="p" * 64, auth="a" * 24, market_scope="kr",
+    )
+    db.add(subscription)
+    db.commit()
+    db.add(PushDelivery(
+        subscription_id=subscription.id, event_key="old-failure",
+        notification_kind="market_ai_signal", title="old", status="failed",
+        error="VapidPkHashMismatch", updated_at=datetime(2026, 11, 11, 9),
+    ))
+    db.add(PushDelivery(
+        subscription_id=subscription.id, event_key="new-success",
+        notification_kind="test", title="new", status="sent",
+        updated_at=datetime(2026, 11, 12, 9),
+    ))
+    db.commit()
+    try:
+        assert web_push.push_subscription_requires_key_rotation(db, subscription) is False
+    finally:
+        db.close()
 
 
 def test_community_notifications_are_disabled_for_existing_subscriptions_and_operator(monkeypatch):

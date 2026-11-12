@@ -14,7 +14,7 @@ def test_desktop_only_app_serves_shell_and_health():
     health = client.get("/healthz")
 
     assert shell.status_code == 200
-    assert '/assets/desktop/app.js?v=20260829h4' in shell.text
+    assert '/assets/desktop/app.js?v=20261113h5' in shell.text
     assert health.json() == {"status": "ok", "service": "secret-note-desktop"}
 
 

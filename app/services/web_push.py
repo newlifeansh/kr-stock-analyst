@@ -89,6 +89,34 @@ PUSH_DELIVERY_TTL_SECONDS = 120
 SIGNAL_SUCCESSOR_DELAY = timedelta(seconds=PUSH_DELIVERY_TTL_SECONDS)
 US_SIGNAL_NOTIFICATION_WINDOW = timedelta(hours=2)
 PUSH_DELIVERY_HEADERS = {"Urgency": "high"}
+VAPID_ROTATION_FAILURE_MARKERS = (
+    "VapidPkHashMismatch",
+    "VAPID credentials in the authorization header do not correspond",
+)
+
+
+def _vapid_rotation_failure(error: object) -> bool:
+    message = str(error or "")
+    return any(marker in message for marker in VAPID_ROTATION_FAILURE_MARKERS)
+
+
+def push_subscription_requires_key_rotation(
+    db: Session, subscription: PushSubscription | None,
+) -> bool:
+    """Report a provider-proven stale browser key without exposing endpoint data."""
+    if subscription is None:
+        return False
+    latest = db.scalar(
+        select(PushDelivery)
+        .where(PushDelivery.subscription_id == subscription.id)
+        .order_by(PushDelivery.updated_at.desc(), PushDelivery.id.desc())
+        .limit(1)
+    )
+    return bool(
+        latest is not None
+        and latest.status == "failed"
+        and _vapid_rotation_failure(latest.error)
+    )
 MONEY_BRIEFING_PUSH_TTL_SECONDS = 5 * 60
 MONEY_BRIEFING_PUSH_WINDOWS = (
     (
@@ -2440,7 +2468,7 @@ class WebPushRuntime:
             status_code = getattr(getattr(exc, "response", None), "status_code", None)
             delivery.status = "expired" if status_code in {404, 410} else "failed"
             delivery.error = str(exc)[:2000]
-            if status_code in {404, 410}:
+            if status_code in {404, 410} or _vapid_rotation_failure(exc):
                 subscription.enabled = False
             db.commit()
             return False
