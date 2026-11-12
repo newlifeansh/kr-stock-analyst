@@ -47,6 +47,11 @@ def auction_postmarket_fixture():
     return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_auction_postmarket_202610.json").read_text())
 
 
+@pytest.fixture(scope="module")
+def kis_revised_fixture():
+    return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_kis_revised_202610.json").read_text())
+
+
 def _toss_dated_evidence(case):
     proof = case["toss_dated_minute_proof"]
     return rsp.regular_session_evidence(
@@ -204,6 +209,109 @@ def test_dated_auction_postmarket_reconciliation_fails_closed(auction_postmarket
     elif mutation == "toss_auction": toss["candles"][-1]["volume"] += 1
     elif mutation == "extra_toss_trade": next(c for c in toss["candles"] if c["dt"].endswith("15:45:00+09:00"))["volume"] = 1
     assert _toss_dated_evidence(case)["state"] == "unverified"
+
+
+def test_dated_kis_revision_recovers_only_four_cursor_consistent_paths(kis_revised_fixture, db):
+    accepted = {
+        "008930_2026-10-16", "008930_2026-10-19", "036460_2026-10-29",
+        "273130_2026-10-15",
+    }
+    assert set(kis_revised_fixture) == accepted | {"036460_2026-10-16"}
+    for key in accepted:
+        case = kis_revised_fixture[key]
+        code, day_text = key.split("_")
+        day = date.fromisoformat(day_text)
+        args = {
+            "observed_at": datetime(2026, 11, 13, 4, tzinfo=rsp.KST),
+            "preopen_baseline": case["preopen_baseline"],
+            "toss_dated_minute_proof": case["toss_dated_minute_proof"],
+        }
+        old_rows = case["original_raw_rows"]
+        new_rows = case["revised_raw_rows"]
+        assert old_rows != new_rows
+        assert case["source_hash"] and case["source_record_id"] > 0
+        for changed in case["kis_requery_diff"]:
+            assert next(row for row in old_rows if row["trade_time"] == changed["time"]) == changed["old"]
+            assert next(row for row in new_rows if row["trade_time"] == changed["time"]) == changed["new"]
+        assert rsp.verified_revised_dated_kis_rows(
+            day, old_rows, new_rows, new_rows,
+            original_baseline=case["preopen_baseline"],
+            complete_baseline=case["preopen_baseline"],
+        ) == new_rows
+        old = rsp.regular_session_evidence(code, day, old_rows, **args)
+        assert old["state"] == "unverified"
+        original_record = rsp.store_regular_session_evidence(db, old, observed_at=args["observed_at"])
+        original_hash = original_record.evidence_hash
+        corrected = rsp.regular_session_evidence(code, day, new_rows, **args)
+        assert corrected["state"] == "bounded", (key, corrected["reason"])
+        assert corrected["coverage_basis"] in {
+            rsp.TOSS_DATED_MINUTE_PATH_BASIS, rsp.TOSS_AUCTION_RECONCILIATION_BASIS,
+        }
+        revised_record = rsp.store_regular_session_evidence(db, corrected, observed_at=args["observed_at"])
+        db.commit()
+        assert original_record.id != revised_record.id
+        assert original_record.evidence_hash == original_hash
+        assert rsp.load_regular_session_evidence(db, code, day, allow_bounded=True)["prices"] == corrected["prices"]
+
+
+def test_dated_kis_revision_rejects_cursor_dependent_ohlc(kis_revised_fixture):
+    case = kis_revised_fixture["036460_2026-10-16"]
+    assert case["complete_fetch_baseline"] == case["preopen_baseline"]
+    assert case["complete_fetch_rows"] != case["revised_raw_rows"]
+    with pytest.raises(ValueError, match="cursor paths disagree"):
+        rsp.verified_revised_dated_kis_rows(
+            date(2026, 10, 16), case["original_raw_rows"],
+            case["complete_fetch_rows"], case["revised_raw_rows"],
+            original_baseline=case["preopen_baseline"],
+            complete_baseline=case["complete_fetch_baseline"],
+        )
+
+
+@pytest.mark.parametrize("mutation", ["baseline", "same_rows", "wrong_date", "unsorted"])
+def test_dated_kis_revision_requires_stable_source_identity(kis_revised_fixture, mutation):
+    case = kis_revised_fixture["273130_2026-10-15"]
+    original = deepcopy(case["original_raw_rows"])
+    complete = deepcopy(case["revised_raw_rows"])
+    alternate = deepcopy(complete)
+    baseline = deepcopy(case["preopen_baseline"])
+    if mutation == "baseline": baseline["value"] = 1
+    elif mutation == "same_rows": complete = deepcopy(original); alternate = deepcopy(original)
+    elif mutation == "wrong_date": alternate[0]["trade_date"] = "20261016"
+    elif mutation == "unsorted": alternate[0], alternate[1] = alternate[1], alternate[0]
+    with pytest.raises(ValueError):
+        rsp.verified_revised_dated_kis_rows(
+            date(2026, 10, 15), original, complete, alternate,
+            original_baseline=case["preopen_baseline"], complete_baseline=baseline,
+        )
+
+
+@pytest.mark.parametrize("mutation", ["old_minute", "new_cash", "toss_minute", "auction_daily", "late_gap"])
+def test_dated_kis_revision_requires_complete_independent_reconciliation(kis_revised_fixture, mutation):
+    case = deepcopy(kis_revised_fixture[
+        "008930_2026-10-16" if mutation in ("auction_daily", "late_gap")
+        else "273130_2026-10-15"
+    ])
+    proof = case["toss_dated_minute_proof"]
+    if mutation == "old_minute":
+        changed = case["kis_requery_diff"][0]
+        next(row for row in case["revised_raw_rows"] if row["trade_time"] == changed["time"]).update(changed["old"])
+    elif mutation == "new_cash":
+        changed = case["kis_requery_diff"][0]
+        next(row for row in case["revised_raw_rows"] if row["trade_time"] == changed["time"])["trading_value"] = 0
+    elif mutation == "toss_minute":
+        next(c for c in proof["candles"] if c["dt"].endswith("10:08:00+09:00"))["volume"] += 1
+    elif mutation == "auction_daily":
+        row = proof["auction_reconciliation"]["kis_daily"]["row"]
+        row["acml_vol"] = str(int(row["acml_vol"]) + 1)
+    elif mutation == "late_gap":
+        proof["auction_reconciliation"]["toss_postmarket"]["candles"].pop(10)
+    code, day_text = proof["code"], proof["date"]
+    rejected = rsp.regular_session_evidence(
+        code, date.fromisoformat(day_text), case["revised_raw_rows"],
+        observed_at=datetime(2026, 11, 13, 4, tzinfo=rsp.KST),
+        preopen_baseline=case["preopen_baseline"], toss_dated_minute_proof=proof,
+    )
+    assert rejected["state"] == "unverified"
 
 
 @pytest.fixture

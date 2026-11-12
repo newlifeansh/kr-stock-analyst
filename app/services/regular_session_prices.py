@@ -72,6 +72,56 @@ class UnverifiedRegularSessionPrice(RuntimeError):
     pass
 
 
+def verified_revised_dated_kis_rows(
+    trade_date: date,
+    original_rows: list[dict[str, Any]],
+    complete_rows: list[dict[str, Any]],
+    alternate_rows: list[dict[str, Any]],
+    *,
+    original_baseline: dict[str, Any] | None,
+    complete_baseline: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Accept a historical KIS correction only when both dated cursors agree.
+
+    KIS can return different minute OHLCV for the same date when the first
+    query cursor is 15:30 versus 15:31. The regular collector starts at 15:31;
+    the historical chart starts at 15:30. A correction is publishable only
+    when their complete regular-session rows are identical and the previously
+    observed opening monetary boundary remains unchanged.
+    """
+    target = trade_date.strftime("%Y%m%d")
+    if complete_baseline != original_baseline or original_baseline is None:
+        raise ValueError("dated KIS opening boundary changed")
+
+    def regular(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("dated KIS path missing")
+        stamps = []
+        for row in rows:
+            if not isinstance(row, dict) or row.get("trade_date") != target:
+                raise ValueError("dated KIS row identity mismatch")
+            stamp = str(row.get("trade_time") or "")
+            if len(stamp) != 6 or not stamp.isdigit():
+                raise ValueError("dated KIS minute timestamp invalid")
+            stamps.append(stamp)
+        if any(left >= right for left, right in zip(stamps, stamps[1:])):
+            raise ValueError("dated KIS path ordering invalid")
+        return [row for row in rows if "090000" <= row["trade_time"] <= "153000"]
+
+    original = regular(original_rows)
+    complete = regular(complete_rows)
+    alternate = regular(alternate_rows)
+    if complete != alternate:
+        raise ValueError("dated KIS cursor paths disagree")
+    if complete == original:
+        raise ValueError("dated KIS requery did not revise a regular minute")
+    if [row for row in complete_rows if row["trade_time"] < "090000"] != [
+        row for row in original_rows if row["trade_time"] < "090000"
+    ]:
+        raise ValueError("dated KIS preopen rows changed")
+    return complete_rows
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
