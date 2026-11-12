@@ -113,6 +113,7 @@ def test_toss_dated_absent_auction_requires_both_sources_to_show_no_trade(toss_d
 def test_dated_auction_undercount_requires_complete_no_postmarket_reconciliation(auction_reconciliation_fixture, db):
     for key, state, volume in (
         ("0043B0_2026-10-13", "ready", 168055),
+        ("0043B0_2026-10-16", "ready", 250480),
         ("395160_2026-10-15", "bounded", 7177323),
     ):
         case = auction_reconciliation_fixture[key]
