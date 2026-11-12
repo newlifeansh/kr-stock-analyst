@@ -377,7 +377,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.1"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert len(ids) == 175
+    assert len(ids) == 176
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -424,6 +424,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-US-CONTRACT-001",
         "SIG-US-MCP-001",
         "SIG-CONTRACT-008",
+        "SIG-PUSH-VAPID-001",
         "SIG-PUSH-INTRADAY-001",
         "SIG-PUSH-COMMUNITY-002",
         "SIG-KR-SNAPSHOT-CACHE-001",
@@ -497,7 +498,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.1`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v3-hybrid1`" in first
-    assert "QA 항목: 175개" in first
+    assert "QA 항목: 176개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1995,7 +1996,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.1"
     assert report["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert report["catalog_case_count"] == 175
+    assert report["catalog_case_count"] == 176
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -2041,6 +2042,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-US-MIGRATION-001",
         "SIG-CONTRACT-002",
         "SIG-CONTRACT-007",
+            "SIG-PUSH-VAPID-001",
         "SIG-PUSH-INTRADAY-001",
         "SIG-PUSH-COMMUNITY-001",
         "SIG-PUSH-COMMUNITY-002",
@@ -2244,7 +2246,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261111us166",
+                "us_dashboard_version": "20261113us167",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2252,7 +2254,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261111us166",
+                "us_dashboard_version": "20261113us167",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2871,7 +2873,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261111us166"}, self._meta(path)
+            return {"version": "20261113us167"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2918,11 +2920,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261111us166" />'
+                '<link href="/assets/dashboard/styles.css?v=20261113us167" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261111us166"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261113us167"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2962,11 +2964,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261111v594" />'
+            '<link href="/assets/dashboard/styles.css?v=20261113v595" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261111v594"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261113v595"></script>'
             '</body></html>',
             self._meta(path),
         )

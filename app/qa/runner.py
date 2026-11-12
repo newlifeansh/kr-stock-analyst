@@ -703,6 +703,20 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app."
         "test_push_config_includes_briefing_and_domestic_market_signal_alerts",
     ),
+    "SIG-PUSH-VAPID-001": (
+        "tests.test_web_push."
+        "test_provider_proven_vapid_rotation_disables_only_incompatible_subscription[400-vapid-hash]",
+        "tests.test_web_push."
+        "test_provider_proven_vapid_rotation_disables_only_incompatible_subscription[403-vapid-credentials]",
+        "tests.test_web_push."
+        "test_provider_proven_vapid_rotation_disables_only_incompatible_subscription[403-unrelated]",
+        "tests.test_web_push."
+        "test_later_success_clears_stale_vapid_rotation_indicator",
+        "tests.test_push_rotation_ui."
+        "test_dashboard_recovers_provider_proven_vapid_key_rotation",
+        "tests.test_push_rotation_ui."
+        "test_desktop_recovers_provider_proven_vapid_key_rotation",
+    ),
     "SIG-PUSH-INTRADAY-001": (
         "tests.test_app."
         "test_market_signal_snapshot_keeps_completed_close_until_premarket_refresh",

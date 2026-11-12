@@ -20,7 +20,7 @@ def test_desktop_shell_is_isolated_and_not_cached():
     assert "/assets/desktop/styles.css" in response.text
     assert "/assets/desktop/app.js" in response.text
     assert "/assets/desktop/styles.css?v=20260810h12" in response.text
-    assert "/assets/desktop/app.js?v=20260829h4" in response.text
+    assert "/assets/desktop/app.js?v=20261113h5" in response.text
     assert "/assets/dashboard/styles.css" not in response.text
     assert "/dashboard-app-v170.js" not in response.text
 
@@ -317,7 +317,7 @@ def test_desktop_service_worker_handles_push_without_reusing_mobile_worker():
     assert "/desktop?view=notifications&notification_url=" in response.text
     assert 'payload.kind === "morning_briefing"' not in response.text
     assert 'data: { url: targetUrl, kind: payload.kind || "general" }' in response.text
-    assert 'const DESKTOP_SW_VERSION = "20260829h4";' in response.text
+    assert 'const DESKTOP_SW_VERSION = "20261113h5";' in response.text
     assert "dashboard-sw.js" not in response.text
 
 

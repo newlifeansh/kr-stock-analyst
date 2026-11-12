@@ -1,4 +1,4 @@
-const DESKTOP_SW_VERSION = "20260829h4";
+const DESKTOP_SW_VERSION = "20261113h5";
 
 self.addEventListener("install", () => self.skipWaiting());
 

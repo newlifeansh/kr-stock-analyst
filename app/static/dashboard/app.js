@@ -14710,6 +14710,12 @@ async function refreshPushNotificationState(options = {}) {
     }
     if (subscription) {
       let status = await fetchPushSubscriptionStatus(state.watchlistId, subscription.endpoint).catch(() => null);
+      if (status?.key_rotation_required) {
+        state.pushNotificationConditions = normalizePushNotificationConditions(status.conditions || state.pushNotificationConditions);
+        await disablePushNotifications(state.watchlistId);
+        subscription = await ensureCurrentPushSubscription(config);
+        status = null;
+      }
       if (!status?.enabled || options.syncServer) {
         status = await savePushSubscription(state.watchlistId, subscription);
       }

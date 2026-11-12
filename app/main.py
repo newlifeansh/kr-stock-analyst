@@ -263,6 +263,7 @@ from app.services.web_push import (
     notification_history_is_valid,
     notification_history_signal_name,
     notification_history_signal_context,
+    push_subscription_requires_key_rotation,
     web_push_runtime,
 )
 from app.services.us_market import (
@@ -313,7 +314,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261111v594"
+DASHBOARD_CLIENT_VERSION = "20261113v595"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -321,7 +322,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261111us166"
+US_DASHBOARD_CLIENT_VERSION = "20261113us167"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -4682,11 +4683,12 @@ def push_subscription_status(
             PushSubscription.share_id == normalized_id,
             PushSubscription.endpoint == endpoint,
             PushSubscription.market_scope == scope,
-            PushSubscription.enabled.is_(True),
         )
     )
+    rotation_required = push_subscription_requires_key_rotation(db, subscription)
     return {
-        "enabled": subscription is not None,
+        "enabled": bool(subscription and subscription.enabled and not rotation_required),
+        "key_rotation_required": rotation_required,
         "market_scope": scope,
         "conditions": _subscription_conditions(subscription),
     }
@@ -4781,6 +4783,7 @@ def save_push_subscription(
         or not subscription.enabled
         or subscription.share_id != normalized_id
         or subscription.market_scope != scope
+        or push_subscription_requires_key_rotation(db, subscription)
     )
     if subscription is None:
         subscription = PushSubscription(
