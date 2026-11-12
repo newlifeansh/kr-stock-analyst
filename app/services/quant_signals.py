@@ -1591,11 +1591,15 @@ def _store_verified_intraday_path(
     is_final: bool,
     expected_prior_path_hash: str | None = None,
     independently_corroborated_terminal_revision: bool = False,
+    independently_corroborated_confirmed_placeholder_revision: bool = False,
 ) -> QuantSignalIntradayPathSnapshot:
     # Store only executable minutes. Indicative auction rows can revise before
     # the close and must not invalidate a previously observed trade prefix.
-    if independently_corroborated_terminal_revision and not expected_prior_path_hash:
-        raise UnverifiedIntradayPathError("취소 후 분봉 보정에는 이전 경로 해시가 필요합니다")
+    if (
+        independently_corroborated_terminal_revision
+        or independently_corroborated_confirmed_placeholder_revision
+    ) and not expected_prior_path_hash:
+        raise UnverifiedIntradayPathError("독립 분봉 보정에는 이전 경로 해시가 필요합니다")
     rows = [row for row in rows if not _non_trade_closing_auction_row(row)]
     snapshot = db.get(QuantSignalIntradayPathSnapshot, (code, trade_date))
     if snapshot is not None:
@@ -1645,6 +1649,37 @@ def _store_verified_intraday_path(
                     and cancelled_at.astimezone(KST) < terminal_time
                 )
             except (KeyError, TypeError, ValueError):
+                allow_revision = False
+        if (
+            not allow_revision
+            and independently_corroborated_confirmed_placeholder_revision
+            and not snapshot.is_final
+            and watcher is not None
+            and watcher.status == "confirmed"
+            and watcher.policy_version == observed_entry.POLICY_VERSION
+            and len(previous) > 1
+        ):
+            try:
+                decision = datetime.fromisoformat(
+                    str(json.loads(watcher.payload)["decision_minute_at"])
+                )
+                terminal = datetime.combine(
+                    trade_date,
+                    datetime.strptime(str(previous[-1]["trade_time"]), "%H%M%S").time(),
+                    KST,
+                )
+                terminal_new = next(
+                    row for row in rows
+                    if row.get("trade_time") == previous[-1].get("trade_time")
+                )
+                allow_revision = bool(
+                    decision.tzinfo is not None
+                    and decision.astimezone(KST) < terminal
+                    and _revised_terminal_no_trade_minute(
+                        previous[-2], previous[-1], terminal_new
+                    )
+                )
+            except (KeyError, StopIteration, TypeError, ValueError):
                 allow_revision = False
         if not _intraday_path_preserves_prior_touches(
             previous, rows, allow_terminal_no_trade_revision=allow_revision,
