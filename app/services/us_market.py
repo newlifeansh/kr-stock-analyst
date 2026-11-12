@@ -39,6 +39,7 @@ YAHOO_COOKIE_URL = "https://fc.yahoo.com"
 YAHOO_CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
 YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
 YAHOO_QUOTE_SUMMARY_URL = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
+NASDAQ_QUOTE_DETAIL_URL = "https://api.nasdaq.com/api/quote/{symbol}/{section}"
 YAHOO_TIMESERIES_URLS = (
     "https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
     "https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
@@ -948,6 +949,93 @@ def _quote_price_payload_is_usable(quote: dict[str, object]) -> bool:
     return all(quote.get(key) not in (None, "", {}) for key in required)
 
 
+def _nasdaq_completed_market_cap_from_detail(
+    code: str,
+    completed_date: date,
+    completed_close: Decimal,
+    prior_close: Decimal,
+    prior_screen: dict[str, object],
+) -> int:
+    """Cross-check a current Nasdaq detail cap against the prior screen shares.
+
+    A screener's previous-session last sale can differ by a cent from Yahoo's
+    previous close. The dated Nasdaq detail independently reports both closes
+    and the current cap; its cap must imply exactly the same share count as the
+    prior Nasdaq screen before it can bridge an incomplete Yahoo ADR quote.
+    """
+    if str(prior_screen.get("screen_exchange") or "").upper() not in {"NYSE", "NASDAQ"}:
+        raise ValueError("Prior Nasdaq screen exchange is missing")
+    rows: dict[str, dict[str, object]] = {}
+    for section in ("info", "summary"):
+        response = requests.get(
+            NASDAQ_QUOTE_DETAIL_URL.format(symbol=code, section=section),
+            params={"assetclass": "stocks"},
+            headers={**US_HEADERS, "Accept": "application/json,text/plain,*/*"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            raise ValueError("Nasdaq completed-session detail is missing")
+        rows[section] = data
+    info = rows["info"]
+    summary = rows["summary"]
+    if (
+        _symbol(str(info.get("symbol") or "")) != code
+        or _symbol(str(summary.get("symbol") or "")) != code
+        or str(info.get("assetClass") or "").upper() != "STOCKS"
+        or str(info.get("exchange") or "").upper()
+        != str(prior_screen["screen_exchange"]).upper()
+    ):
+        raise ValueError("Nasdaq completed-session detail identity conflicts")
+    info_close = info.get("secondaryData") or {}
+    summary_values = summary.get("summaryData") or {}
+    if not isinstance(info_close, dict) or not isinstance(summary_values, dict):
+        raise ValueError("Nasdaq completed-session detail is incomplete")
+    stamp = str(info_close.get("lastTradeTimestamp") or "")
+    match = re.fullmatch(r"Closed at ([A-Z][a-z]{2} \d{1,2}, \d{4}) 4:00 PM ET", stamp)
+    if match is None or datetime.strptime(match.group(1), "%b %d, %Y").date() != completed_date:
+        raise ValueError("Nasdaq detail is not the completed regular session")
+
+    def number(value: object) -> Optional[Decimal]:
+        if not isinstance(value, str):
+            return None
+        return _to_decimal(value.replace("$", "").replace(",", ""))
+
+    previous_row = summary_values.get("PreviousClose")
+    cap_row = summary_values.get("MarketCap")
+    exchange_row = summary_values.get("Exchange")
+    if any(not isinstance(row, dict) for row in (previous_row, cap_row, exchange_row)):
+        raise ValueError("Nasdaq completed-session detail fields are incomplete")
+    current_price = number(info_close.get("lastSalePrice"))
+    previous_price = number(previous_row.get("value"))
+    current_cap = number(cap_row.get("value"))
+    screen_price = _to_decimal(prior_screen.get("screen_last_price"))
+    screen_cap = _to_decimal(prior_screen.get("screen_market_cap"))
+    if (
+        str(exchange_row.get("value") or "").upper()
+        != str(prior_screen["screen_exchange"]).upper()
+        or current_price is None or current_price <= 0
+        or abs(current_price - completed_close) > Decimal("0.005")
+        or current_price != completed_close.quantize(Decimal("0.01"))
+        or previous_price is None or previous_price <= 0
+        or abs(previous_price - prior_close) > Decimal("0.005")
+        or previous_price != prior_close.quantize(Decimal("0.01"))
+        or current_cap is None or current_cap <= 0
+        or current_cap != current_cap.to_integral_value()
+        or screen_price is None or screen_price <= 0
+        or screen_cap is None or screen_cap <= 0
+    ):
+        raise ValueError("Nasdaq completed-session price or cap conflicts")
+    derived_cap = (screen_cap / screen_price * current_price).to_integral_value(
+        rounding=ROUND_HALF_UP
+    )
+    if abs(current_cap - derived_cap) > 1:
+        raise ValueError("Nasdaq completed-session share count conflicts")
+    return int(current_cap)
+
+
 def fetch_us_quote_price(
     symbol: str,
     refresh: bool = False,
@@ -1126,6 +1214,7 @@ def fetch_us_completed_session_quote(
         ):
             shares = summary_market_cap / summary_price
     market_cap_derivation: Optional[str] = None
+    nasdaq_market_cap: Optional[int] = None
     if (shares is None or shares <= 0) and prior_screen is not None:
         screen_date = prior_screen.get("screen_as_of")
         if isinstance(screen_date, str):
@@ -1142,10 +1231,6 @@ def fetch_us_completed_session_quote(
             and screen_cap is not None and screen_cap > 0
             and screen_price is not None and screen_price > 0
             and prior_close is not None
-            # Nasdaq can report a half-cent last sale (WDS: 21.065) while
-            # Yahoo's daily chart rounds that trade to cents (21.07).
-            # Half-cent is the maximum possible display rounding difference.
-            and abs(prior_close - screen_price) <= Decimal("0.005")
             and current_price is not None and current_price > 0
             and current_price.quantize(Decimal("0.01"))
             == completed_close.quantize(Decimal("0.01"))
@@ -1161,13 +1246,29 @@ def fetch_us_completed_session_quote(
             and str(meta.get("instrumentType") or "").upper() == "EQUITY"
         ):
             raise ValueError("Prior Nasdaq share-count bridge evidence is incomplete")
-        shares = screen_cap / screen_price
-        market_cap_derivation = "prior_nasdaq_shares_x_yahoo_completed_close"
-    if shares is None or shares <= 0:
+        # The ordinary path tolerates only a half-cent display rounding gap.
+        # For a larger gap, require a dated Nasdaq detail whose current cap
+        # implies the same share count as the prior Nasdaq screen, and whose
+        # two closes independently match Yahoo's dated chart bars.
+        if abs(prior_close - screen_price) <= Decimal("0.005"):
+            shares = screen_cap / screen_price
+            market_cap_derivation = "prior_nasdaq_shares_x_yahoo_completed_close"
+        else:
+            try:
+                nasdaq_market_cap = _nasdaq_completed_market_cap_from_detail(
+                    code, completed_date, completed_close, prior_close,
+                    prior_screen,
+                )
+            except (ValueError, requests.RequestException) as exc:
+                raise ValueError("Prior Nasdaq share-count bridge evidence is incomplete") from exc
+            market_cap_derivation = "nasdaq_completed_detail_crosschecked_prior_screen_shares"
+    if (shares is None or shares <= 0) and nasdaq_market_cap is None:
         raise ValueError("Yahoo quote summary does not contain a positive share count")
 
-    market_cap = int(
-        (shares * completed_close).to_integral_value(rounding=ROUND_HALF_UP)
+    market_cap = (
+        nasdaq_market_cap if nasdaq_market_cap is not None else int(
+            (shares * completed_close).to_integral_value(rounding=ROUND_HALF_UP)
+        )
     )
     repaired = {
         **summary,

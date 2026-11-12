@@ -273,6 +273,84 @@ def test_completed_session_quote_accepts_only_half_cent_prior_screen_rounding(mo
         )
 
 
+def test_completed_session_quote_uses_dated_nasdaq_detail_when_prior_last_sale_differs(monkeypatch):
+    completed_date = date(2026, 11, 12)
+    prior_time = int(datetime(2026, 11, 11, 21, tzinfo=UTC).timestamp())
+    completed_time = int(datetime(2026, 11, 12, 21, tzinfo=UTC).timestamp())
+    quote = {
+        "symbol": "WDS", "quoteType": "EQUITY", "exchange": "NYQ",
+        "currency": "USD", "regularMarketTime": completed_time,
+        "regularMarketPrice": Decimal("21.24"),
+    }
+    screen = {
+        "screen_as_of": "2026-11-11", "screen_exchange": "NYSE",
+        "screen_last_price": Decimal("21.22"),
+        "screen_market_cap": Decimal("40341345034"),
+    }
+    chart = {
+        "meta": {"symbol": "WDS", "instrumentType": "EQUITY",
+                 "exchangeName": "NYQ", "currency": "USD"},
+        "timestamp": [prior_time, completed_time],
+        "indicators": {"quote": [{"close": [21.229999542236328, 21.239999771118164]}]},
+    }
+    info = {
+        "symbol": "WDS", "assetClass": "STOCKS", "exchange": "NYSE",
+        "secondaryData": {
+            "lastSalePrice": "$21.24",
+            "lastTradeTimestamp": "Closed at Nov 12, 2026 4:00 PM ET",
+        },
+    }
+    summary = {
+        "symbol": "WDS",
+        "summaryData": {
+            "Exchange": {"value": "NYSE"},
+            "PreviousClose": {"value": "$21.23"},
+            "MarketCap": {"value": "40,379,367,037"},
+        },
+    }
+    monkeypatch.setattr(us_market, "fetch_us_quote_price", lambda *_args, **_kwargs: quote)
+    monkeypatch.setattr(us_market, "fetch_chart_range", lambda *_args, **_kwargs: chart)
+
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": self.data}
+
+    def install_detail(info_row, summary_row):
+        def get(url, **kwargs):
+            assert kwargs["params"] == {"assetclass": "stocks"}
+            return Response(info_row if url.endswith("/info") else summary_row)
+        monkeypatch.setattr(us_market.requests, "get", get)
+
+    install_detail(info, summary)
+    repaired = us_market.fetch_us_completed_session_quote(
+        "WDS", completed_date, refresh=True, prior_screen=screen,
+    )
+    assert repaired["marketCap"] == 40_379_367_037
+    assert repaired["regularMarketPrice"].quantize(Decimal("0.01")) == Decimal("21.24")
+    assert repaired["marketCapDerivation"] == "nasdaq_completed_detail_crosschecked_prior_screen_shares"
+
+    for bad_info, bad_summary, bad_screen in (
+        ({**info, "secondaryData": {**info["secondaryData"], "lastTradeTimestamp": "Closed at Nov 11, 2026 4:00 PM ET"}}, summary, screen),
+        ({**info, "secondaryData": {**info["secondaryData"], "lastSalePrice": "$21.25"}}, summary, screen),
+        (info, {**summary, "summaryData": {**summary["summaryData"], "PreviousClose": {"value": "$21.22"}}}, screen),
+        (info, {**summary, "summaryData": {**summary["summaryData"], "MarketCap": {"value": "40,379,367,039"}}}, screen),
+        (info, {**summary, "summaryData": {**summary["summaryData"], "MarketCap": "40,379,367,037"}}, screen),
+        ({**info, "symbol": "OTHER"}, summary, screen),
+        (info, summary, {**screen, "screen_exchange": "NASDAQ"}),
+    ):
+        install_detail(bad_info, bad_summary)
+        with pytest.raises(ValueError, match="evidence is incomplete"):
+            us_market.fetch_us_completed_session_quote(
+                "WDS", completed_date, refresh=True, prior_screen=bad_screen,
+            )
+
+
 def test_completed_session_quote_uses_verified_regular_price_when_chart_close_is_null(monkeypatch):
     completed_date = date(2026, 11, 11)
     prior_time = int(datetime(2026, 11, 10, 14, 30, tzinfo=UTC).timestamp())
