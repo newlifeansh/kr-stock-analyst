@@ -1,0 +1,4143 @@
+{
+  "closing_auction_evidence": {
+    "code": "122630",
+    "periodType": "week",
+    "priceInfos": {
+      "20261110": [
+        {
+          "accumulatedTradingVolume": 2083627,
+          "currentPrice": 59380.0,
+          "highPrice": 59825.0,
+          "localDateTime": "20261110090000",
+          "lowPrice": 58985.0,
+          "openPrice": 59040.0
+        },
+        {
+          "accumulatedTradingVolume": 3751290,
+          "currentPrice": 59675.0,
+          "highPrice": 60150.0,
+          "localDateTime": "20261110091000",
+          "lowPrice": 59270.0,
+          "openPrice": 59390.0
+        },
+        {
+          "accumulatedTradingVolume": 4630165,
+          "currentPrice": 59660.0,
+          "highPrice": 60020.0,
+          "localDateTime": "20261110092000",
+          "lowPrice": 59565.0,
+          "openPrice": 59675.0
+        },
+        {
+          "accumulatedTradingVolume": 5713014,
+          "currentPrice": 59465.0,
+          "highPrice": 59730.0,
+          "localDateTime": "20261110093000",
+          "lowPrice": 58940.0,
+          "openPrice": 59680.0
+        },
+        {
+          "accumulatedTradingVolume": 6422869,
+          "currentPrice": 58645.0,
+          "highPrice": 59490.0,
+          "localDateTime": "20261110094000",
+          "lowPrice": 58630.0,
+          "openPrice": 59470.0
+        },
+        {
+          "accumulatedTradingVolume": 7468674,
+          "currentPrice": 58430.0,
+          "highPrice": 58710.0,
+          "localDateTime": "20261110095000",
+          "lowPrice": 58000.0,
+          "openPrice": 58665.0
+        },
+        {
+          "accumulatedTradingVolume": 8577165,
+          "currentPrice": 57815.0,
+          "highPrice": 58965.0,
+          "localDateTime": "20261110100000",
+          "lowPrice": 57775.0,
+          "openPrice": 58440.0
+        },
+        {
+          "accumulatedTradingVolume": 9524475,
+          "currentPrice": 57890.0,
+          "highPrice": 58190.0,
+          "localDateTime": "20261110101000",
+          "lowPrice": 57420.0,
+          "openPrice": 57815.0
+        },
+        {
+          "accumulatedTradingVolume": 10402385,
+          "currentPrice": 58500.0,
+          "highPrice": 58520.0,
+          "localDateTime": "20261110102000",
+          "lowPrice": 57595.0,
+          "openPrice": 57875.0
+        },
+        {
+          "accumulatedTradingVolume": 11214559,
+          "currentPrice": 58185.0,
+          "highPrice": 58510.0,
+          "localDateTime": "20261110103000",
+          "lowPrice": 57665.0,
+          "openPrice": 58500.0
+        },
+        {
+          "accumulatedTradingVolume": 11880822,
+          "currentPrice": 58510.0,
+          "highPrice": 58630.0,
+          "localDateTime": "20261110104000",
+          "lowPrice": 58160.0,
+          "openPrice": 58180.0
+        },
+        {
+          "accumulatedTradingVolume": 12372861,
+          "currentPrice": 58360.0,
+          "highPrice": 58690.0,
+          "localDateTime": "20261110105000",
+          "lowPrice": 58060.0,
+          "openPrice": 58520.0
+        },
+        {
+          "accumulatedTradingVolume": 12785825,
+          "currentPrice": 58715.0,
+          "highPrice": 58765.0,
+          "localDateTime": "20261110110000",
+          "lowPrice": 58120.0,
+          "openPrice": 58365.0
+        },
+        {
+          "accumulatedTradingVolume": 13267967,
+          "currentPrice": 58895.0,
+          "highPrice": 58975.0,
+          "localDateTime": "20261110111000",
+          "lowPrice": 58690.0,
+          "openPrice": 58700.0
+        },
+        {
+          "accumulatedTradingVolume": 13611968,
+          "currentPrice": 58675.0,
+          "highPrice": 59005.0,
+          "localDateTime": "20261110112000",
+          "lowPrice": 58620.0,
+          "openPrice": 58915.0
+        },
+        {
+          "accumulatedTradingVolume": 14025770,
+          "currentPrice": 58605.0,
+          "highPrice": 58985.0,
+          "localDateTime": "20261110113000",
+          "lowPrice": 58460.0,
+          "openPrice": 58650.0
+        },
+        {
+          "accumulatedTradingVolume": 14417509,
+          "currentPrice": 58600.0,
+          "highPrice": 58935.0,
+          "localDateTime": "20261110114000",
+          "lowPrice": 58255.0,
+          "openPrice": 58600.0
+        },
+        {
+          "accumulatedTradingVolume": 14756855,
+          "currentPrice": 58690.0,
+          "highPrice": 58825.0,
+          "localDateTime": "20261110115000",
+          "lowPrice": 58505.0,
+          "openPrice": 58610.0
+        },
+        {
+          "accumulatedTradingVolume": 15158086,
+          "currentPrice": 58650.0,
+          "highPrice": 58975.0,
+          "localDateTime": "20261110120000",
+          "lowPrice": 58610.0,
+          "openPrice": 58700.0
+        },
+        {
+          "accumulatedTradingVolume": 15577948,
+          "currentPrice": 58675.0,
+          "highPrice": 58815.0,
+          "localDateTime": "20261110121000",
+          "lowPrice": 58315.0,
+          "openPrice": 58650.0
+        },
+        {
+          "accumulatedTradingVolume": 15878422,
+          "currentPrice": 58305.0,
+          "highPrice": 58710.0,
+          "localDateTime": "20261110122000",
+          "lowPrice": 58200.0,
+          "openPrice": 58680.0
+        },
+        {
+          "accumulatedTradingVolume": 16263414,
+          "currentPrice": 57895.0,
+          "highPrice": 58500.0,
+          "localDateTime": "20261110123000",
+          "lowPrice": 57800.0,
+          "openPrice": 58300.0
+        },
+        {
+          "accumulatedTradingVolume": 16768095,
+          "currentPrice": 57625.0,
+          "highPrice": 57910.0,
+          "localDateTime": "20261110124000",
+          "lowPrice": 57245.0,
+          "openPrice": 57895.0
+        },
+        {
+          "accumulatedTradingVolume": 17445941,
+          "currentPrice": 58015.0,
+          "highPrice": 58180.0,
+          "localDateTime": "20261110125000",
+          "lowPrice": 57620.0,
+          "openPrice": 57625.0
+        },
+        {
+          "accumulatedTradingVolume": 17820658,
+          "currentPrice": 57405.0,
+          "highPrice": 58035.0,
+          "localDateTime": "20261110130000",
+          "lowPrice": 57360.0,
+          "openPrice": 58010.0
+        },
+        {
+          "accumulatedTradingVolume": 18322805,
+          "currentPrice": 57885.0,
+          "highPrice": 57900.0,
+          "localDateTime": "20261110131000",
+          "lowPrice": 57135.0,
+          "openPrice": 57397.0
+        },
+        {
+          "accumulatedTradingVolume": 18755349,
+          "currentPrice": 57960.0,
+          "highPrice": 58045.0,
+          "localDateTime": "20261110132000",
+          "lowPrice": 57725.0,
+          "openPrice": 57880.0
+        },
+        {
+          "accumulatedTradingVolume": 19268066,
+          "currentPrice": 57845.0,
+          "highPrice": 58300.0,
+          "localDateTime": "20261110133000",
+          "lowPrice": 57825.0,
+          "openPrice": 57980.0
+        },
+        {
+          "accumulatedTradingVolume": 19553602,
+          "currentPrice": 58155.0,
+          "highPrice": 58195.0,
+          "localDateTime": "20261110134000",
+          "lowPrice": 57790.0,
+          "openPrice": 57840.0
+        },
+        {
+          "accumulatedTradingVolume": 20153009,
+          "currentPrice": 58350.0,
+          "highPrice": 58510.0,
+          "localDateTime": "20261110135000",
+          "lowPrice": 58110.0,
+          "openPrice": 58135.0
+        },
+        {
+          "accumulatedTradingVolume": 20809529,
+          "currentPrice": 58215.0,
+          "highPrice": 58410.0,
+          "localDateTime": "20261110140000",
+          "lowPrice": 57935.0,
+          "openPrice": 58370.0
+        },
+        {
+          "accumulatedTradingVolume": 21302138,
+          "currentPrice": 58335.0,
+          "highPrice": 58505.0,
+          "localDateTime": "20261110141000",
+          "lowPrice": 58115.0,
+          "openPrice": 58240.0
+        },
+        {
+          "accumulatedTradingVolume": 21901143,
+          "currentPrice": 58405.0,
+          "highPrice": 58555.0,
+          "localDateTime": "20261110142000",
+          "lowPrice": 58275.0,
+          "openPrice": 58330.0
+        },
+        {
+          "accumulatedTradingVolume": 22518484,
+          "currentPrice": 58950.0,
+          "highPrice": 59085.0,
+          "localDateTime": "20261110143000",
+          "lowPrice": 58305.0,
+          "openPrice": 58410.0
+        },
+        {
+          "accumulatedTradingVolume": 23223447,
+          "currentPrice": 59110.0,
+          "highPrice": 59395.0,
+          "localDateTime": "20261110144000",
+          "lowPrice": 58880.0,
+          "openPrice": 58965.0
+        },
+        {
+          "accumulatedTradingVolume": 23788775,
+          "currentPrice": 58935.0,
+          "highPrice": 59200.0,
+          "localDateTime": "20261110145000",
+          "lowPrice": 58885.0,
+          "openPrice": 59100.0
+        },
+        {
+          "accumulatedTradingVolume": 24171086,
+          "currentPrice": 58950.0,
+          "highPrice": 59190.0,
+          "localDateTime": "20261110150000",
+          "lowPrice": 58855.0,
+          "openPrice": 58925.0
+        },
+        {
+          "accumulatedTradingVolume": 24769938,
+          "currentPrice": 58505.0,
+          "highPrice": 59025.0,
+          "localDateTime": "20261110151000",
+          "lowPrice": 58217.0,
+          "openPrice": 58950.0
+        },
+        {
+          "accumulatedTradingVolume": 24769958,
+          "currentPrice": 58525.0,
+          "highPrice": 58525.0,
+          "localDateTime": "20261110152000",
+          "lowPrice": 58525.0,
+          "openPrice": 58525.0
+        },
+        {
+          "accumulatedTradingVolume": 24919754,
+          "currentPrice": 58435.0,
+          "highPrice": 58435.0,
+          "localDateTime": "20261110153000",
+          "lowPrice": 58435.0,
+          "openPrice": 58435.0
+        }
+      ]
+    },
+    "stockExchangeType": "KRX"
+  },
+  "code": "122630",
+  "preopen_baseline": {
+    "kind": "observed_day_boundary",
+    "previous_trade_date": "20261109",
+    "previous_trade_time": "153000",
+    "requested_date": "20261110",
+    "requested_time": "085900",
+    "value": null
+  },
+  "raw_rows": [
+    {
+      "high": 59165,
+      "low": 58995,
+      "open": 59040,
+      "price": 59075,
+      "trade_date": "20261110",
+      "trade_time": "090200",
+      "trading_value": 32969341216,
+      "volume": 558292
+    },
+    {
+      "high": 59245,
+      "low": 58985,
+      "open": 59075,
+      "price": 59235,
+      "trade_date": "20261110",
+      "trade_time": "090300",
+      "trading_value": 51469917364,
+      "volume": 313056
+    },
+    {
+      "high": 59415,
+      "low": 59125,
+      "open": 59205,
+      "price": 59355,
+      "trade_date": "20261110",
+      "trade_time": "090400",
+      "trading_value": 70902309872,
+      "volume": 327696
+    },
+    {
+      "high": 59610,
+      "low": 59315,
+      "open": 59345,
+      "price": 59570,
+      "trade_date": "20261110",
+      "trade_time": "090500",
+      "trading_value": 86069591886,
+      "volume": 255007
+    },
+    {
+      "high": 59595,
+      "low": 59345,
+      "open": 59570,
+      "price": 59535,
+      "trade_date": "20261110",
+      "trade_time": "090600",
+      "trading_value": 97747748135,
+      "volume": 196438
+    },
+    {
+      "high": 59740,
+      "low": 59420,
+      "open": 59515,
+      "price": 59700,
+      "trade_date": "20261110",
+      "trade_time": "090700",
+      "trading_value": 105908216540,
+      "volume": 137002
+    },
+    {
+      "high": 59825,
+      "low": 59640,
+      "open": 59700,
+      "price": 59665,
+      "trade_date": "20261110",
+      "trade_time": "090800",
+      "trading_value": 116248437969,
+      "volume": 173182
+    },
+    {
+      "high": 59725,
+      "low": 59365,
+      "open": 59675,
+      "price": 59380,
+      "trade_date": "20261110",
+      "trade_time": "090900",
+      "trading_value": 123569813041,
+      "volume": 122954
+    },
+    {
+      "high": 59550,
+      "low": 59270,
+      "open": 59390,
+      "price": 59495,
+      "trade_date": "20261110",
+      "trade_time": "091000",
+      "trading_value": 131349591040,
+      "volume": 130916
+    },
+    {
+      "high": 59725,
+      "low": 59400,
+      "open": 59485,
+      "price": 59400,
+      "trade_date": "20261110",
+      "trade_time": "091100",
+      "trading_value": 151416577738,
+      "volume": 336957
+    },
+    {
+      "high": 59855,
+      "low": 59295,
+      "open": 59395,
+      "price": 59785,
+      "trade_date": "20261110",
+      "trade_time": "091200",
+      "trading_value": 167899463854,
+      "volume": 276763
+    },
+    {
+      "high": 60095,
+      "low": 59750,
+      "open": 59770,
+      "price": 60065,
+      "trade_date": "20261110",
+      "trade_time": "091300",
+      "trading_value": 188451066627,
+      "volume": 342796
+    },
+    {
+      "high": 60150,
+      "low": 59990,
+      "open": 60065,
+      "price": 60035,
+      "trade_date": "20261110",
+      "trade_time": "091400",
+      "trading_value": 194139446554,
+      "volume": 94703
+    },
+    {
+      "high": 60060,
+      "low": 59850,
+      "open": 60025,
+      "price": 59965,
+      "trade_date": "20261110",
+      "trade_time": "091500",
+      "trading_value": 201103014717,
+      "volume": 116163
+    },
+    {
+      "high": 60100,
+      "low": 59885,
+      "open": 59940,
+      "price": 59990,
+      "trade_date": "20261110",
+      "trade_time": "091600",
+      "trading_value": 207534663480,
+      "volume": 107136
+    },
+    {
+      "high": 60085,
+      "low": 59935,
+      "open": 59990,
+      "price": 59965,
+      "trade_date": "20261110",
+      "trade_time": "091700",
+      "trading_value": 212160092001,
+      "volume": 77078
+    },
+    {
+      "high": 59975,
+      "low": 59730,
+      "open": 59960,
+      "price": 59830,
+      "trade_date": "20261110",
+      "trade_time": "091800",
+      "trading_value": 218767751351,
+      "volume": 110437
+    },
+    {
+      "high": 59830,
+      "low": 59650,
+      "open": 59830,
+      "price": 59675,
+      "trade_date": "20261110",
+      "trade_time": "091900",
+      "trading_value": 223231462917,
+      "volume": 74714
+    },
+    {
+      "high": 59710,
+      "low": 59565,
+      "open": 59675,
+      "price": 59635,
+      "trade_date": "20261110",
+      "trade_time": "092000",
+      "trading_value": 225588031077,
+      "volume": 39513
+    },
+    {
+      "high": 59845,
+      "low": 59595,
+      "open": 59635,
+      "price": 59820,
+      "trade_date": "20261110",
+      "trade_time": "092100",
+      "trading_value": 234587611873,
+      "volume": 150677
+    },
+    {
+      "high": 59835,
+      "low": 59660,
+      "open": 59815,
+      "price": 59675,
+      "trade_date": "20261110",
+      "trade_time": "092200",
+      "trading_value": 244086604068,
+      "volume": 158887
+    },
+    {
+      "high": 59805,
+      "low": 59620,
+      "open": 59675,
+      "price": 59730,
+      "trade_date": "20261110",
+      "trade_time": "092300",
+      "trading_value": 251854299973,
+      "volume": 130046
+    },
+    {
+      "high": 60020,
+      "low": 59675,
+      "open": 59735,
+      "price": 59925,
+      "trade_date": "20261110",
+      "trade_time": "092400",
+      "trading_value": 259089108768,
+      "volume": 120749
+    },
+    {
+      "high": 60020,
+      "low": 59860,
+      "open": 59915,
+      "price": 59955,
+      "trade_date": "20261110",
+      "trade_time": "092500",
+      "trading_value": 263200225351,
+      "volume": 68557
+    },
+    {
+      "high": 59980,
+      "low": 59660,
+      "open": 59940,
+      "price": 59770,
+      "trade_date": "20261110",
+      "trade_time": "092600",
+      "trading_value": 266827237586,
+      "volume": 60672
+    },
+    {
+      "high": 59870,
+      "low": 59705,
+      "open": 59755,
+      "price": 59780,
+      "trade_date": "20261110",
+      "trade_time": "092700",
+      "trading_value": 269720699578,
+      "volume": 48387
+    },
+    {
+      "high": 59815,
+      "low": 59585,
+      "open": 59795,
+      "price": 59645,
+      "trade_date": "20261110",
+      "trade_time": "092800",
+      "trading_value": 272731024923,
+      "volume": 50436
+    },
+    {
+      "high": 59910,
+      "low": 59635,
+      "open": 59650,
+      "price": 59660,
+      "trade_date": "20261110",
+      "trade_time": "092900",
+      "trading_value": 275776154494,
+      "volume": 50951
+    },
+    {
+      "high": 59730,
+      "low": 59320,
+      "open": 59680,
+      "price": 59330,
+      "trade_date": "20261110",
+      "trade_time": "093000",
+      "trading_value": 282455777170,
+      "volume": 112282
+    },
+    {
+      "high": 59360,
+      "low": 59140,
+      "open": 59345,
+      "price": 59300,
+      "trade_date": "20261110",
+      "trade_time": "093100",
+      "trading_value": 290125332057,
+      "volume": 129470
+    },
+    {
+      "high": 59310,
+      "low": 59035,
+      "open": 59290,
+      "price": 59070,
+      "trade_date": "20261110",
+      "trade_time": "093200",
+      "trading_value": 297985983260,
+      "volume": 132905
+    },
+    {
+      "high": 59110,
+      "low": 58965,
+      "open": 59090,
+      "price": 59015,
+      "trade_date": "20261110",
+      "trade_time": "093300",
+      "trading_value": 305948701004,
+      "volume": 134870
+    },
+    {
+      "high": 59215,
+      "low": 58940,
+      "open": 59015,
+      "price": 59215,
+      "trade_date": "20261110",
+      "trade_time": "093400",
+      "trading_value": 313837431252,
+      "volume": 133513
+    },
+    {
+      "high": 59295,
+      "low": 59160,
+      "open": 59220,
+      "price": 59215,
+      "trade_date": "20261110",
+      "trade_time": "093500",
+      "trading_value": 320199575816,
+      "volume": 107444
+    },
+    {
+      "high": 59320,
+      "low": 59145,
+      "open": 59220,
+      "price": 59290,
+      "trade_date": "20261110",
+      "trade_time": "093600",
+      "trading_value": 327698836260,
+      "volume": 126604
+    },
+    {
+      "high": 59425,
+      "low": 59265,
+      "open": 59295,
+      "price": 59400,
+      "trade_date": "20261110",
+      "trade_time": "093700",
+      "trading_value": 332708915497,
+      "volume": 84398
+    },
+    {
+      "high": 59560,
+      "low": 59360,
+      "open": 59400,
+      "price": 59510,
+      "trade_date": "20261110",
+      "trade_time": "093800",
+      "trading_value": 336537290266,
+      "volume": 64343
+    },
+    {
+      "high": 59595,
+      "low": 59445,
+      "open": 59510,
+      "price": 59465,
+      "trade_date": "20261110",
+      "trade_time": "093900",
+      "trading_value": 339931168441,
+      "volume": 57020
+    },
+    {
+      "high": 59490,
+      "low": 59235,
+      "open": 59470,
+      "price": 59340,
+      "trade_date": "20261110",
+      "trade_time": "094000",
+      "trading_value": 345021474818,
+      "volume": 85752
+    },
+    {
+      "high": 59375,
+      "low": 59250,
+      "open": 59330,
+      "price": 59320,
+      "trade_date": "20261110",
+      "trade_time": "094100",
+      "trading_value": 346659946920,
+      "volume": 27621
+    },
+    {
+      "high": 59360,
+      "low": 59210,
+      "open": 59310,
+      "price": 59285,
+      "trade_date": "20261110",
+      "trade_time": "094200",
+      "trading_value": 348577132410,
+      "volume": 32345
+    },
+    {
+      "high": 59385,
+      "low": 59155,
+      "open": 59275,
+      "price": 59240,
+      "trade_date": "20261110",
+      "trade_time": "094300",
+      "trading_value": 350978782177,
+      "volume": 40529
+    },
+    {
+      "high": 59285,
+      "low": 59170,
+      "open": 59235,
+      "price": 59215,
+      "trade_date": "20261110",
+      "trade_time": "094400",
+      "trading_value": 353225252169,
+      "volume": 37925
+    },
+    {
+      "high": 59240,
+      "low": 58980,
+      "open": 59240,
+      "price": 59030,
+      "trade_date": "20261110",
+      "trade_time": "094500",
+      "trading_value": 358349300437,
+      "volume": 86737
+    },
+    {
+      "high": 59250,
+      "low": 59040,
+      "open": 59050,
+      "price": 59235,
+      "trade_date": "20261110",
+      "trade_time": "094600",
+      "trading_value": 361805008991,
+      "volume": 58397
+    },
+    {
+      "high": 59245,
+      "low": 58800,
+      "open": 59225,
+      "price": 58822,
+      "trade_date": "20261110",
+      "trade_time": "094700",
+      "trading_value": 368874972766,
+      "volume": 119894
+    },
+    {
+      "high": 58930,
+      "low": 58720,
+      "open": 58820,
+      "price": 58865,
+      "trade_date": "20261110",
+      "trade_time": "094800",
+      "trading_value": 375667457987,
+      "volume": 115484
+    },
+    {
+      "high": 58875,
+      "low": 58630,
+      "open": 58875,
+      "price": 58645,
+      "trade_date": "20261110",
+      "trade_time": "094900",
+      "trading_value": 381847136149,
+      "volume": 105171
+    },
+    {
+      "high": 58710,
+      "low": 58550,
+      "open": 58665,
+      "price": 58620,
+      "trade_date": "20261110",
+      "trade_time": "095000",
+      "trading_value": 388943271247,
+      "volume": 121063
+    },
+    {
+      "high": 58650,
+      "low": 58435,
+      "open": 58610,
+      "price": 58495,
+      "trade_date": "20261110",
+      "trade_time": "095100",
+      "trading_value": 394829188396,
+      "volume": 100605
+    },
+    {
+      "high": 58510,
+      "low": 58240,
+      "open": 58495,
+      "price": 58260,
+      "trade_date": "20261110",
+      "trade_time": "095200",
+      "trading_value": 401346075432,
+      "volume": 111687
+    },
+    {
+      "high": 58315,
+      "low": 58130,
+      "open": 58250,
+      "price": 58185,
+      "trade_date": "20261110",
+      "trade_time": "095300",
+      "trading_value": 407992852076,
+      "volume": 114170
+    },
+    {
+      "high": 58375,
+      "low": 58150,
+      "open": 58165,
+      "price": 58275,
+      "trade_date": "20261110",
+      "trade_time": "095400",
+      "trading_value": 415212422812,
+      "volume": 123858
+    },
+    {
+      "high": 58400,
+      "low": 58225,
+      "open": 58280,
+      "price": 58340,
+      "trade_date": "20261110",
+      "trade_time": "095500",
+      "trading_value": 422668377969,
+      "volume": 127827
+    },
+    {
+      "high": 58340,
+      "low": 58185,
+      "open": 58340,
+      "price": 58215,
+      "trade_date": "20261110",
+      "trade_time": "095600",
+      "trading_value": 426107589572,
+      "volume": 59038
+    },
+    {
+      "high": 58275,
+      "low": 58000,
+      "open": 58225,
+      "price": 58055,
+      "trade_date": "20261110",
+      "trade_time": "095700",
+      "trading_value": 431819193883,
+      "volume": 98331
+    },
+    {
+      "high": 58330,
+      "low": 58035,
+      "open": 58060,
+      "price": 58260,
+      "trade_date": "20261110",
+      "trade_time": "095800",
+      "trading_value": 436040313324,
+      "volume": 72563
+    },
+    {
+      "high": 58495,
+      "low": 58225,
+      "open": 58260,
+      "price": 58430,
+      "trade_date": "20261110",
+      "trade_time": "095900",
+      "trading_value": 442854681713,
+      "volume": 116663
+    },
+    {
+      "high": 58725,
+      "low": 58385,
+      "open": 58440,
+      "price": 58670,
+      "trade_date": "20261110",
+      "trade_time": "100000",
+      "trading_value": 452429911282,
+      "volume": 163407
+    },
+    {
+      "high": 58885,
+      "low": 58670,
+      "open": 58700,
+      "price": 58880,
+      "trade_date": "20261110",
+      "trade_time": "100100",
+      "trading_value": 458261789846,
+      "volume": 99204
+    },
+    {
+      "high": 58965,
+      "low": 58790,
+      "open": 58885,
+      "price": 58820,
+      "trade_date": "20261110",
+      "trade_time": "100200",
+      "trading_value": 465495670297,
+      "volume": 122855
+    },
+    {
+      "high": 58805,
+      "low": 58510,
+      "open": 58800,
+      "price": 58565,
+      "trade_date": "20261110",
+      "trade_time": "100300",
+      "trading_value": 470528314963,
+      "volume": 85823
+    },
+    {
+      "high": 58655,
+      "low": 58490,
+      "open": 58560,
+      "price": 58640,
+      "trade_date": "20261110",
+      "trade_time": "100400",
+      "trading_value": 473850942227,
+      "volume": 56723
+    },
+    {
+      "high": 58725,
+      "low": 58290,
+      "open": 58635,
+      "price": 58290,
+      "trade_date": "20261110",
+      "trade_time": "100500",
+      "trading_value": 479607961999,
+      "volume": 98484
+    },
+    {
+      "high": 58300,
+      "low": 57900,
+      "open": 58285,
+      "price": 57935,
+      "trade_date": "20261110",
+      "trade_time": "100600",
+      "trading_value": 487051361191,
+      "volume": 128204
+    },
+    {
+      "high": 58035,
+      "low": 57835,
+      "open": 57930,
+      "price": 57925,
+      "trade_date": "20261110",
+      "trade_time": "100700",
+      "trading_value": 492102087806,
+      "volume": 87139
+    },
+    {
+      "high": 58265,
+      "low": 57845,
+      "open": 57925,
+      "price": 58190,
+      "trade_date": "20261110",
+      "trade_time": "100800",
+      "trading_value": 500789329514,
+      "volume": 149482
+    },
+    {
+      "high": 58230,
+      "low": 57775,
+      "open": 58190,
+      "price": 57815,
+      "trade_date": "20261110",
+      "trade_time": "100900",
+      "trading_value": 507587646112,
+      "volume": 117170
+    },
+    {
+      "high": 58000,
+      "low": 57730,
+      "open": 57815,
+      "price": 57810,
+      "trade_date": "20261110",
+      "trade_time": "101000",
+      "trading_value": 515331057287,
+      "volume": 133875
+    },
+    {
+      "high": 57905,
+      "low": 57430,
+      "open": 57800,
+      "price": 57460,
+      "trade_date": "20261110",
+      "trade_time": "101100",
+      "trading_value": 524097175658,
+      "volume": 152138
+    },
+    {
+      "high": 57715,
+      "low": 57420,
+      "open": 57445,
+      "price": 57610,
+      "trade_date": "20261110",
+      "trade_time": "101200",
+      "trading_value": 531639960944,
+      "volume": 130925
+    },
+    {
+      "high": 57870,
+      "low": 57580,
+      "open": 57585,
+      "price": 57785,
+      "trade_date": "20261110",
+      "trade_time": "101300",
+      "trading_value": 536474153660,
+      "volume": 83725
+    },
+    {
+      "high": 57825,
+      "low": 57675,
+      "open": 57805,
+      "price": 57745,
+      "trade_date": "20261110",
+      "trade_time": "101400",
+      "trading_value": 540992849830,
+      "volume": 78270
+    },
+    {
+      "high": 57790,
+      "low": 57610,
+      "open": 57750,
+      "price": 57685,
+      "trade_date": "20261110",
+      "trade_time": "101500",
+      "trading_value": 543371274947,
+      "volume": 41224
+    },
+    {
+      "high": 58085,
+      "low": 57675,
+      "open": 57685,
+      "price": 58020,
+      "trade_date": "20261110",
+      "trade_time": "101600",
+      "trading_value": 550575296902,
+      "volume": 124279
+    },
+    {
+      "high": 58190,
+      "low": 57875,
+      "open": 58035,
+      "price": 58165,
+      "trade_date": "20261110",
+      "trade_time": "101700",
+      "trading_value": 555898251772,
+      "volume": 91745
+    },
+    {
+      "high": 58180,
+      "low": 57995,
+      "open": 58165,
+      "price": 58090,
+      "trade_date": "20261110",
+      "trade_time": "101800",
+      "trading_value": 558685432020,
+      "volume": 48001
+    },
+    {
+      "high": 58105,
+      "low": 57830,
+      "open": 58105,
+      "price": 57890,
+      "trade_date": "20261110",
+      "trade_time": "101900",
+      "trading_value": 562343214891,
+      "volume": 63128
+    },
+    {
+      "high": 57890,
+      "low": 57625,
+      "open": 57875,
+      "price": 57625,
+      "trade_date": "20261110",
+      "trade_time": "102000",
+      "trading_value": 565857133084,
+      "volume": 60833
+    },
+    {
+      "high": 57805,
+      "low": 57595,
+      "open": 57630,
+      "price": 57745,
+      "trade_date": "20261110",
+      "trade_time": "102100",
+      "trading_value": 570247694508,
+      "volume": 76104
+    },
+    {
+      "high": 58130,
+      "low": 57730,
+      "open": 57735,
+      "price": 58040,
+      "trade_date": "20261110",
+      "trade_time": "102200",
+      "trading_value": 576614416245,
+      "volume": 109765
+    },
+    {
+      "high": 58105,
+      "low": 57940,
+      "open": 58050,
+      "price": 57980,
+      "trade_date": "20261110",
+      "trade_time": "102300",
+      "trading_value": 581856765041,
+      "volume": 90364
+    },
+    {
+      "high": 58315,
+      "low": 57960,
+      "open": 57980,
+      "price": 58190,
+      "trade_date": "20261110",
+      "trade_time": "102400",
+      "trading_value": 589954588088,
+      "volume": 139144
+    },
+    {
+      "high": 58305,
+      "low": 58085,
+      "open": 58200,
+      "price": 58140,
+      "trade_date": "20261110",
+      "trade_time": "102500",
+      "trading_value": 594935079086,
+      "volume": 85614
+    },
+    {
+      "high": 58235,
+      "low": 58070,
+      "open": 58115,
+      "price": 58140,
+      "trade_date": "20261110",
+      "trade_time": "102600",
+      "trading_value": 599145433701,
+      "volume": 72379
+    },
+    {
+      "high": 58295,
+      "low": 58160,
+      "open": 58160,
+      "price": 58290,
+      "trade_date": "20261110",
+      "trade_time": "102700",
+      "trading_value": 604857840182,
+      "volume": 98096
+    },
+    {
+      "high": 58360,
+      "low": 58170,
+      "open": 58270,
+      "price": 58345,
+      "trade_date": "20261110",
+      "trade_time": "102800",
+      "trading_value": 609064773777,
+      "volume": 72200
+    },
+    {
+      "high": 58520,
+      "low": 58280,
+      "open": 58345,
+      "price": 58500,
+      "trade_date": "20261110",
+      "trade_time": "102900",
+      "trading_value": 613354248728,
+      "volume": 73411
+    },
+    {
+      "high": 58510,
+      "low": 58205,
+      "open": 58500,
+      "price": 58230,
+      "trade_date": "20261110",
+      "trade_time": "103000",
+      "trading_value": 618923208018,
+      "volume": 95416
+    },
+    {
+      "high": 58245,
+      "low": 57970,
+      "open": 58235,
+      "price": 58160,
+      "trade_date": "20261110",
+      "trade_time": "103100",
+      "trading_value": 623373371862,
+      "volume": 76589
+    },
+    {
+      "high": 58195,
+      "low": 58060,
+      "open": 58160,
+      "price": 58085,
+      "trade_date": "20261110",
+      "trade_time": "103200",
+      "trading_value": 627498388332,
+      "volume": 70964
+    },
+    {
+      "high": 58295,
+      "low": 58080,
+      "open": 58100,
+      "price": 58215,
+      "trade_date": "20261110",
+      "trade_time": "103300",
+      "trading_value": 631860201302,
+      "volume": 74951
+    },
+    {
+      "high": 58190,
+      "low": 57910,
+      "open": 58190,
+      "price": 57975,
+      "trade_date": "20261110",
+      "trade_time": "103400",
+      "trading_value": 636275269835,
+      "volume": 76089
+    },
+    {
+      "high": 58140,
+      "low": 57940,
+      "open": 57990,
+      "price": 58065,
+      "trade_date": "20261110",
+      "trade_time": "103500",
+      "trading_value": 641919430425,
+      "volume": 97208
+    },
+    {
+      "high": 58115,
+      "low": 57830,
+      "open": 58055,
+      "price": 57910,
+      "trade_date": "20261110",
+      "trade_time": "103600",
+      "trading_value": 646008352016,
+      "volume": 70589
+    },
+    {
+      "high": 57935,
+      "low": 57745,
+      "open": 57920,
+      "price": 57780,
+      "trade_date": "20261110",
+      "trade_time": "103700",
+      "trading_value": 650154961782,
+      "volume": 71703
+    },
+    {
+      "high": 57920,
+      "low": 57665,
+      "open": 57775,
+      "price": 57845,
+      "trade_date": "20261110",
+      "trade_time": "103800",
+      "trading_value": 655328657102,
+      "volume": 89544
+    },
+    {
+      "high": 58215,
+      "low": 57820,
+      "open": 57850,
+      "price": 58185,
+      "trade_date": "20261110",
+      "trade_time": "103900",
+      "trading_value": 660501313646,
+      "volume": 89121
+    },
+    {
+      "high": 58575,
+      "low": 58160,
+      "open": 58180,
+      "price": 58505,
+      "trade_date": "20261110",
+      "trade_time": "104000",
+      "trading_value": 668385676743,
+      "volume": 134957
+    },
+    {
+      "high": 58530,
+      "low": 58200,
+      "open": 58505,
+      "price": 58280,
+      "trade_date": "20261110",
+      "trade_time": "104100",
+      "trading_value": 673666485124,
+      "volume": 90461
+    },
+    {
+      "high": 58375,
+      "low": 58195,
+      "open": 58280,
+      "price": 58230,
+      "trade_date": "20261110",
+      "trade_time": "104200",
+      "trading_value": 676080286649,
+      "volume": 41402
+    },
+    {
+      "high": 58325,
+      "low": 58190,
+      "open": 58210,
+      "price": 58285,
+      "trade_date": "20261110",
+      "trade_time": "104300",
+      "trading_value": 678195992018,
+      "volume": 36325
+    },
+    {
+      "high": 58545,
+      "low": 58250,
+      "open": 58295,
+      "price": 58445,
+      "trade_date": "20261110",
+      "trade_time": "104400",
+      "trading_value": 682694354618,
+      "volume": 76956
+    },
+    {
+      "high": 58530,
+      "low": 58365,
+      "open": 58460,
+      "price": 58430,
+      "trade_date": "20261110",
+      "trade_time": "104500",
+      "trading_value": 686888254405,
+      "volume": 71739
+    },
+    {
+      "high": 58630,
+      "low": 58425,
+      "open": 58425,
+      "price": 58610,
+      "trade_date": "20261110",
+      "trade_time": "104600",
+      "trading_value": 693744500860,
+      "volume": 117117
+    },
+    {
+      "high": 58575,
+      "low": 58300,
+      "open": 58575,
+      "price": 58410,
+      "trade_date": "20261110",
+      "trade_time": "104700",
+      "trading_value": 696201199645,
+      "volume": 42066
+    },
+    {
+      "high": 58530,
+      "low": 58375,
+      "open": 58400,
+      "price": 58455,
+      "trade_date": "20261110",
+      "trade_time": "104800",
+      "trading_value": 697555365705,
+      "volume": 23164
+    },
+    {
+      "high": 58570,
+      "low": 58375,
+      "open": 58460,
+      "price": 58510,
+      "trade_date": "20261110",
+      "trade_time": "104900",
+      "trading_value": 699431297986,
+      "volume": 32076
+    },
+    {
+      "high": 58535,
+      "low": 58455,
+      "open": 58520,
+      "price": 58500,
+      "trade_date": "20261110",
+      "trade_time": "105000",
+      "trading_value": 700359244126,
+      "volume": 15864
+    },
+    {
+      "high": 58690,
+      "low": 58460,
+      "open": 58500,
+      "price": 58625,
+      "trade_date": "20261110",
+      "trade_time": "105100",
+      "trading_value": 704445651086,
+      "volume": 69718
+    },
+    {
+      "high": 58645,
+      "low": 58375,
+      "open": 58630,
+      "price": 58410,
+      "trade_date": "20261110",
+      "trade_time": "105200",
+      "trading_value": 708555325254,
+      "volume": 70251
+    },
+    {
+      "high": 58410,
+      "low": 58080,
+      "open": 58410,
+      "price": 58180,
+      "trade_date": "20261110",
+      "trade_time": "105300",
+      "trading_value": 714066180225,
+      "volume": 94634
+    },
+    {
+      "high": 58245,
+      "low": 58095,
+      "open": 58175,
+      "price": 58175,
+      "trade_date": "20261110",
+      "trade_time": "105400",
+      "trading_value": 716801543070,
+      "volume": 47041
+    },
+    {
+      "high": 58460,
+      "low": 58060,
+      "open": 58155,
+      "price": 58415,
+      "trade_date": "20261110",
+      "trade_time": "105500",
+      "trading_value": 720532089110,
+      "volume": 63997
+    },
+    {
+      "high": 58535,
+      "low": 58395,
+      "open": 58430,
+      "price": 58485,
+      "trade_date": "20261110",
+      "trade_time": "105600",
+      "trading_value": 723988685018,
+      "volume": 59100
+    },
+    {
+      "high": 58510,
+      "low": 58365,
+      "open": 58495,
+      "price": 58365,
+      "trade_date": "20261110",
+      "trade_time": "105700",
+      "trading_value": 725435659653,
+      "volume": 24762
+    },
+    {
+      "high": 58400,
+      "low": 58240,
+      "open": 58370,
+      "price": 58295,
+      "trade_date": "20261110",
+      "trade_time": "105800",
+      "trading_value": 726656133198,
+      "volume": 20928
+    },
+    {
+      "high": 58405,
+      "low": 58285,
+      "open": 58285,
+      "price": 58360,
+      "trade_date": "20261110",
+      "trade_time": "105900",
+      "trading_value": 728158345986,
+      "volume": 25744
+    },
+    {
+      "high": 58475,
+      "low": 58220,
+      "open": 58365,
+      "price": 58245,
+      "trade_date": "20261110",
+      "trade_time": "110000",
+      "trading_value": 730380449647,
+      "volume": 38070
+    },
+    {
+      "high": 58370,
+      "low": 58220,
+      "open": 58265,
+      "price": 58220,
+      "trade_date": "20261110",
+      "trade_time": "110100",
+      "trading_value": 731119476650,
+      "volume": 12679
+    },
+    {
+      "high": 58455,
+      "low": 58120,
+      "open": 58220,
+      "price": 58395,
+      "trade_date": "20261110",
+      "trade_time": "110200",
+      "trading_value": 735348259020,
+      "volume": 72457
+    },
+    {
+      "high": 58620,
+      "low": 58395,
+      "open": 58410,
+      "price": 58600,
+      "trade_date": "20261110",
+      "trade_time": "110300",
+      "trading_value": 739446570225,
+      "volume": 69997
+    },
+    {
+      "high": 58735,
+      "low": 58535,
+      "open": 58610,
+      "price": 58552,
+      "trade_date": "20261110",
+      "trade_time": "110400",
+      "trading_value": 742769600442,
+      "volume": 56658
+    },
+    {
+      "high": 58595,
+      "low": 58435,
+      "open": 58547,
+      "price": 58530,
+      "trade_date": "20261110",
+      "trade_time": "110500",
+      "trading_value": 744177956935,
+      "volume": 24066
+    },
+    {
+      "high": 58620,
+      "low": 58505,
+      "open": 58535,
+      "price": 58535,
+      "trade_date": "20261110",
+      "trade_time": "110600",
+      "trading_value": 745168899981,
+      "volume": 16922
+    },
+    {
+      "high": 58635,
+      "low": 58475,
+      "open": 58545,
+      "price": 58550,
+      "trade_date": "20261110",
+      "trade_time": "110700",
+      "trading_value": 746584469201,
+      "volume": 24168
+    },
+    {
+      "high": 58730,
+      "low": 58490,
+      "open": 58550,
+      "price": 58665,
+      "trade_date": "20261110",
+      "trade_time": "110800",
+      "trading_value": 750439266581,
+      "volume": 65771
+    },
+    {
+      "high": 58765,
+      "low": 58655,
+      "open": 58680,
+      "price": 58715,
+      "trade_date": "20261110",
+      "trade_time": "110900",
+      "trading_value": 752328349737,
+      "volume": 32176
+    },
+    {
+      "high": 58920,
+      "low": 58690,
+      "open": 58700,
+      "price": 58825,
+      "trade_date": "20261110",
+      "trade_time": "111000",
+      "trading_value": 756678828598,
+      "volume": 73932
+    },
+    {
+      "high": 58855,
+      "low": 58715,
+      "open": 58805,
+      "price": 58780,
+      "trade_date": "20261110",
+      "trade_time": "111100",
+      "trading_value": 757850484972,
+      "volume": 19933
+    },
+    {
+      "high": 58917,
+      "low": 58760,
+      "open": 58780,
+      "price": 58870,
+      "trade_date": "20261110",
+      "trade_time": "111200",
+      "trading_value": 759626869873,
+      "volume": 30182
+    },
+    {
+      "high": 58975,
+      "low": 58830,
+      "open": 58865,
+      "price": 58930,
+      "trade_date": "20261110",
+      "trade_time": "111300",
+      "trading_value": 764086668133,
+      "volume": 75682
+    },
+    {
+      "high": 58970,
+      "low": 58870,
+      "open": 58930,
+      "price": 58955,
+      "trade_date": "20261110",
+      "trade_time": "111400",
+      "trading_value": 766920639489,
+      "volume": 48090
+    },
+    {
+      "high": 58965,
+      "low": 58810,
+      "open": 58940,
+      "price": 58850,
+      "trade_date": "20261110",
+      "trade_time": "111500",
+      "trading_value": 771068662868,
+      "volume": 70449
+    },
+    {
+      "high": 58965,
+      "low": 58830,
+      "open": 58865,
+      "price": 58930,
+      "trade_date": "20261110",
+      "trade_time": "111600",
+      "trading_value": 773102378893,
+      "volume": 34536
+    },
+    {
+      "high": 58970,
+      "low": 58860,
+      "open": 58930,
+      "price": 58885,
+      "trade_date": "20261110",
+      "trade_time": "111700",
+      "trading_value": 774525804742,
+      "volume": 24159
+    },
+    {
+      "high": 58905,
+      "low": 58800,
+      "open": 58875,
+      "price": 58880,
+      "trade_date": "20261110",
+      "trade_time": "111800",
+      "trading_value": 777944141845,
+      "volume": 58076
+    },
+    {
+      "high": 58965,
+      "low": 58805,
+      "open": 58887,
+      "price": 58895,
+      "trade_date": "20261110",
+      "trade_time": "111900",
+      "trading_value": 780718253702,
+      "volume": 47103
+    },
+    {
+      "high": 58990,
+      "low": 58880,
+      "open": 58915,
+      "price": 58985,
+      "trade_date": "20261110",
+      "trade_time": "112000",
+      "trading_value": 783085165697,
+      "volume": 40163
+    },
+    {
+      "high": 59005,
+      "low": 58865,
+      "open": 58980,
+      "price": 58885,
+      "trade_date": "20261110",
+      "trade_time": "112100",
+      "trading_value": 785990118272,
+      "volume": 49274
+    },
+    {
+      "high": 58945,
+      "low": 58790,
+      "open": 58880,
+      "price": 58820,
+      "trade_date": "20261110",
+      "trade_time": "112200",
+      "trading_value": 788762363902,
+      "volume": 47106
+    },
+    {
+      "high": 58830,
+      "low": 58730,
+      "open": 58805,
+      "price": 58785,
+      "trade_date": "20261110",
+      "trade_time": "112300",
+      "trading_value": 790371708230,
+      "volume": 27377
+    },
+    {
+      "high": 58805,
+      "low": 58620,
+      "open": 58795,
+      "price": 58630,
+      "trade_date": "20261110",
+      "trade_time": "112400",
+      "trading_value": 792994830047,
+      "volume": 44698
+    },
+    {
+      "high": 58805,
+      "low": 58625,
+      "open": 58645,
+      "price": 58735,
+      "trade_date": "20261110",
+      "trade_time": "112500",
+      "trading_value": 795252744048,
+      "volume": 38443
+    },
+    {
+      "high": 58815,
+      "low": 58700,
+      "open": 58750,
+      "price": 58780,
+      "trade_date": "20261110",
+      "trade_time": "112600",
+      "trading_value": 796319947917,
+      "volume": 18165
+    },
+    {
+      "high": 58855,
+      "low": 58745,
+      "open": 58785,
+      "price": 58795,
+      "trade_date": "20261110",
+      "trade_time": "112700",
+      "trading_value": 798069281002,
+      "volume": 29748
+    },
+    {
+      "high": 58820,
+      "low": 58680,
+      "open": 58775,
+      "price": 58770,
+      "trade_date": "20261110",
+      "trade_time": "112800",
+      "trading_value": 799032897787,
+      "volume": 16407
+    },
+    {
+      "high": 58780,
+      "low": 58625,
+      "open": 58750,
+      "price": 58675,
+      "trade_date": "20261110",
+      "trade_time": "112900",
+      "trading_value": 800946967990,
+      "volume": 32620
+    },
+    {
+      "high": 58870,
+      "low": 58640,
+      "open": 58650,
+      "price": 58865,
+      "trade_date": "20261110",
+      "trade_time": "113000",
+      "trading_value": 802731602270,
+      "volume": 30371
+    },
+    {
+      "high": 58885,
+      "low": 58725,
+      "open": 58860,
+      "price": 58765,
+      "trade_date": "20261110",
+      "trade_time": "113100",
+      "trading_value": 804599586745,
+      "volume": 31762
+    },
+    {
+      "high": 58945,
+      "low": 58765,
+      "open": 58770,
+      "price": 58915,
+      "trade_date": "20261110",
+      "trade_time": "113200",
+      "trading_value": 806462827315,
+      "volume": 31646
+    },
+    {
+      "high": 58985,
+      "low": 58800,
+      "open": 58900,
+      "price": 58910,
+      "trade_date": "20261110",
+      "trade_time": "113300",
+      "trading_value": 810233257935,
+      "volume": 63998
+    },
+    {
+      "high": 58980,
+      "low": 58785,
+      "open": 58950,
+      "price": 58815,
+      "trade_date": "20261110",
+      "trade_time": "113400",
+      "trading_value": 812197722432,
+      "volume": 33362
+    },
+    {
+      "high": 58855,
+      "low": 58640,
+      "open": 58820,
+      "price": 58675,
+      "trade_date": "20261110",
+      "trade_time": "113500",
+      "trading_value": 814494396014,
+      "volume": 39098
+    },
+    {
+      "high": 58705,
+      "low": 58460,
+      "open": 58670,
+      "price": 58610,
+      "trade_date": "20261110",
+      "trade_time": "113600",
+      "trading_value": 818330358897,
+      "volume": 65473
+    },
+    {
+      "high": 58680,
+      "low": 58530,
+      "open": 58620,
+      "price": 58575,
+      "trade_date": "20261110",
+      "trade_time": "113700",
+      "trading_value": 820589748837,
+      "volume": 38554
+    },
+    {
+      "high": 58660,
+      "low": 58570,
+      "open": 58582,
+      "price": 58635,
+      "trade_date": "20261110",
+      "trade_time": "113800",
+      "trading_value": 823626532014,
+      "volume": 51815
+    },
+    {
+      "high": 58745,
+      "low": 58580,
+      "open": 58650,
+      "price": 58605,
+      "trade_date": "20261110",
+      "trade_time": "113900",
+      "trading_value": 825252635371,
+      "volume": 27723
+    },
+    {
+      "high": 58600,
+      "low": 58405,
+      "open": 58600,
+      "price": 58440,
+      "trade_date": "20261110",
+      "trade_time": "114000",
+      "trading_value": 827320889636,
+      "volume": 35366
+    },
+    {
+      "high": 58440,
+      "low": 58310,
+      "open": 58430,
+      "price": 58320,
+      "trade_date": "20261110",
+      "trade_time": "114100",
+      "trading_value": 829776504408,
+      "volume": 42068
+    },
+    {
+      "high": 58400,
+      "low": 58255,
+      "open": 58305,
+      "price": 58370,
+      "trade_date": "20261110",
+      "trade_time": "114200",
+      "trading_value": 831659892297,
+      "volume": 32285
+    },
+    {
+      "high": 58515,
+      "low": 58370,
+      "open": 58370,
+      "price": 58490,
+      "trade_date": "20261110",
+      "trade_time": "114300",
+      "trading_value": 833706868211,
+      "volume": 35022
+    },
+    {
+      "high": 58630,
+      "low": 58410,
+      "open": 58495,
+      "price": 58590,
+      "trade_date": "20261110",
+      "trade_time": "114400",
+      "trading_value": 835746153736,
+      "volume": 34850
+    },
+    {
+      "high": 58760,
+      "low": 58595,
+      "open": 58595,
+      "price": 58755,
+      "trade_date": "20261110",
+      "trade_time": "114500",
+      "trading_value": 837755743006,
+      "volume": 34236
+    },
+    {
+      "high": 58790,
+      "low": 58670,
+      "open": 58760,
+      "price": 58750,
+      "trade_date": "20261110",
+      "trade_time": "114600",
+      "trading_value": 839309399245,
+      "volume": 26454
+    },
+    {
+      "high": 58895,
+      "low": 58710,
+      "open": 58740,
+      "price": 58875,
+      "trade_date": "20261110",
+      "trade_time": "114700",
+      "trading_value": 842369559293,
+      "volume": 52007
+    },
+    {
+      "high": 58935,
+      "low": 58825,
+      "open": 58865,
+      "price": 58845,
+      "trade_date": "20261110",
+      "trade_time": "114800",
+      "trading_value": 844158436360,
+      "volume": 30382
+    },
+    {
+      "high": 58840,
+      "low": 58555,
+      "open": 58840,
+      "price": 58600,
+      "trade_date": "20261110",
+      "trade_time": "114900",
+      "trading_value": 848211983238,
+      "volume": 69069
+    },
+    {
+      "high": 58640,
+      "low": 58525,
+      "open": 58610,
+      "price": 58615,
+      "trade_date": "20261110",
+      "trade_time": "115000",
+      "trading_value": 850240980877,
+      "volume": 34639
+    },
+    {
+      "high": 58685,
+      "low": 58570,
+      "open": 58597,
+      "price": 58680,
+      "trade_date": "20261110",
+      "trade_time": "115100",
+      "trading_value": 851093154839,
+      "volume": 14532
+    },
+    {
+      "high": 58745,
+      "low": 58590,
+      "open": 58660,
+      "price": 58730,
+      "trade_date": "20261110",
+      "trade_time": "115200",
+      "trading_value": 852438389824,
+      "volume": 22929
+    },
+    {
+      "high": 58740,
+      "low": 58620,
+      "open": 58710,
+      "price": 58665,
+      "trade_date": "20261110",
+      "trade_time": "115300",
+      "trading_value": 853753511612,
+      "volume": 22416
+    },
+    {
+      "high": 58825,
+      "low": 58655,
+      "open": 58665,
+      "price": 58675,
+      "trade_date": "20261110",
+      "trade_time": "115400",
+      "trading_value": 856244909354,
+      "volume": 42422
+    },
+    {
+      "high": 58730,
+      "low": 58625,
+      "open": 58695,
+      "price": 58630,
+      "trade_date": "20261110",
+      "trade_time": "115500",
+      "trading_value": 858730946239,
+      "volume": 42373
+    },
+    {
+      "high": 58635,
+      "low": 58537,
+      "open": 58630,
+      "price": 58620,
+      "trade_date": "20261110",
+      "trade_time": "115600",
+      "trading_value": 862012233236,
+      "volume": 55993
+    },
+    {
+      "high": 58620,
+      "low": 58505,
+      "open": 58612,
+      "price": 58565,
+      "trade_date": "20261110",
+      "trade_time": "115700",
+      "trading_value": 863709388260,
+      "volume": 28986
+    },
+    {
+      "high": 58710,
+      "low": 58530,
+      "open": 58570,
+      "price": 58665,
+      "trade_date": "20261110",
+      "trade_time": "115800",
+      "trading_value": 866107101422,
+      "volume": 40906
+    },
+    {
+      "high": 58745,
+      "low": 58555,
+      "open": 58675,
+      "price": 58690,
+      "trade_date": "20261110",
+      "trade_time": "115900",
+      "trading_value": 868109847159,
+      "volume": 34150
+    },
+    {
+      "high": 58715,
+      "low": 58610,
+      "open": 58700,
+      "price": 58665,
+      "trade_date": "20261110",
+      "trade_time": "120000",
+      "trading_value": 869997643104,
+      "volume": 32181
+    },
+    {
+      "high": 58750,
+      "low": 58645,
+      "open": 58660,
+      "price": 58680,
+      "trade_date": "20261110",
+      "trade_time": "120100",
+      "trading_value": 871399631229,
+      "volume": 23884
+    },
+    {
+      "high": 58795,
+      "low": 58650,
+      "open": 58675,
+      "price": 58780,
+      "trade_date": "20261110",
+      "trade_time": "120200",
+      "trading_value": 874412156134,
+      "volume": 51296
+    },
+    {
+      "high": 58860,
+      "low": 58720,
+      "open": 58775,
+      "price": 58820,
+      "trade_date": "20261110",
+      "trade_time": "120300",
+      "trading_value": 875706684389,
+      "volume": 22007
+    },
+    {
+      "high": 58955,
+      "low": 58815,
+      "open": 58830,
+      "price": 58905,
+      "trade_date": "20261110",
+      "trade_time": "120400",
+      "trading_value": 878787941964,
+      "volume": 52305
+    },
+    {
+      "high": 58975,
+      "low": 58850,
+      "open": 58900,
+      "price": 58935,
+      "trade_date": "20261110",
+      "trade_time": "120500",
+      "trading_value": 880725869177,
+      "volume": 32890
+    },
+    {
+      "high": 58960,
+      "low": 58825,
+      "open": 58905,
+      "price": 58845,
+      "trade_date": "20261110",
+      "trade_time": "120600",
+      "trading_value": 884663793277,
+      "volume": 66869
+    },
+    {
+      "high": 58870,
+      "low": 58755,
+      "open": 58845,
+      "price": 58790,
+      "trade_date": "20261110",
+      "trade_time": "120700",
+      "trading_value": 887815738452,
+      "volume": 53608
+    },
+    {
+      "high": 58810,
+      "low": 58690,
+      "open": 58780,
+      "price": 58760,
+      "trade_date": "20261110",
+      "trade_time": "120800",
+      "trading_value": 889270234104,
+      "volume": 24759
+    },
+    {
+      "high": 58770,
+      "low": 58635,
+      "open": 58750,
+      "price": 58650,
+      "trade_date": "20261110",
+      "trade_time": "120900",
+      "trading_value": 891701666606,
+      "volume": 41432
+    },
+    {
+      "high": 58710,
+      "low": 58620,
+      "open": 58650,
+      "price": 58665,
+      "trade_date": "20261110",
+      "trade_time": "121000",
+      "trading_value": 892727935672,
+      "volume": 17493
+    },
+    {
+      "high": 58710,
+      "low": 58525,
+      "open": 58665,
+      "price": 58530,
+      "trade_date": "20261110",
+      "trade_time": "121100",
+      "trading_value": 895509062764,
+      "volume": 47461
+    },
+    {
+      "high": 58540,
+      "low": 58385,
+      "open": 58525,
+      "price": 58520,
+      "trade_date": "20261110",
+      "trade_time": "121200",
+      "trading_value": 899025673588,
+      "volume": 60133
+    },
+    {
+      "high": 58585,
+      "low": 58500,
+      "open": 58520,
+      "price": 58520,
+      "trade_date": "20261110",
+      "trade_time": "121300",
+      "trading_value": 900751554893,
+      "volume": 29482
+    },
+    {
+      "high": 58600,
+      "low": 58410,
+      "open": 58545,
+      "price": 58465,
+      "trade_date": "20261110",
+      "trade_time": "121400",
+      "trading_value": 902535431693,
+      "volume": 30477
+    },
+    {
+      "high": 58500,
+      "low": 58375,
+      "open": 58465,
+      "price": 58395,
+      "trade_date": "20261110",
+      "trade_time": "121500",
+      "trading_value": 904058300738,
+      "volume": 26067
+    },
+    {
+      "high": 58690,
+      "low": 58315,
+      "open": 58375,
+      "price": 58665,
+      "trade_date": "20261110",
+      "trade_time": "121600",
+      "trading_value": 910213357420,
+      "volume": 105158
+    },
+    {
+      "high": 58815,
+      "low": 58660,
+      "open": 58665,
+      "price": 58730,
+      "trade_date": "20261110",
+      "trade_time": "121700",
+      "trading_value": 913183590321,
+      "volume": 50568
+    },
+    {
+      "high": 58810,
+      "low": 58675,
+      "open": 58725,
+      "price": 58680,
+      "trade_date": "20261110",
+      "trade_time": "121800",
+      "trading_value": 914688397836,
+      "volume": 25615
+    },
+    {
+      "high": 58740,
+      "low": 58635,
+      "open": 58710,
+      "price": 58675,
+      "trade_date": "20261110",
+      "trade_time": "121900",
+      "trading_value": 916296795586,
+      "volume": 27408
+    },
+    {
+      "high": 58685,
+      "low": 58605,
+      "open": 58680,
+      "price": 58625,
+      "trade_date": "20261110",
+      "trade_time": "122000",
+      "trading_value": 918048081341,
+      "volume": 29860
+    },
+    {
+      "high": 58655,
+      "low": 58525,
+      "open": 58620,
+      "price": 58535,
+      "trade_date": "20261110",
+      "trade_time": "122100",
+      "trading_value": 921619076446,
+      "volume": 60944
+    },
+    {
+      "high": 58690,
+      "low": 58525,
+      "open": 58530,
+      "price": 58550,
+      "trade_date": "20261110",
+      "trade_time": "122200",
+      "trading_value": 924146134811,
+      "volume": 43119
+    },
+    {
+      "high": 58655,
+      "low": 58545,
+      "open": 58555,
+      "price": 58635,
+      "trade_date": "20261110",
+      "trade_time": "122300",
+      "trading_value": 925064451831,
+      "volume": 15673
+    },
+    {
+      "high": 58710,
+      "low": 58565,
+      "open": 58655,
+      "price": 58575,
+      "trade_date": "20261110",
+      "trade_time": "122400",
+      "trading_value": 925822719876,
+      "volume": 12929
+    },
+    {
+      "high": 58615,
+      "low": 58245,
+      "open": 58595,
+      "price": 58265,
+      "trade_date": "20261110",
+      "trade_time": "122500",
+      "trading_value": 929140931338,
+      "volume": 56853
+    },
+    {
+      "high": 58415,
+      "low": 58200,
+      "open": 58270,
+      "price": 58380,
+      "trade_date": "20261110",
+      "trade_time": "122600",
+      "trading_value": 931015826490,
+      "volume": 32166
+    },
+    {
+      "high": 58395,
+      "low": 58280,
+      "open": 58390,
+      "price": 58290,
+      "trade_date": "20261110",
+      "trade_time": "122700",
+      "trading_value": 932203006412,
+      "volume": 20348
+    },
+    {
+      "high": 58370,
+      "low": 58255,
+      "open": 58305,
+      "price": 58315,
+      "trade_date": "20261110",
+      "trade_time": "122800",
+      "trading_value": 933187930142,
+      "volume": 16894
+    },
+    {
+      "high": 58385,
+      "low": 58255,
+      "open": 58315,
+      "price": 58305,
+      "trade_date": "20261110",
+      "trade_time": "122900",
+      "trading_value": 933869527897,
+      "volume": 11688
+    },
+    {
+      "high": 58500,
+      "low": 58210,
+      "open": 58300,
+      "price": 58400,
+      "trade_date": "20261110",
+      "trade_time": "123000",
+      "trading_value": 936992763987,
+      "volume": 53506
+    },
+    {
+      "high": 58435,
+      "low": 58300,
+      "open": 58415,
+      "price": 58385,
+      "trade_date": "20261110",
+      "trade_time": "123100",
+      "trading_value": 937888257277,
+      "volume": 15340
+    },
+    {
+      "high": 58360,
+      "low": 58215,
+      "open": 58360,
+      "price": 58230,
+      "trade_date": "20261110",
+      "trade_time": "123200",
+      "trading_value": 939495434436,
+      "volume": 27583
+    },
+    {
+      "high": 58270,
+      "low": 58170,
+      "open": 58225,
+      "price": 58205,
+      "trade_date": "20261110",
+      "trade_time": "123300",
+      "trading_value": 941863051961,
+      "volume": 40676
+    },
+    {
+      "high": 58260,
+      "low": 58160,
+      "open": 58205,
+      "price": 58185,
+      "trade_date": "20261110",
+      "trade_time": "123400",
+      "trading_value": 943004904081,
+      "volume": 19618
+    },
+    {
+      "high": 58250,
+      "low": 58130,
+      "open": 58180,
+      "price": 58165,
+      "trade_date": "20261110",
+      "trade_time": "123500",
+      "trading_value": 944277757242,
+      "volume": 21881
+    },
+    {
+      "high": 58170,
+      "low": 58030,
+      "open": 58155,
+      "price": 58030,
+      "trade_date": "20261110",
+      "trade_time": "123600",
+      "trading_value": 947171509250,
+      "volume": 49819
+    },
+    {
+      "high": 58135,
+      "low": 57840,
+      "open": 58065,
+      "price": 57915,
+      "trade_date": "20261110",
+      "trade_time": "123700",
+      "trading_value": 951205141520,
+      "volume": 69594
+    },
+    {
+      "high": 57940,
+      "low": 57850,
+      "open": 57900,
+      "price": 57865,
+      "trade_date": "20261110",
+      "trade_time": "123800",
+      "trading_value": 952761176872,
+      "volume": 26877
+    },
+    {
+      "high": 57915,
+      "low": 57800,
+      "open": 57855,
+      "price": 57895,
+      "trade_date": "20261110",
+      "trade_time": "123900",
+      "trading_value": 956238078377,
+      "volume": 60098
+    },
+    {
+      "high": 57910,
+      "low": 57760,
+      "open": 57895,
+      "price": 57775,
+      "trade_date": "20261110",
+      "trade_time": "124000",
+      "trading_value": 958457170742,
+      "volume": 38382
+    },
+    {
+      "high": 57820,
+      "low": 57630,
+      "open": 57800,
+      "price": 57655,
+      "trade_date": "20261110",
+      "trade_time": "124100",
+      "trading_value": 961371709010,
+      "volume": 50495
+    },
+    {
+      "high": 57680,
+      "low": 57570,
+      "open": 57640,
+      "price": 57575,
+      "trade_date": "20261110",
+      "trade_time": "124200",
+      "trading_value": 963894871805,
+      "volume": 43791
+    },
+    {
+      "high": 57580,
+      "low": 57325,
+      "open": 57580,
+      "price": 57355,
+      "trade_date": "20261110",
+      "trade_time": "124300",
+      "trading_value": 968827345445,
+      "volume": 85848
+    },
+    {
+      "high": 57480,
+      "low": 57330,
+      "open": 57340,
+      "price": 57450,
+      "trade_date": "20261110",
+      "trade_time": "124400",
+      "trading_value": 971402679718,
+      "volume": 44854
+    },
+    {
+      "high": 57550,
+      "low": 57245,
+      "open": 57445,
+      "price": 57290,
+      "trade_date": "20261110",
+      "trade_time": "124500",
+      "trading_value": 975079313438,
+      "volume": 64051
+    },
+    {
+      "high": 57575,
+      "low": 57275,
+      "open": 57292,
+      "price": 57470,
+      "trade_date": "20261110",
+      "trade_time": "124600",
+      "trading_value": 978242608804,
+      "volume": 55046
+    },
+    {
+      "high": 57675,
+      "low": 57420,
+      "open": 57470,
+      "price": 57595,
+      "trade_date": "20261110",
+      "trade_time": "124700",
+      "trading_value": 981758969643,
+      "volume": 61099
+    },
+    {
+      "high": 57605,
+      "low": 57505,
+      "open": 57585,
+      "price": 57585,
+      "trade_date": "20261110",
+      "trade_time": "124800",
+      "trading_value": 983581178453,
+      "volume": 31661
+    },
+    {
+      "high": 57645,
+      "low": 57450,
+      "open": 57585,
+      "price": 57625,
+      "trade_date": "20261110",
+      "trade_time": "124900",
+      "trading_value": 985277173628,
+      "volume": 29454
+    },
+    {
+      "high": 57860,
+      "low": 57620,
+      "open": 57625,
+      "price": 57835,
+      "trade_date": "20261110",
+      "trade_time": "125000",
+      "trading_value": 989496761581,
+      "volume": 73043
+    },
+    {
+      "high": 58180,
+      "low": 57845,
+      "open": 57845,
+      "price": 58055,
+      "trade_date": "20261110",
+      "trade_time": "125100",
+      "trading_value": 997651607899,
+      "volume": 140501
+    },
+    {
+      "high": 58050,
+      "low": 57860,
+      "open": 58035,
+      "price": 57970,
+      "trade_date": "20261110",
+      "trade_time": "125200",
+      "trading_value": 1001035376669,
+      "volume": 58384
+    },
+    {
+      "high": 58040,
+      "low": 57885,
+      "open": 57990,
+      "price": 57995,
+      "trade_date": "20261110",
+      "trade_time": "125300",
+      "trading_value": 1003072780329,
+      "volume": 35136
+    },
+    {
+      "high": 58180,
+      "low": 58000,
+      "open": 58000,
+      "price": 58130,
+      "trade_date": "20261110",
+      "trade_time": "125400",
+      "trading_value": 1009490068433,
+      "volume": 110452
+    },
+    {
+      "high": 58145,
+      "low": 57880,
+      "open": 58130,
+      "price": 57930,
+      "trade_date": "20261110",
+      "trade_time": "125500",
+      "trading_value": 1014643407983,
+      "volume": 88824
+    },
+    {
+      "high": 58070,
+      "low": 57920,
+      "open": 57920,
+      "price": 58000,
+      "trade_date": "20261110",
+      "trade_time": "125600",
+      "trading_value": 1017331723629,
+      "volume": 46331
+    },
+    {
+      "high": 58110,
+      "low": 57960,
+      "open": 58000,
+      "price": 58010,
+      "trade_date": "20261110",
+      "trade_time": "125700",
+      "trading_value": 1019739582940,
+      "volume": 41487
+    },
+    {
+      "high": 58090,
+      "low": 58000,
+      "open": 58030,
+      "price": 58035,
+      "trade_date": "20261110",
+      "trade_time": "125800",
+      "trading_value": 1023428967955,
+      "volume": 63558
+    },
+    {
+      "high": 58080,
+      "low": 57935,
+      "open": 58057,
+      "price": 58015,
+      "trade_date": "20261110",
+      "trade_time": "125900",
+      "trading_value": 1024596622855,
+      "volume": 20130
+    },
+    {
+      "high": 58035,
+      "low": 57845,
+      "open": 58010,
+      "price": 57905,
+      "trade_date": "20261110",
+      "trade_time": "130000",
+      "trading_value": 1026677275121,
+      "volume": 35923
+    },
+    {
+      "high": 58015,
+      "low": 57875,
+      "open": 57915,
+      "price": 57945,
+      "trade_date": "20261110",
+      "trade_time": "130100",
+      "trading_value": 1028581456985,
+      "volume": 32851
+    },
+    {
+      "high": 58010,
+      "low": 57885,
+      "open": 57935,
+      "price": 57950,
+      "trade_date": "20261110",
+      "trade_time": "130200",
+      "trading_value": 1030023784865,
+      "volume": 24886
+    },
+    {
+      "high": 57975,
+      "low": 57795,
+      "open": 57955,
+      "price": 57880,
+      "trade_date": "20261110",
+      "trade_time": "130300",
+      "trading_value": 1032371590870,
+      "volume": 40560
+    },
+    {
+      "high": 57950,
+      "low": 57760,
+      "open": 57865,
+      "price": 57765,
+      "trade_date": "20261110",
+      "trade_time": "130400",
+      "trading_value": 1033428397190,
+      "volume": 18266
+    },
+    {
+      "high": 57815,
+      "low": 57740,
+      "open": 57765,
+      "price": 57785,
+      "trade_date": "20261110",
+      "trade_time": "130500",
+      "trading_value": 1035446506817,
+      "volume": 34933
+    },
+    {
+      "high": 57855,
+      "low": 57710,
+      "open": 57770,
+      "price": 57815,
+      "trade_date": "20261110",
+      "trade_time": "130600",
+      "trading_value": 1038243784082,
+      "volume": 48390
+    },
+    {
+      "high": 57835,
+      "low": 57495,
+      "open": 57825,
+      "price": 57510,
+      "trade_date": "20261110",
+      "trade_time": "130700",
+      "trading_value": 1041289362792,
+      "volume": 52862
+    },
+    {
+      "high": 57575,
+      "low": 57385,
+      "open": 57520,
+      "price": 57465,
+      "trade_date": "20261110",
+      "trade_time": "130800",
+      "trading_value": 1043786521387,
+      "volume": 43458
+    },
+    {
+      "high": 57495,
+      "low": 57360,
+      "open": 57465,
+      "price": 57405,
+      "trade_date": "20261110",
+      "trade_time": "130900",
+      "trading_value": 1046232622826,
+      "volume": 42588
+    },
+    {
+      "high": 57410,
+      "low": 57265,
+      "open": 57397,
+      "price": 57350,
+      "trade_date": "20261110",
+      "trade_time": "131000",
+      "trading_value": 1048843152624,
+      "volume": 45533
+    },
+    {
+      "high": 57400,
+      "low": 57280,
+      "open": 57350,
+      "price": 57300,
+      "trade_date": "20261110",
+      "trade_time": "131100",
+      "trading_value": 1050684399846,
+      "volume": 32118
+    },
+    {
+      "high": 57295,
+      "low": 57195,
+      "open": 57295,
+      "price": 57220,
+      "trade_date": "20261110",
+      "trade_time": "131200",
+      "trading_value": 1053572853492,
+      "volume": 50473
+    },
+    {
+      "high": 57405,
+      "low": 57135,
+      "open": 57215,
+      "price": 57355,
+      "trade_date": "20261110",
+      "trade_time": "131300",
+      "trading_value": 1056326187281,
+      "volume": 48063
+    },
+    {
+      "high": 57460,
+      "low": 57345,
+      "open": 57380,
+      "price": 57380,
+      "trade_date": "20261110",
+      "trade_time": "131400",
+      "trading_value": 1058885077740,
+      "volume": 44573
+    },
+    {
+      "high": 57380,
+      "low": 57210,
+      "open": 57370,
+      "price": 57310,
+      "trade_date": "20261110",
+      "trade_time": "131500",
+      "trading_value": 1060849068580,
+      "volume": 34279
+    },
+    {
+      "high": 57515,
+      "low": 57265,
+      "open": 57330,
+      "price": 57460,
+      "trade_date": "20261110",
+      "trade_time": "131600",
+      "trading_value": 1062374064270,
+      "volume": 26559
+    },
+    {
+      "high": 57600,
+      "low": 57435,
+      "open": 57460,
+      "price": 57580,
+      "trade_date": "20261110",
+      "trade_time": "131700",
+      "trading_value": 1065275637831,
+      "volume": 50427
+    },
+    {
+      "high": 57700,
+      "low": 57535,
+      "open": 57580,
+      "price": 57695,
+      "trade_date": "20261110",
+      "trade_time": "131800",
+      "trading_value": 1069749257612,
+      "volume": 77629
+    },
+    {
+      "high": 57900,
+      "low": 57645,
+      "open": 57680,
+      "price": 57885,
+      "trade_date": "20261110",
+      "trade_time": "131900",
+      "trading_value": 1075089511086,
+      "volume": 92493
+    },
+    {
+      "high": 57990,
+      "low": 57815,
+      "open": 57880,
+      "price": 57960,
+      "trade_date": "20261110",
+      "trade_time": "132000",
+      "trading_value": 1078275141083,
+      "volume": 55015
+    },
+    {
+      "high": 58045,
+      "low": 57885,
+      "open": 57965,
+      "price": 57935,
+      "trade_date": "20261110",
+      "trade_time": "132100",
+      "trading_value": 1082485091156,
+      "volume": 72630
+    },
+    {
+      "high": 57965,
+      "low": 57815,
+      "open": 57930,
+      "price": 57940,
+      "trade_date": "20261110",
+      "trade_time": "132200",
+      "trading_value": 1083867889690,
+      "volume": 23896
+    },
+    {
+      "high": 57945,
+      "low": 57790,
+      "open": 57945,
+      "price": 57860,
+      "trade_date": "20261110",
+      "trade_time": "132300",
+      "trading_value": 1086327503910,
+      "volume": 42514
+    },
+    {
+      "high": 57955,
+      "low": 57790,
+      "open": 57865,
+      "price": 57790,
+      "trade_date": "20261110",
+      "trade_time": "132400",
+      "trading_value": 1089828717725,
+      "volume": 60508
+    },
+    {
+      "high": 57835,
+      "low": 57745,
+      "open": 57790,
+      "price": 57745,
+      "trade_date": "20261110",
+      "trade_time": "132500",
+      "trading_value": 1090709855542,
+      "volume": 15245
+    },
+    {
+      "high": 57840,
+      "low": 57725,
+      "open": 57760,
+      "price": 57810,
+      "trade_date": "20261110",
+      "trade_time": "132600",
+      "trading_value": 1091990118899,
+      "volume": 22153
+    },
+    {
+      "high": 57905,
+      "low": 57815,
+      "open": 57820,
+      "price": 57865,
+      "trade_date": "20261110",
+      "trade_time": "132700",
+      "trading_value": 1093510425459,
+      "volume": 26274
+    },
+    {
+      "high": 58005,
+      "low": 57855,
+      "open": 57855,
+      "price": 57910,
+      "trade_date": "20261110",
+      "trade_time": "132800",
+      "trading_value": 1097604589488,
+      "volume": 70635
+    },
+    {
+      "high": 57980,
+      "low": 57920,
+      "open": 57925,
+      "price": 57960,
+      "trade_date": "20261110",
+      "trade_time": "132900",
+      "trading_value": 1100135300161,
+      "volume": 43674
+    },
+    {
+      "high": 58100,
+      "low": 57915,
+      "open": 57980,
+      "price": 58070,
+      "trade_date": "20261110",
+      "trade_time": "133000",
+      "trading_value": 1103256843501,
+      "volume": 53781
+    },
+    {
+      "high": 58180,
+      "low": 58060,
+      "open": 58070,
+      "price": 58150,
+      "trade_date": "20261110",
+      "trade_time": "133100",
+      "trading_value": 1104913578577,
+      "volume": 28502
+    },
+    {
+      "high": 58300,
+      "low": 58120,
+      "open": 58150,
+      "price": 58185,
+      "trade_date": "20261110",
+      "trade_time": "133200",
+      "trading_value": 1108657517282,
+      "volume": 64294
+    },
+    {
+      "high": 58190,
+      "low": 58090,
+      "open": 58185,
+      "price": 58125,
+      "trade_date": "20261110",
+      "trade_time": "133300",
+      "trading_value": 1110306046652,
+      "volume": 28354
+    },
+    {
+      "high": 58185,
+      "low": 58065,
+      "open": 58115,
+      "price": 58160,
+      "trade_date": "20261110",
+      "trade_time": "133400",
+      "trading_value": 1112310432771,
+      "volume": 34475
+    },
+    {
+      "high": 58185,
+      "low": 58120,
+      "open": 58155,
+      "price": 58120,
+      "trade_date": "20261110",
+      "trade_time": "133500",
+      "trading_value": 1113335206119,
+      "volume": 17626
+    },
+    {
+      "high": 58150,
+      "low": 57950,
+      "open": 58130,
+      "price": 57975,
+      "trade_date": "20261110",
+      "trade_time": "133600",
+      "trading_value": 1115478615035,
+      "volume": 36935
+    },
+    {
+      "high": 57980,
+      "low": 57880,
+      "open": 57970,
+      "price": 57925,
+      "trade_date": "20261110",
+      "trade_time": "133700",
+      "trading_value": 1119691855429,
+      "volume": 72734
+    },
+    {
+      "high": 57970,
+      "low": 57855,
+      "open": 57960,
+      "price": 57910,
+      "trade_date": "20261110",
+      "trade_time": "133800",
+      "trading_value": 1124945018471,
+      "volume": 90730
+    },
+    {
+      "high": 57975,
+      "low": 57825,
+      "open": 57900,
+      "price": 57845,
+      "trade_date": "20261110",
+      "trade_time": "133900",
+      "trading_value": 1129881715576,
+      "volume": 85286
+    },
+    {
+      "high": 57925,
+      "low": 57790,
+      "open": 57840,
+      "price": 57810,
+      "trade_date": "20261110",
+      "trade_time": "134000",
+      "trading_value": 1131243323536,
+      "volume": 23535
+    },
+    {
+      "high": 57930,
+      "low": 57795,
+      "open": 57820,
+      "price": 57895,
+      "trade_date": "20261110",
+      "trade_time": "134100",
+      "trading_value": 1132057262951,
+      "volume": 14067
+    },
+    {
+      "high": 57920,
+      "low": 57810,
+      "open": 57900,
+      "price": 57855,
+      "trade_date": "20261110",
+      "trade_time": "134200",
+      "trading_value": 1133095416578,
+      "volume": 17943
+    },
+    {
+      "high": 57990,
+      "low": 57845,
+      "open": 57870,
+      "price": 57980,
+      "trade_date": "20261110",
+      "trade_time": "134300",
+      "trading_value": 1134592062093,
+      "volume": 25849
+    },
+    {
+      "high": 58115,
+      "low": 57950,
+      "open": 57980,
+      "price": 58050,
+      "trade_date": "20261110",
+      "trade_time": "134400",
+      "trading_value": 1138425210148,
+      "volume": 66073
+    },
+    {
+      "high": 58085,
+      "low": 57990,
+      "open": 58035,
+      "price": 58010,
+      "trade_date": "20261110",
+      "trade_time": "134500",
+      "trading_value": 1140096765813,
+      "volume": 28810
+    },
+    {
+      "high": 58010,
+      "low": 57855,
+      "open": 58010,
+      "price": 58010,
+      "trade_date": "20261110",
+      "trade_time": "134600",
+      "trading_value": 1141562061683,
+      "volume": 25281
+    },
+    {
+      "high": 58065,
+      "low": 57940,
+      "open": 57980,
+      "price": 58040,
+      "trade_date": "20261110",
+      "trade_time": "134700",
+      "trading_value": 1142062563908,
+      "volume": 8626
+    },
+    {
+      "high": 58115,
+      "low": 58025,
+      "open": 58025,
+      "price": 58100,
+      "trade_date": "20261110",
+      "trade_time": "134800",
+      "trading_value": 1144491169980,
+      "volume": 41808
+    },
+    {
+      "high": 58195,
+      "low": 58010,
+      "open": 58085,
+      "price": 58155,
+      "trade_date": "20261110",
+      "trade_time": "134900",
+      "trading_value": 1146440741625,
+      "volume": 33544
+    },
+    {
+      "high": 58360,
+      "low": 58110,
+      "open": 58135,
+      "price": 58310,
+      "trade_date": "20261110",
+      "trade_time": "135000",
+      "trading_value": 1153540831615,
+      "volume": 121806
+    },
+    {
+      "high": 58320,
+      "low": 58235,
+      "open": 58305,
+      "price": 58270,
+      "trade_date": "20261110",
+      "trade_time": "135100",
+      "trading_value": 1156354329875,
+      "volume": 48283
+    },
+    {
+      "high": 58360,
+      "low": 58200,
+      "open": 58265,
+      "price": 58355,
+      "trade_date": "20261110",
+      "trade_time": "135200",
+      "trading_value": 1161437127795,
+      "volume": 87193
+    },
+    {
+      "high": 58370,
+      "low": 58240,
+      "open": 58340,
+      "price": 58340,
+      "trade_date": "20261110",
+      "trade_time": "135300",
+      "trading_value": 1163890886540,
+      "volume": 42091
+    },
+    {
+      "high": 58340,
+      "low": 58210,
+      "open": 58340,
+      "price": 58260,
+      "trade_date": "20261110",
+      "trade_time": "135400",
+      "trading_value": 1166180000086,
+      "volume": 39289
+    },
+    {
+      "high": 58500,
+      "low": 58275,
+      "open": 58280,
+      "price": 58425,
+      "trade_date": "20261110",
+      "trade_time": "135500",
+      "trading_value": 1170005823146,
+      "volume": 65479
+    },
+    {
+      "high": 58450,
+      "low": 58345,
+      "open": 58440,
+      "price": 58380,
+      "trade_date": "20261110",
+      "trade_time": "135600",
+      "trading_value": 1172659383089,
+      "volume": 45433
+    },
+    {
+      "high": 58425,
+      "low": 58320,
+      "open": 58360,
+      "price": 58330,
+      "trade_date": "20261110",
+      "trade_time": "135700",
+      "trading_value": 1175010872754,
+      "volume": 40267
+    },
+    {
+      "high": 58470,
+      "low": 58320,
+      "open": 58330,
+      "price": 58460,
+      "trade_date": "20261110",
+      "trade_time": "135800",
+      "trading_value": 1178197074759,
+      "volume": 54543
+    },
+    {
+      "high": 58510,
+      "low": 58310,
+      "open": 58450,
+      "price": 58350,
+      "trade_date": "20261110",
+      "trade_time": "135900",
+      "trading_value": 1181412865578,
+      "volume": 55023
+    },
+    {
+      "high": 58410,
+      "low": 58245,
+      "open": 58370,
+      "price": 58360,
+      "trade_date": "20261110",
+      "trade_time": "140000",
+      "trading_value": 1184029980842,
+      "volume": 44884
+    },
+    {
+      "high": 58385,
+      "low": 58230,
+      "open": 58360,
+      "price": 58230,
+      "trade_date": "20261110",
+      "trade_time": "140100",
+      "trading_value": 1185847862612,
+      "volume": 31182
+    },
+    {
+      "high": 58390,
+      "low": 58230,
+      "open": 58230,
+      "price": 58275,
+      "trade_date": "20261110",
+      "trade_time": "140200",
+      "trading_value": 1186883615941,
+      "volume": 17768
+    },
+    {
+      "high": 58275,
+      "low": 58080,
+      "open": 58265,
+      "price": 58115,
+      "trade_date": "20261110",
+      "trade_time": "140300",
+      "trading_value": 1191641513085,
+      "volume": 81754
+    },
+    {
+      "high": 58150,
+      "low": 58005,
+      "open": 58090,
+      "price": 58120,
+      "trade_date": "20261110",
+      "trade_time": "140400",
+      "trading_value": 1193706332780,
+      "volume": 35548
+    },
+    {
+      "high": 58150,
+      "low": 58010,
+      "open": 58135,
+      "price": 58020,
+      "trade_date": "20261110",
+      "trade_time": "140500",
+      "trading_value": 1195612707900,
+      "volume": 32839
+    },
+    {
+      "high": 58180,
+      "low": 57935,
+      "open": 58025,
+      "price": 58180,
+      "trade_date": "20261110",
+      "trade_time": "140600",
+      "trading_value": 1202552075267,
+      "volume": 119431
+    },
+    {
+      "high": 58285,
+      "low": 58170,
+      "open": 58180,
+      "price": 58235,
+      "trade_date": "20261110",
+      "trade_time": "140700",
+      "trading_value": 1209403244865,
+      "volume": 117656
+    },
+    {
+      "high": 58390,
+      "low": 58225,
+      "open": 58235,
+      "price": 58305,
+      "trade_date": "20261110",
+      "trade_time": "140800",
+      "trading_value": 1214268923067,
+      "volume": 83467
+    },
+    {
+      "high": 58335,
+      "low": 58205,
+      "open": 58320,
+      "price": 58215,
+      "trade_date": "20261110",
+      "trade_time": "140900",
+      "trading_value": 1219630842941,
+      "volume": 91991
+    },
+    {
+      "high": 58350,
+      "low": 58230,
+      "open": 58240,
+      "price": 58310,
+      "trade_date": "20261110",
+      "trade_time": "141000",
+      "trading_value": 1222415801691,
+      "volume": 47763
+    },
+    {
+      "high": 58365,
+      "low": 58115,
+      "open": 58325,
+      "price": 58130,
+      "trade_date": "20261110",
+      "trade_time": "141100",
+      "trading_value": 1228204680847,
+      "volume": 99383
+    },
+    {
+      "high": 58420,
+      "low": 58115,
+      "open": 58130,
+      "price": 58405,
+      "trade_date": "20261110",
+      "trade_time": "141200",
+      "trading_value": 1232611034757,
+      "volume": 75564
+    },
+    {
+      "high": 58445,
+      "low": 58295,
+      "open": 58405,
+      "price": 58405,
+      "trade_date": "20261110",
+      "trade_time": "141300",
+      "trading_value": 1236975520331,
+      "volume": 74748
+    },
+    {
+      "high": 58395,
+      "low": 58210,
+      "open": 58395,
+      "price": 58275,
+      "trade_date": "20261110",
+      "trade_time": "141400",
+      "trading_value": 1238347950012,
+      "volume": 23554
+    },
+    {
+      "high": 58430,
+      "low": 58285,
+      "open": 58290,
+      "price": 58415,
+      "trade_date": "20261110",
+      "trade_time": "141500",
+      "trading_value": 1239474860292,
+      "volume": 19309
+    },
+    {
+      "high": 58470,
+      "low": 58310,
+      "open": 58400,
+      "price": 58415,
+      "trade_date": "20261110",
+      "trade_time": "141600",
+      "trading_value": 1241051809016,
+      "volume": 27005
+    },
+    {
+      "high": 58505,
+      "low": 58370,
+      "open": 58420,
+      "price": 58395,
+      "trade_date": "20261110",
+      "trade_time": "141700",
+      "trading_value": 1246086458081,
+      "volume": 86087
+    },
+    {
+      "high": 58435,
+      "low": 58310,
+      "open": 58380,
+      "price": 58360,
+      "trade_date": "20261110",
+      "trade_time": "141800",
+      "trading_value": 1247401719853,
+      "volume": 22540
+    },
+    {
+      "high": 58425,
+      "low": 58325,
+      "open": 58360,
+      "price": 58335,
+      "trade_date": "20261110",
+      "trade_time": "141900",
+      "trading_value": 1248374049359,
+      "volume": 16656
+    },
+    {
+      "high": 58435,
+      "low": 58295,
+      "open": 58330,
+      "price": 58380,
+      "trade_date": "20261110",
+      "trade_time": "142000",
+      "trading_value": 1254496543478,
+      "volume": 104903
+    },
+    {
+      "high": 58425,
+      "low": 58355,
+      "open": 58365,
+      "price": 58400,
+      "trade_date": "20261110",
+      "trade_time": "142100",
+      "trading_value": 1260685834658,
+      "volume": 105978
+    },
+    {
+      "high": 58375,
+      "low": 58275,
+      "open": 58375,
+      "price": 58305,
+      "trade_date": "20261110",
+      "trade_time": "142200",
+      "trading_value": 1263715418293,
+      "volume": 51958
+    },
+    {
+      "high": 58520,
+      "low": 58280,
+      "open": 58305,
+      "price": 58495,
+      "trade_date": "20261110",
+      "trade_time": "142300",
+      "trading_value": 1267529716462,
+      "volume": 65273
+    },
+    {
+      "high": 58510,
+      "low": 58410,
+      "open": 58495,
+      "price": 58435,
+      "trade_date": "20261110",
+      "trade_time": "142400",
+      "trading_value": 1271050861277,
+      "volume": 60216
+    },
+    {
+      "high": 58505,
+      "low": 58415,
+      "open": 58435,
+      "price": 58495,
+      "trade_date": "20261110",
+      "trade_time": "142500",
+      "trading_value": 1273283505735,
+      "volume": 38184
+    },
+    {
+      "high": 58555,
+      "low": 58400,
+      "open": 58495,
+      "price": 58475,
+      "trade_date": "20261110",
+      "trade_time": "142600",
+      "trading_value": 1277984953948,
+      "volume": 80350
+    },
+    {
+      "high": 58495,
+      "low": 58380,
+      "open": 58470,
+      "price": 58445,
+      "trade_date": "20261110",
+      "trade_time": "142700",
+      "trading_value": 1280372531183,
+      "volume": 40863
+    },
+    {
+      "high": 58495,
+      "low": 58375,
+      "open": 58445,
+      "price": 58395,
+      "trade_date": "20261110",
+      "trade_time": "142800",
+      "trading_value": 1281341538405,
+      "volume": 16578
+    },
+    {
+      "high": 58460,
+      "low": 58320,
+      "open": 58400,
+      "price": 58405,
+      "trade_date": "20261110",
+      "trade_time": "142900",
+      "trading_value": 1283367720997,
+      "volume": 34702
+    },
+    {
+      "high": 58440,
+      "low": 58305,
+      "open": 58410,
+      "price": 58325,
+      "trade_date": "20261110",
+      "trade_time": "143000",
+      "trading_value": 1285523178642,
+      "volume": 36931
+    },
+    {
+      "high": 58425,
+      "low": 58310,
+      "open": 58320,
+      "price": 58355,
+      "trade_date": "20261110",
+      "trade_time": "143100",
+      "trading_value": 1286563035336,
+      "volume": 17805
+    },
+    {
+      "high": 58445,
+      "low": 58355,
+      "open": 58385,
+      "price": 58420,
+      "trade_date": "20261110",
+      "trade_time": "143200",
+      "trading_value": 1288485568741,
+      "volume": 32925
+    },
+    {
+      "high": 58460,
+      "low": 58370,
+      "open": 58435,
+      "price": 58390,
+      "trade_date": "20261110",
+      "trade_time": "143300",
+      "trading_value": 1289313396409,
+      "volume": 14172
+    },
+    {
+      "high": 58475,
+      "low": 58380,
+      "open": 58395,
+      "price": 58450,
+      "trade_date": "20261110",
+      "trade_time": "143400",
+      "trading_value": 1291061733334,
+      "volume": 29919
+    },
+    {
+      "high": 58805,
+      "low": 58435,
+      "open": 58440,
+      "price": 58795,
+      "trade_date": "20261110",
+      "trade_time": "143500",
+      "trading_value": 1297778675158,
+      "volume": 114447
+    },
+    {
+      "high": 58875,
+      "low": 58785,
+      "open": 58805,
+      "price": 58845,
+      "trade_date": "20261110",
+      "trade_time": "143600",
+      "trading_value": 1303833270534,
+      "volume": 102907
+    },
+    {
+      "high": 59085,
+      "low": 58830,
+      "open": 58830,
+      "price": 59005,
+      "trade_date": "20261110",
+      "trade_time": "143700",
+      "trading_value": 1313173708413,
+      "volume": 158435
+    },
+    {
+      "high": 59005,
+      "low": 58825,
+      "open": 59000,
+      "price": 58915,
+      "trade_date": "20261110",
+      "trade_time": "143800",
+      "trading_value": 1316907536846,
+      "volume": 63392
+    },
+    {
+      "high": 59005,
+      "low": 58890,
+      "open": 58905,
+      "price": 58950,
+      "trade_date": "20261110",
+      "trade_time": "143900",
+      "trading_value": 1319643138090,
+      "volume": 46408
+    },
+    {
+      "high": 59045,
+      "low": 58935,
+      "open": 58965,
+      "price": 59030,
+      "trade_date": "20261110",
+      "trade_time": "144000",
+      "trading_value": 1323905165767,
+      "volume": 72259
+    },
+    {
+      "high": 59060,
+      "low": 58980,
+      "open": 59040,
+      "price": 59035,
+      "trade_date": "20261110",
+      "trade_time": "144100",
+      "trading_value": 1326866405846,
+      "volume": 50167
+    },
+    {
+      "high": 59250,
+      "low": 58965,
+      "open": 59035,
+      "price": 59235,
+      "trade_date": "20261110",
+      "trade_time": "144200",
+      "trading_value": 1333297515543,
+      "volume": 108747
+    },
+    {
+      "high": 59365,
+      "low": 59235,
+      "open": 59235,
+      "price": 59330,
+      "trade_date": "20261110",
+      "trade_time": "144300",
+      "trading_value": 1338167369350,
+      "volume": 82101
+    },
+    {
+      "high": 59375,
+      "low": 59265,
+      "open": 59320,
+      "price": 59345,
+      "trade_date": "20261110",
+      "trade_time": "144400",
+      "trading_value": 1341535759609,
+      "volume": 56793
+    },
+    {
+      "high": 59395,
+      "low": 59105,
+      "open": 59345,
+      "price": 59125,
+      "trade_date": "20261110",
+      "trade_time": "144500",
+      "trading_value": 1347211776330,
+      "volume": 95768
+    },
+    {
+      "high": 59140,
+      "low": 59055,
+      "open": 59125,
+      "price": 59085,
+      "trade_date": "20261110",
+      "trade_time": "144600",
+      "trading_value": 1350953946739,
+      "volume": 63333
+    },
+    {
+      "high": 59100,
+      "low": 58950,
+      "open": 59080,
+      "price": 59005,
+      "trade_date": "20261110",
+      "trade_time": "144700",
+      "trading_value": 1353104798996,
+      "volume": 36437
+    },
+    {
+      "high": 59100,
+      "low": 58880,
+      "open": 59010,
+      "price": 59065,
+      "trade_date": "20261110",
+      "trade_time": "144800",
+      "trading_value": 1357696108628,
+      "volume": 77791
+    },
+    {
+      "high": 59110,
+      "low": 59030,
+      "open": 59080,
+      "price": 59110,
+      "trade_date": "20261110",
+      "trade_time": "144900",
+      "trading_value": 1361332984571,
+      "volume": 61567
+    },
+    {
+      "high": 59140,
+      "low": 59055,
+      "open": 59100,
+      "price": 59100,
+      "trade_date": "20261110",
+      "trade_time": "145000",
+      "trading_value": 1364196036841,
+      "volume": 48440
+    },
+    {
+      "high": 59155,
+      "low": 58990,
+      "open": 59100,
+      "price": 59015,
+      "trade_date": "20261110",
+      "trade_time": "145100",
+      "trading_value": 1366421272364,
+      "volume": 37667
+    },
+    {
+      "high": 59150,
+      "low": 58985,
+      "open": 59010,
+      "price": 59030,
+      "trade_date": "20261110",
+      "trade_time": "145200",
+      "trading_value": 1368731492708,
+      "volume": 39119
+    },
+    {
+      "high": 59055,
+      "low": 58925,
+      "open": 59030,
+      "price": 58990,
+      "trade_date": "20261110",
+      "trade_time": "145300",
+      "trading_value": 1371032730843,
+      "volume": 39026
+    },
+    {
+      "high": 59050,
+      "low": 58970,
+      "open": 58990,
+      "price": 58975,
+      "trade_date": "20261110",
+      "trade_time": "145400",
+      "trading_value": 1372970634848,
+      "volume": 32848
+    },
+    {
+      "high": 59055,
+      "low": 58980,
+      "open": 58980,
+      "price": 59025,
+      "trade_date": "20261110",
+      "trade_time": "145500",
+      "trading_value": 1376434962335,
+      "volume": 58687
+    },
+    {
+      "high": 59105,
+      "low": 58985,
+      "open": 59030,
+      "price": 59030,
+      "trade_date": "20261110",
+      "trade_time": "145600",
+      "trading_value": 1378309004646,
+      "volume": 31735
+    },
+    {
+      "high": 59200,
+      "low": 59040,
+      "open": 59040,
+      "price": 59152,
+      "trade_date": "20261110",
+      "trade_time": "145700",
+      "trading_value": 1389286067028,
+      "volume": 185561
+    },
+    {
+      "high": 59180,
+      "low": 59020,
+      "open": 59162,
+      "price": 59020,
+      "trade_date": "20261110",
+      "trade_time": "145800",
+      "trading_value": 1391622046486,
+      "volume": 39504
+    },
+    {
+      "high": 59015,
+      "low": 58885,
+      "open": 59015,
+      "price": 58935,
+      "trade_date": "20261110",
+      "trade_time": "145900",
+      "trading_value": 1394730175134,
+      "volume": 52741
+    },
+    {
+      "high": 59090,
+      "low": 58895,
+      "open": 58925,
+      "price": 59050,
+      "trade_date": "20261110",
+      "trade_time": "150000",
+      "trading_value": 1398260235488,
+      "volume": 59816
+    },
+    {
+      "high": 59190,
+      "low": 59020,
+      "open": 59060,
+      "price": 59140,
+      "trade_date": "20261110",
+      "trade_time": "150100",
+      "trading_value": 1402329184175,
+      "volume": 68821
+    },
+    {
+      "high": 59175,
+      "low": 59000,
+      "open": 59140,
+      "price": 59055,
+      "trade_date": "20261110",
+      "trade_time": "150200",
+      "trading_value": 1404677824074,
+      "volume": 39753
+    },
+    {
+      "high": 59090,
+      "low": 59025,
+      "open": 59050,
+      "price": 59080,
+      "trade_date": "20261110",
+      "trade_time": "150300",
+      "trading_value": 1405880434974,
+      "volume": 20361
+    },
+    {
+      "high": 59120,
+      "low": 59010,
+      "open": 59070,
+      "price": 59035,
+      "trade_date": "20261110",
+      "trade_time": "150400",
+      "trading_value": 1407740383173,
+      "volume": 31489
+    },
+    {
+      "high": 59060,
+      "low": 58970,
+      "open": 59040,
+      "price": 59050,
+      "trade_date": "20261110",
+      "trade_time": "150500",
+      "trading_value": 1409520067835,
+      "volume": 30161
+    },
+    {
+      "high": 59050,
+      "low": 58920,
+      "open": 59050,
+      "price": 58975,
+      "trade_date": "20261110",
+      "trade_time": "150600",
+      "trading_value": 1411103950687,
+      "volume": 26852
+    },
+    {
+      "high": 58975,
+      "low": 58855,
+      "open": 58975,
+      "price": 58905,
+      "trade_date": "20261110",
+      "trade_time": "150700",
+      "trading_value": 1413196990747,
+      "volume": 35529
+    },
+    {
+      "high": 59010,
+      "low": 58885,
+      "open": 58905,
+      "price": 58930,
+      "trade_date": "20261110",
+      "trade_time": "150800",
+      "trading_value": 1415414059150,
+      "volume": 37615
+    },
+    {
+      "high": 58960,
+      "low": 58885,
+      "open": 58930,
+      "price": 58950,
+      "trade_date": "20261110",
+      "trade_time": "150900",
+      "trading_value": 1417294517085,
+      "volume": 31914
+    },
+    {
+      "high": 59025,
+      "low": 58900,
+      "open": 58950,
+      "price": 58910,
+      "trade_date": "20261110",
+      "trade_time": "151000",
+      "trading_value": 1421467957232,
+      "volume": 70780
+    },
+    {
+      "high": 59000,
+      "low": 58900,
+      "open": 58920,
+      "price": 59000,
+      "trade_date": "20261110",
+      "trade_time": "151100",
+      "trading_value": 1425293965599,
+      "volume": 64893
+    },
+    {
+      "high": 59000,
+      "low": 58815,
+      "open": 58995,
+      "price": 58815,
+      "trade_date": "20261110",
+      "trade_time": "151200",
+      "trading_value": 1428211547894,
+      "volume": 49532
+    },
+    {
+      "high": 58875,
+      "low": 58575,
+      "open": 58815,
+      "price": 58580,
+      "trade_date": "20261110",
+      "trade_time": "151300",
+      "trading_value": 1431029148104,
+      "volume": 47953
+    },
+    {
+      "high": 58615,
+      "low": 58470,
+      "open": 58590,
+      "price": 58565,
+      "trade_date": "20261110",
+      "trade_time": "151400",
+      "trading_value": 1434952263453,
+      "volume": 67019
+    },
+    {
+      "high": 58570,
+      "low": 58235,
+      "open": 58560,
+      "price": 58285,
+      "trade_date": "20261110",
+      "trade_time": "151500",
+      "trading_value": 1440342171305,
+      "volume": 92304
+    },
+    {
+      "high": 58345,
+      "low": 58217,
+      "open": 58300,
+      "price": 58320,
+      "trade_date": "20261110",
+      "trade_time": "151600",
+      "trading_value": 1442844043375,
+      "volume": 42927
+    },
+    {
+      "high": 58455,
+      "low": 58305,
+      "open": 58335,
+      "price": 58455,
+      "trade_date": "20261110",
+      "trade_time": "151700",
+      "trading_value": 1446655372149,
+      "volume": 65257
+    },
+    {
+      "high": 58540,
+      "low": 58435,
+      "open": 58435,
+      "price": 58530,
+      "trade_date": "20261110",
+      "trade_time": "151800",
+      "trading_value": 1450652687539,
+      "volume": 68336
+    },
+    {
+      "high": 58585,
+      "low": 58500,
+      "open": 58515,
+      "price": 58505,
+      "trade_date": "20261110",
+      "trade_time": "151900",
+      "trading_value": 1452400544208,
+      "volume": 29851
+    },
+    {
+      "high": 58525,
+      "low": 58525,
+      "open": 58525,
+      "price": 58525,
+      "trade_date": "20261110",
+      "trade_time": "152000",
+      "trading_value": 1452401714708,
+      "volume": 20
+    },
+    {
+      "high": 58435,
+      "low": 58435,
+      "open": 58435,
+      "price": 58435,
+      "trade_date": "20261110",
+      "trade_time": "153000",
+      "trading_value": 1461155043968,
+      "volume": 149796
+    }
+  ],
+  "trade_date": "2026-11-10"
+}

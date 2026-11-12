@@ -362,6 +362,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_session_prices.test_missing_auction_requires_cross_source_prefix_and_actual_single_price",
         "tests.test_regular_session_prices.test_zero_volume_1530_requires_and_uses_verified_cross_source_close",
         "tests.test_regular_session_prices.test_cross_source_auction_never_recovers_wrong_venue_date_or_bad_prefix",
+        "tests.test_regular_session_prices.test_november_10_last_continuous_trade_is_verified_and_replayed",
         "tests.test_regular_session_prices.test_regular_backfill_checks_scheduled_days_missing_from_display_database",
         "tests.test_regular_session_prices.test_regular_cli_defaults_to_read_only_and_preserves_alphanumeric_codes",
         "tests.test_regular_session_prices.test_regular_backfill_does_not_hide_conflicting_persisted_evidence",

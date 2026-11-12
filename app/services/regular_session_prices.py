@@ -284,13 +284,16 @@ def _verified_naver_closing_auction(
     code: str, day: date, regular: list[dict[str, Any]], payload: dict[str, Any],
     *, verified_opening_offset: int | None = None,
     bucket_open_proof: dict[str, Any] | None = None,
+    closing_window_trade: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Verify sparse regular coverage and the presence or absence of an auction.
 
     Naver's KRX weekly chart has ten-minute buckets. Every observed regular
     bucket before the auction must match KIS OHLC and cumulative volume up to
     a constant pre-open offset. A jointly absent middle bucket is accepted
-    only when a later bucket preserves that offset. The 15:30 bucket ends
+    only when a later bucket preserves that offset. A positive 15:20 last
+    continuous trade needs matching price, volume and turnover from both feeds.
+    The 15:30 bucket ends
     before 15:40 after-hours; when present its O/H/L/C must be one price and
     its volume delta strictly positive. Joint KIS/Naver absence preserves the
     last actual regular trade and never fabricates a 15:30 execution.
@@ -375,9 +378,25 @@ def _verified_naver_closing_auction(
         raise ValueError("unverified trailing empty pre-auction bucket")
     if bucket_open_proof is not None and proven_open_conflicts != 1:
         raise ValueError("unused halt-bucket opening proof")
-    indicative = buckets.get(day_key + "152000")
-    if indicative is not None and _integer(indicative.get("accumulatedTradingVolume")) != last_cumulative:
-        raise ValueError("unverified positive-volume closing auction interval")
+    closing_window = buckets.get(day_key + "152000")
+    if closing_window_trade is None:
+        if closing_window is not None and _integer(closing_window.get("accumulatedTradingVolume")) != last_cumulative:
+            raise ValueError("unverified positive-volume closing auction interval")
+    else:
+        # A minute ending at 15:20 can contain the final continuous-session
+        # executions. Require the independent KRX bucket and KIS monetary
+        # counter to prove the exact same single-price trade before retaining it.
+        price = _integer(closing_window_trade.get("price"), positive=True)
+        volume = _integer(closing_window_trade.get("volume"), positive=True)
+        if (
+            closing_window_trade.get("trade_time") != "152000"
+            or closing_window is None
+            or any(_integer(closing_window_trade.get(key), positive=True) != price for key in ("open", "high", "low"))
+            or any(_integer(closing_window.get(key), positive=True) != price for key in ("openPrice", "highPrice", "lowPrice", "currentPrice"))
+            or _integer(closing_window.get("accumulatedTradingVolume")) - int(last_cumulative) != volume
+            or _integer(closing_window_trade.get("trading_value")) - _integer(regular[-1].get("trading_value")) != price * volume
+        ):
+            raise ValueError("closing-window trade conflicts with independent KRX evidence")
     close = buckets.get(day_key + "153000")
     if close is None:
         # Both dated sources omit a positive closing-auction execution. The
@@ -388,11 +407,14 @@ def _verified_naver_closing_auction(
     if len(set(prices)) != 1:
         raise ValueError("closing auction is not a single-price print")
     volume = _integer(close.get("accumulatedTradingVolume")) - int(last_cumulative)
+    if closing_window_trade is not None:
+        volume -= _integer(closing_window_trade.get("volume"), positive=True)
     if volume <= 0:
         raise ValueError("closing auction has no actual volume")
+    prior_turnover = closing_window_trade if closing_window_trade is not None else regular[-1]
     return {"trade_date": day_key, "trade_time": "153000",
             "open": prices[0], "high": prices[0], "low": prices[0], "price": prices[0],
-            "volume": volume, "trading_value": _integer(regular[-1]["trading_value"]) + prices[0] * volume}
+            "volume": volume, "trading_value": _integer(prior_turnover["trading_value"]) + prices[0] * volume}
 
 
 def regular_session_evidence(
@@ -446,8 +468,11 @@ def regular_session_evidence(
             parsed.append((instant, row))
         parsed.sort(key=lambda pair: pair[0])
         regular = [row for instant, row in parsed if time(9) <= instant.time() <= time(15, 30)]
+        if any("152000" < row["trade_time"] < "153000" and _integer(row.get("volume")) > 0 for row in regular):
+            raise ValueError("unverified auction-window trade")
         prefix_rows = [row for row in regular if "090000" <= row["trade_time"] <= "151900"]
         actual_prefix = [row for row in prefix_rows if _integer(row.get("volume")) > 0]
+        closing_window_trade = next((row for row in regular if row["trade_time"] == "152000" and _integer(row.get("volume")) > 0), None)
         sparse_prefix_verified = False
         verified_no_closing_trade = False
         verified_closing = None
@@ -461,6 +486,7 @@ def regular_session_evidence(
                 code, trade_date, actual_prefix, closing_auction_evidence,
                 verified_opening_offset=verified_opening_offset,
                 bucket_open_proof=bucket_open_proof,
+                closing_window_trade=closing_window_trade,
             )
             observed_close = next((row for row in regular if row["trade_time"] == "153000"), None)
             if observed_close is not None and _integer(observed_close.get("volume")) > 0:
@@ -510,10 +536,11 @@ def regular_session_evidence(
                 verified_closing
                 if sparse_prefix_verified
                 else _verified_naver_closing_auction(
-                    code, trade_date, preauction, closing_auction_evidence
+                    code, trade_date, preauction, closing_auction_evidence,
+                    closing_window_trade=closing_window_trade,
                 )
             )
-            regular = preauction + (
+            regular = preauction + ([closing_window_trade] if closing_window_trade is not None else []) + (
                 [recovered_closing] if recovered_closing is not None else []
             )
             if recovered_closing is None:
