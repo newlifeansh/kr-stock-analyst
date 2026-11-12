@@ -478,6 +478,79 @@ def test_regular_backfill_cools_down_unverified_source_without_hiding_failure(db
     assert result["state"] == "incomplete"
 
 
+def test_regular_backfill_accepts_only_two_matching_rechecks_after_volatile_minute(db, monkeypatch):
+    from types import SimpleNamespace
+
+    original = rsp.regular_session_evidence
+    evidence_calls = 0
+    source_calls = 0
+
+    def intermittently_incomplete(*args, **kwargs):
+        nonlocal evidence_calls
+        evidence_calls += 1
+        evidence = original(*args, **kwargs)
+        if evidence_calls == 1:
+            return {
+                **evidence,
+                "state": "unverified",
+                "reason": "cumulative turnover does not reconcile with actual trades",
+            }
+        return evidence
+
+    def fetch(*_args):
+        nonlocal source_calls
+        source_calls += 1
+        return {"rows": minute_rows()}
+
+    monkeypatch.setattr(rsp, "regular_session_evidence", intermittently_incomplete)
+    result = rsp.collect_regular_session_prices(
+        db, SimpleNamespace(fetch_regular_session_data=fetch),
+        codes=["005930"], start=DAY, end=DAY, observed_at=OBSERVED,
+        persist=True,
+    )
+    assert source_calls == 3
+    assert result["ready"] == 1 and result["unverified"] == []
+    assert db.scalar(select(func.count()).select_from(SignalSessionPrice)) == 1
+    assert rsp.load_regular_session_evidence(db, "005930", DAY)["state"] == "ready"
+
+
+def test_regular_backfill_keeps_volatile_minute_isolated_if_rechecks_disagree(db, monkeypatch):
+    from types import SimpleNamespace
+
+    original = rsp.regular_session_evidence
+    evidence_calls = 0
+    source_calls = 0
+
+    def inconsistent(*args, **kwargs):
+        nonlocal evidence_calls
+        evidence_calls += 1
+        evidence = original(*args, **kwargs)
+        if evidence_calls == 1:
+            return {
+                **evidence,
+                "state": "unverified",
+                "reason": "closing source conflicts with KIS pre-auction OHLC",
+            }
+        if evidence_calls == 3:
+            return {**evidence, "source": "different dated source"}
+        return evidence
+
+    def fetch(*_args):
+        nonlocal source_calls
+        source_calls += 1
+        return {"rows": minute_rows()}
+
+    monkeypatch.setattr(rsp, "regular_session_evidence", inconsistent)
+    result = rsp.collect_regular_session_prices(
+        db, SimpleNamespace(fetch_regular_session_data=fetch),
+        codes=["005930"], start=DAY, end=DAY, observed_at=OBSERVED,
+    )
+    assert source_calls == 3
+    assert result["ready"] == 0
+    assert result["unverified"][0]["reason"] == "closing source conflicts with KIS pre-auction OHLC"
+    assert db.scalar(select(func.count()).select_from(SignalSessionPrice)) == 0
+
+
 def test_regular_backfill_reserves_capacity_for_new_sessions_when_old_failures_accumulate(db):
     from types import SimpleNamespace
 

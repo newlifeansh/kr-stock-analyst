@@ -855,6 +855,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-KR-REGULAR-GAP-001": (
         "tests.test_regular_session_prices.test_regular_backfill_prioritizes_old_unverified_session_under_pair_cap",
         "tests.test_regular_session_prices.test_regular_backfill_cools_down_unverified_source_without_hiding_failure",
+        "tests.test_regular_session_prices.test_regular_backfill_accepts_only_two_matching_rechecks_after_volatile_minute",
+        "tests.test_regular_session_prices.test_regular_backfill_keeps_volatile_minute_isolated_if_rechecks_disagree",
         "tests.test_regular_session_prices.test_regular_backfill_reserves_capacity_for_new_sessions_when_old_failures_accumulate",
         "tests.test_regular_session_prices.test_gap_summary_excludes_unverified_day_and_tampered_other_date",
         "tests.test_app.test_regular_evidence_retry_window_includes_premarket_but_not_closed_market",
