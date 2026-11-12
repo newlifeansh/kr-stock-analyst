@@ -392,6 +392,17 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_regular_price_replay.test_regular_turnover_certificate_rejects_any_inclusive_threshold_crossing[100000000000]",
         "tests.test_regular_price_replay.test_regular_turnover_certificate_cannot_hide_price_changes_or_reverse_bounds",
     ),
+    "DATA-KR-REGULAR-TOSS-001": (
+        "tests.test_regular_session_prices.test_toss_dated_complete_krx_minute_path_recovers_halts_and_late_open",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[date]",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[venue]",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[cursor]",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[gap]",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[hidden_trade]",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[minute_price]",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[auction_volume]",
+        "tests.test_regular_session_prices.test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts[after_close_trade]",
+    ),
     "DATA-GLOBAL-002": (
         "tests.test_us_market.test_sector_empty_premarket_uses_dated_reference_without_claiming_live",
         "tests.test_us_market.test_sector_persistent_empty_source_does_not_fabricate_price",

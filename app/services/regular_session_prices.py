@@ -45,6 +45,7 @@ THIRD_SOURCE_BUCKET_OPEN_COVERAGE_BASIS = (
 )
 NAVER_COMPLETE_MINUTE_PATH_BASIS = "naver_full_day_1m_path_corroboration"
 THIRD_SOURCE_MINUTE_OPEN_BASIS = "yahoo_1m_disputed_minute_open_corroboration"
+TOSS_DATED_MINUTE_PATH_BASIS = "toss_krx_dated_1m_full_path_corroboration"
 NAVER_REGULAR_COVERAGE_BASIS_ALIASES = frozenset(
     {
         NAVER_REGULAR_COVERAGE_BASIS,
@@ -59,6 +60,7 @@ NAVER_SPARSE_PATH_COVERAGE_BASES = NAVER_REGULAR_COVERAGE_BASIS_ALIASES | frozen
     NAVER_MINUTE_OPENING_COVERAGE_BASIS + "+" + THIRD_SOURCE_BUCKET_OPEN_COVERAGE_BASIS,
     NAVER_COMPLETE_MINUTE_PATH_BASIS,
     NAVER_COMPLETE_MINUTE_PATH_BASIS + "+" + THIRD_SOURCE_MINUTE_OPEN_BASIS,
+    TOSS_DATED_MINUTE_PATH_BASIS,
 })
 
 
@@ -108,6 +110,83 @@ def _integer(value: Any, *, positive: bool = False) -> int:
     if not number.is_finite() or number != number.to_integral_value() or number < (1 if positive else 0):
         raise ValueError("invalid non-negative integer")
     return int(number)
+
+
+def _verified_toss_dated_minute_path(
+    code: str, trade_date: date, regular: list[dict[str, Any]], proof: dict[str, Any],
+) -> None:
+    """Corroborate every KIS minute against a complete dated KRX chart.
+
+    Toss stamps continuous trades at the minute end, one minute after the KIS
+    stamp. The 15:30 auction uses the same stamp in both feeds. The public
+    chart can include later trading in its 15:30 volume, so an exact auction
+    OHLCV match is mandatory; its KRX selector alone proves nothing.
+    """
+    day = trade_date.isoformat()
+    if (
+        not isinstance(proof, dict) or proof.get("code") != code
+        or proof.get("date") != day or proof.get("exchange") != "krx"
+        or proof.get("interval") != "1m" or proof.get("invest_mode") != "krx"
+        or proof.get("use_adjusted_rate") is not False or proof.get("error") is not None
+    ):
+        raise ValueError("dated minute source identity mismatch")
+    pages = proof.get("pages")
+    if (
+        not isinstance(pages, list) or len(pages) != 2
+        or any(not isinstance(page, dict) or page.get("http_status") != 200
+               or page.get("returned_count") != 200 for page in pages)
+        or pages[0].get("requested_from") != day + "T15:31:00+09:00"
+        or pages[1].get("requested_from") != pages[0].get("next")
+    ):
+        raise ValueError("dated minute pagination is incomplete")
+    candles = proof.get("candles")
+    if not isinstance(candles, list) or len(candles) not in (390, 391):
+        raise ValueError("dated minute path is incomplete")
+    stamps = []
+    for candle in candles:
+        if not isinstance(candle, dict):
+            raise ValueError("invalid dated minute candle")
+        stamp = datetime.fromisoformat(str(candle.get("dt") or ""))
+        if stamp.tzinfo is None or stamp.utcoffset() != timedelta(hours=9) or stamp.date() != trade_date or stamp.second or stamp.microsecond:
+            raise ValueError("dated minute timestamp mismatch")
+        stamps.append(stamp)
+    if any(left <= right for left, right in zip(stamps, stamps[1:])):
+        raise ValueError("dated minute path is not strictly descending")
+    by_time = {stamp.strftime("%H%M%S"): candle for stamp, candle in zip(stamps, candles)}
+    expected = [
+        (datetime.combine(trade_date, time(9, 1), KST) + timedelta(minutes=i)).strftime("%H%M%S")
+        for i in range(390)
+    ]
+    if set(by_time) != set(expected) | ({"153100"} if len(candles) == 391 else set()):
+        raise ValueError("dated minute path has missing or extra bars")
+    for stamp in ["152100", "152200", "152300", "152400", "152500", "152600", "152700", "152800", "152900", "153100"]:
+        if stamp in by_time and _integer(by_time[stamp].get("volume")) != 0:
+            raise ValueError("dated minute auction window has unverified trades")
+    kis = {row["trade_time"]: row for row in regular}
+    if any("152000" <= stamp < "153000" and _integer(row.get("volume")) > 0 for stamp, row in kis.items()):
+        raise ValueError("dated minute proof cannot classify 15:20 trade")
+    for i in range(380):
+        stamp = (datetime.combine(trade_date, time(9), KST) + timedelta(minutes=i)).strftime("%H%M%S")
+        chart_stamp = expected[i]
+        candle = by_time[chart_stamp]
+        source = kis.get(stamp)
+        source_volume = _integer(source.get("volume")) if source is not None else 0
+        chart_volume = _integer(candle.get("volume"))
+        if chart_volume != source_volume:
+            raise ValueError("dated minute volume conflicts with KIS")
+        if chart_volume:
+            if source is None or any(
+                _integer(source.get(left), positive=True) != _integer(candle.get(right), positive=True)
+                for left, right in (("open", "open"), ("high", "high"), ("low", "low"), ("price", "close"))
+            ):
+                raise ValueError("dated minute OHLC conflicts with KIS")
+    auction = kis.get("153000")
+    chart_auction = by_time["153000"]
+    if auction is None or _integer(auction.get("volume")) <= 0 or any(
+        _integer(auction.get(left), positive=True) != _integer(chart_auction.get(right), positive=True)
+        for left, right in (("open", "open"), ("high", "high"), ("low", "low"), ("price", "close"), ("volume", "volume"))
+    ):
+        raise ValueError("dated minute closing auction conflicts with KIS")
 
 
 def _corroborated_full_minute_path(
@@ -424,6 +503,7 @@ def regular_session_evidence(
     minute_coverage_evidence: dict[str, Any] | None = None,
     bucket_open_proof: dict[str, Any] | None = None,
     full_minute_path_proof: dict[str, Any] | None = None,
+    toss_dated_minute_proof: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate actual regular trades and preserve the complete source envelope.
 
@@ -455,7 +535,16 @@ def regular_session_evidence(
         result["bucket_open_proof"] = bucket_open_proof
     if full_minute_path_proof is not None:
         result["full_minute_path_proof"] = full_minute_path_proof
+    if toss_dated_minute_proof is not None:
+        result["toss_dated_minute_proof"] = toss_dated_minute_proof
     try:
+        if toss_dated_minute_proof is not None and any(
+            item is not None for item in (
+                closing_auction_evidence, minute_coverage_evidence,
+                bucket_open_proof, full_minute_path_proof,
+            )
+        ):
+            raise ValueError("dated minute proof conflicts with another path proof")
         parsed = []
         seen = set()
         for row in raw:
@@ -477,6 +566,15 @@ def regular_session_evidence(
         verified_no_closing_trade = False
         verified_closing = None
         verified_opening_offset = None
+        if toss_dated_minute_proof is not None:
+            _verified_toss_dated_minute_path(code, trade_date, regular, toss_dated_minute_proof)
+            sparse_prefix_verified = True
+            result["coverage_basis"] = TOSS_DATED_MINUTE_PATH_BASIS
+            result["source"] += "+toss_krx_dated_1m"
+            regular = [
+                row for row in regular
+                if not ("090000" <= row["trade_time"] <= "151900" and _integer(row.get("volume")) == 0)
+            ]
         if len(actual_prefix) < 380 and closing_auction_evidence is not None:
             if actual_prefix and actual_prefix[0]["trade_time"] != "090000" and minute_coverage_evidence is not None:
                 verified_opening_offset = _verified_naver_minute_opening_offset(
@@ -678,6 +776,7 @@ def store_regular_session_evidence(
         minute_coverage_evidence=evidence.get("minute_coverage_evidence"),
         bucket_open_proof=evidence.get("bucket_open_proof"),
         full_minute_path_proof=evidence.get("full_minute_path_proof"),
+        toss_dated_minute_proof=evidence.get("toss_dated_minute_proof"),
     )
     if not _matches_recomputed_evidence(evidence, verified):
         raise ValueError("evidence failed deterministic recomputation")
@@ -748,6 +847,7 @@ def load_regular_session_evidence(
                     minute_coverage_evidence=evidence.get("minute_coverage_evidence"),
                     bucket_open_proof=evidence.get("bucket_open_proof"),
                     full_minute_path_proof=evidence.get("full_minute_path_proof"),
+                    toss_dated_minute_proof=evidence.get("toss_dated_minute_proof"),
                 )
                 if (
                     not _matches_recomputed_evidence(evidence, regenerated)
@@ -778,6 +878,7 @@ def load_regular_session_evidence(
         raise UnverifiedRegularSessionPrice("동일 정규장의 원천 가격 근거가 충돌합니다")
     independently_corroborated = [
         item for item in accepted if item.get("full_minute_path_proof") is not None
+        or item.get("toss_dated_minute_proof") is not None
     ]
     if independently_corroborated:
         if len({_json(item["regular_rows"]) for item in independently_corroborated}) != 1:
