@@ -231,6 +231,47 @@ def test_completed_session_quote_uses_verified_prior_screen_when_yahoo_omits_sha
             )
 
 
+def test_completed_session_quote_accepts_only_half_cent_prior_screen_rounding(monkeypatch):
+    completed_date = date(2026, 11, 11)
+    prior_time = int(datetime(2026, 11, 10, 21, 0, tzinfo=UTC).timestamp())
+    completed_time = int(datetime(2026, 11, 11, 21, 0, tzinfo=UTC).timestamp())
+    quote = {
+        "symbol": "WDS", "quoteType": "EQUITY", "exchange": "NYQ",
+        "currency": "USD", "regularMarketTime": completed_time,
+        "regularMarketPrice": Decimal("21.23"),
+    }
+    screen = {
+        "screen_as_of": "2026-11-10", "screen_last_price": Decimal("21.065"),
+        "screen_market_cap": Decimal("40046674512"),
+    }
+    chart = {
+        "meta": {"symbol": "WDS", "instrumentType": "EQUITY",
+                 "exchangeName": "NYQ", "currency": "USD"},
+        "timestamp": [prior_time, completed_time],
+        "indicators": {"quote": [{"close": [21.07, 21.23]}]},
+    }
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("shares missing")),
+    )
+    monkeypatch.setattr(us_market, "fetch_chart_range", lambda *_args, **_kwargs: chart)
+
+    repaired = us_market.fetch_us_completed_session_quote(
+        "WDS", completed_date, refresh=True,
+        fallback_quote=quote, prior_screen=screen,
+    )
+    assert repaired["marketCapDerivation"] == "prior_nasdaq_shares_x_yahoo_completed_close"
+    assert repaired["marketCap"] > 0
+    assert repaired["regularMarketPrice"] == Decimal("21.23")
+
+    chart["indicators"]["quote"][0]["close"][0] = 21.071
+    with pytest.raises(ValueError, match="evidence is incomplete"):
+        us_market.fetch_us_completed_session_quote(
+            "WDS", completed_date, refresh=True,
+            fallback_quote=quote, prior_screen=screen,
+        )
+
+
 class _FakeNewsResponse:
     content = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
     <rss><channel><item><title>엔비디아 실적 전망</title><link>https://example.test/nvda</link>
