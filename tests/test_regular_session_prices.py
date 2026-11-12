@@ -37,6 +37,16 @@ def toss_dated_fixture():
     return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_toss_dated_202610.json").read_text())
 
 
+@pytest.fixture(scope="module")
+def auction_reconciliation_fixture():
+    return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_auction_reconciled_202610.json").read_text())
+
+
+@pytest.fixture(scope="module")
+def auction_postmarket_fixture():
+    return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_auction_postmarket_202610.json").read_text())
+
+
 def _toss_dated_evidence(case):
     proof = case["toss_dated_minute_proof"]
     return rsp.regular_session_evidence(
@@ -97,6 +107,102 @@ def test_toss_dated_absent_auction_requires_both_sources_to_show_no_trade(toss_d
     case = deepcopy(toss_dated_fixture["273130_2026-10-21"])
     prior = case["raw_rows"][-1]
     case["raw_rows"].append({**prior, "trade_time": "153000", "volume": 0, "trading_value": prior["trading_value"] + 1})
+    assert _toss_dated_evidence(case)["state"] == "unverified"
+
+
+def test_dated_auction_undercount_requires_complete_no_postmarket_reconciliation(auction_reconciliation_fixture, db):
+    for key, state, volume in (
+        ("0043B0_2026-10-13", "ready", 168055),
+        ("0043B0_2026-10-16", "ready", 250480),
+        ("395160_2026-10-15", "bounded", 7177323),
+    ):
+        case = auction_reconciliation_fixture[key]
+        original = case["raw_rows"][-1]
+        assert original["trade_time"] == "153000"
+        without_proof = deepcopy(case)
+        without_proof["toss_dated_minute_proof"].pop("auction_reconciliation")
+        assert _toss_dated_evidence(without_proof)["state"] == "unverified"
+        result = _toss_dated_evidence(case)
+        assert result["state"] == state
+        assert result["coverage_basis"] == rsp.TOSS_AUCTION_RECONCILIATION_BASIS
+        assert result["prices"]["volume"] == volume
+        assert result["raw_rows"][-1]["volume"] == original["volume"]
+        assert result["regular_rows"][-1]["volume"] > original["volume"]
+        record = rsp.store_regular_session_evidence(db, result, observed_at=datetime(2026, 11, 13, 2, tzinfo=rsp.KST))
+        db.commit()
+        assert record.evidence_hash
+        assert rsp.load_regular_session_evidence(db, key[:6], date.fromisoformat(key[7:]), allow_bounded=True)["prices"] == result["prices"]
+
+
+@pytest.mark.parametrize("mutation", [
+    "daily_market", "daily_date", "daily_volume", "daily_turnover", "late_request_market",
+    "late_first_time", "late_auction_volume", "toss_late_venue", "toss_late_first_time",
+    "toss_late_next", "corrected_auction_volume",
+])
+def test_dated_auction_reconciliation_rejects_conflicting_or_later_trades(auction_reconciliation_fixture, mutation):
+    case = deepcopy(auction_reconciliation_fixture["0043B0_2026-10-13"])
+    chart = case["toss_dated_minute_proof"]
+    proof = chart["auction_reconciliation"]
+    daily = proof["kis_daily"]
+    late = proof["kis_late"]
+    toss_late = proof["toss_late"]
+    if mutation == "daily_market": daily["market"] = "UN"
+    elif mutation == "daily_date": daily["row"]["stck_bsop_date"] = "20261014"
+    elif mutation == "daily_volume": daily["row"]["acml_vol"] = str(int(daily["row"]["acml_vol"]) + 1)
+    elif mutation == "daily_turnover": daily["row"]["acml_tr_pbmn"] = str(int(daily["row"]["acml_tr_pbmn"]) + 1)
+    elif mutation == "late_request_market": late["request"]["FID_COND_MRKT_DIV_CODE"] = "UN"
+    elif mutation == "late_first_time": late["output2"][0]["stck_cntg_hour"] = "160000"
+    elif mutation == "late_auction_volume": late["output2"][0]["cntg_vol"] = str(int(late["output2"][0]["cntg_vol"]) + 1)
+    elif mutation == "toss_late_venue": toss_late["exchange"] = "nxt"
+    elif mutation == "toss_late_first_time": toss_late["candles"][0]["dt"] = "2026-10-13T16:00:00+09:00"
+    elif mutation == "toss_late_next": toss_late["next"] = "2026-10-13T12:09:00+09:00"
+    elif mutation == "corrected_auction_volume": next(c for c in chart["candles"] if c["dt"].endswith("15:30:00+09:00"))["volume"] += 1
+    assert _toss_dated_evidence(case)["state"] == "unverified"
+
+
+def test_dated_auction_reconciliation_separates_all_verified_postmarket_trades(auction_postmarket_fixture, db):
+    assert len(auction_postmarket_fixture) == 13
+    for key, case in auction_postmarket_fixture.items():
+        without_proof = deepcopy(case)
+        without_proof["toss_dated_minute_proof"].pop("auction_reconciliation")
+        assert _toss_dated_evidence(without_proof)["state"] == "unverified"
+        result = _toss_dated_evidence(case)
+        assert result["state"] == "bounded", (key, result["reason"])
+        assert result["coverage_basis"] == rsp.TOSS_AUCTION_RECONCILIATION_BASIS
+        assert result["regular_rows"][-1]["volume"] > case["raw_rows"][-1]["volume"]
+        assert result["raw_rows"] == case["raw_rows"]
+        stored = rsp.store_regular_session_evidence(
+            db, result, observed_at=datetime(2026, 11, 13, 2, tzinfo=rsp.KST),
+        )
+        db.commit()
+        assert stored.evidence_hash
+        assert rsp.load_regular_session_evidence(db, key[:6], date.fromisoformat(key[7:]), allow_bounded=True)["prices"] == result["prices"]
+
+
+@pytest.mark.parametrize("mutation", [
+    "daily_volume", "daily_cash", "late_cursor", "late_gap", "late_close",
+    "late_volume", "late_cash", "toss_gap", "toss_venue", "toss_volume",
+    "toss_price", "toss_auction", "extra_toss_trade",
+])
+def test_dated_auction_postmarket_reconciliation_fails_closed(auction_postmarket_fixture, mutation):
+    case = deepcopy(auction_postmarket_fixture["008930_2026-10-13"])
+    proof = case["toss_dated_minute_proof"]["auction_reconciliation"]
+    daily = proof["kis_daily"]["row"]
+    late = proof["kis_late_pages"]
+    toss = proof["toss_postmarket"]
+    if mutation == "daily_volume": daily["acml_vol"] = str(int(daily["acml_vol"]) + 1)
+    elif mutation == "daily_cash": daily["acml_tr_pbmn"] = str(int(daily["acml_tr_pbmn"]) + 1)
+    elif mutation == "late_cursor": late[1]["request"]["FID_INPUT_HOUR_1"] = "170000"
+    elif mutation == "late_gap": late[0]["output2"].pop(20)
+    elif mutation == "late_close": next(r for r in late[1]["output2"] if r["stck_cntg_hour"] == "153000")["cntg_vol"] = "1"
+    elif mutation == "late_volume": late[0]["output2"][0]["cntg_vol"] = "1"
+    elif mutation == "late_cash": late[0]["output2"][0]["acml_tr_pbmn"] = "1"
+    elif mutation == "toss_gap": toss["candles"].pop(20)
+    elif mutation == "toss_venue": toss["exchange"] = "nxt"
+    elif mutation == "toss_volume": toss["candles"][20]["volume"] += 1
+    elif mutation == "toss_price": toss["candles"][20]["close"] += 50
+    elif mutation == "toss_auction": toss["candles"][-1]["volume"] += 1
+    elif mutation == "extra_toss_trade": next(c for c in toss["candles"] if c["dt"].endswith("15:45:00+09:00"))["volume"] = 1
     assert _toss_dated_evidence(case)["state"] == "unverified"
 
 

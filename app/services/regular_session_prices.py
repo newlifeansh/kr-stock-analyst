@@ -46,6 +46,9 @@ THIRD_SOURCE_BUCKET_OPEN_COVERAGE_BASIS = (
 NAVER_COMPLETE_MINUTE_PATH_BASIS = "naver_full_day_1m_path_corroboration"
 THIRD_SOURCE_MINUTE_OPEN_BASIS = "yahoo_1m_disputed_minute_open_corroboration"
 TOSS_DATED_MINUTE_PATH_BASIS = "toss_krx_dated_1m_full_path_corroboration"
+TOSS_AUCTION_RECONCILIATION_BASIS = (
+    TOSS_DATED_MINUTE_PATH_BASIS + "+kis_j_daily_verified_auction_separation"
+)
 NAVER_REGULAR_COVERAGE_BASIS_ALIASES = frozenset(
     {
         NAVER_REGULAR_COVERAGE_BASIS,
@@ -61,6 +64,7 @@ NAVER_SPARSE_PATH_COVERAGE_BASES = NAVER_REGULAR_COVERAGE_BASIS_ALIASES | frozen
     NAVER_COMPLETE_MINUTE_PATH_BASIS,
     NAVER_COMPLETE_MINUTE_PATH_BASIS + "+" + THIRD_SOURCE_MINUTE_OPEN_BASIS,
     TOSS_DATED_MINUTE_PATH_BASIS,
+    TOSS_AUCTION_RECONCILIATION_BASIS,
 })
 
 
@@ -112,15 +116,282 @@ def _integer(value: Any, *, positive: bool = False) -> int:
     return int(number)
 
 
+def _verified_toss_auction_reconciliation(
+    code: str, trade_date: date, regular: list[dict[str, Any]],
+    auction: dict[str, Any], chart_auction: dict[str, Any], proof: dict[str, Any],
+) -> dict[str, Any]:
+    """Repair a KIS 15:30 undercount when dated feeds separate later trades.
+
+    KIS's J daily total includes KRX after-market trading. Therefore its excess
+    volume is a closing-auction correction only when both dated paths and the
+    daily counters reconcile the auction separately from all later trades.
+    """
+    if isinstance(proof, dict) and proof.get("kis_late_pages") is not None:
+        return _verified_toss_auction_with_postmarket(
+            code, trade_date, regular, auction, chart_auction, proof,
+        )
+    target = trade_date.strftime("%Y%m%d")
+    day = trade_date.isoformat()
+    if not isinstance(proof, dict) or proof.get("code") != code or proof.get("trade_date") != day:
+        raise ValueError("closing auction reconciliation identity mismatch")
+    daily = proof.get("kis_daily")
+    late = proof.get("kis_late")
+    toss_late = proof.get("toss_late")
+    if not all(isinstance(item, dict) for item in (daily, late, toss_late)):
+        raise ValueError("closing auction reconciliation sources missing")
+    if (
+        daily.get("market") != "J" or daily.get("tr_id") != "FHKST03010100"
+        or daily.get("code") != code or daily.get("requested_date") != target
+        or not isinstance(daily.get("row"), dict)
+        or daily["row"].get("stck_bsop_date") != target
+    ):
+        raise ValueError("dated KRX daily source identity mismatch")
+    kis_request = late.get("request")
+    kis_rows = late.get("output2")
+    if (
+        late.get("code") != code or late.get("date") != target or late.get("rt_cd") != "0"
+        or not isinstance(kis_request, dict)
+        or kis_request.get("FID_COND_MRKT_DIV_CODE") != "J"
+        or kis_request.get("FID_INPUT_ISCD") != code
+        or kis_request.get("FID_INPUT_DATE_1") != target
+        or kis_request.get("FID_INPUT_HOUR_1") != "200000"
+        or not isinstance(kis_rows, list) or len(kis_rows) != 120
+    ):
+        raise ValueError("dated KRX after-market source identity mismatch")
+    stamps = []
+    for row in kis_rows:
+        if not isinstance(row, dict) or row.get("stck_bsop_date") != target:
+            raise ValueError("dated KRX after-market row date mismatch")
+        stamp = str(row.get("stck_cntg_hour") or "")
+        if len(stamp) != 6 or not stamp.isdigit():
+            raise ValueError("dated KRX after-market row time invalid")
+        stamps.append(stamp)
+    if stamps[0] != "153000" or any(a <= b for a, b in zip(stamps, stamps[1:])):
+        raise ValueError("dated KRX after-market trades are not excluded")
+    first = kis_rows[0]
+    if any(
+        _integer(first.get(kis_key), positive=True) != _integer(auction.get(row_key), positive=True)
+        for kis_key, row_key in (("stck_oprc", "open"), ("stck_hgpr", "high"),
+                                 ("stck_lwpr", "low"), ("stck_prpr", "price"),
+                                 ("cntg_vol", "volume"), ("acml_tr_pbmn", "trading_value"))
+    ):
+        raise ValueError("later KIS source conflicts with stored closing trade")
+    candles = toss_late.get("candles")
+    if (
+        toss_late.get("code") != code or toss_late.get("date") != day
+        or toss_late.get("http_status") != 200 or toss_late.get("response_code") != "A" + code
+        or toss_late.get("exchange") != "krx" or toss_late.get("interval") != "1m"
+        or toss_late.get("invest_mode") != "krx" or toss_late.get("use_adjusted_rate") is not False
+        or toss_late.get("requested_from") != day + "T20:01:00+09:00"
+        or not isinstance(candles, list) or len(candles) != 200
+    ):
+        raise ValueError("independent after-market source identity mismatch")
+    chart_stamps = []
+    for candle in candles:
+        if not isinstance(candle, dict):
+            raise ValueError("invalid independent after-market candle")
+        stamp = datetime.fromisoformat(str(candle.get("dt") or ""))
+        if stamp.tzinfo is None or stamp.utcoffset() != timedelta(hours=9) or stamp.date() != trade_date:
+            raise ValueError("independent after-market candle date mismatch")
+        chart_stamps.append(stamp)
+    if (
+        chart_stamps[0] != datetime.combine(trade_date, time(15, 30), KST)
+        or any(a <= b for a, b in zip(chart_stamps, chart_stamps[1:]))
+        or toss_late.get("next") != (chart_stamps[-1] - timedelta(minutes=1)).isoformat()
+    ):
+        raise ValueError("independent after-market trades are not excluded")
+    if any(_integer(auction.get(key), positive=True) != _integer(auction.get("price"), positive=True)
+           for key in ("open", "high", "low")):
+        raise ValueError("closing auction is not a single-price trade")
+    revised_volume = _integer(chart_auction.get("volume"), positive=True)
+    old_volume = _integer(auction.get("volume"), positive=True)
+    delta = revised_volume - old_volume
+    if delta <= 0:
+        raise ValueError("closing auction has no verified missing volume")
+    daily_row = daily["row"]
+    actual = [row for row in regular if _integer(row.get("volume")) > 0]
+    expected_ohlc = (
+        _integer(actual[0]["open"], positive=True),
+        max(_integer(row["high"], positive=True) for row in actual),
+        min(_integer(row["low"], positive=True) for row in actual),
+        _integer(auction["price"], positive=True),
+    )
+    if (
+        tuple(_integer(daily_row.get(key), positive=True) for key in
+              ("stck_oprc", "stck_hgpr", "stck_lwpr", "stck_clpr")) != expected_ohlc
+        or _integer(daily_row.get("acml_vol"), positive=True)
+           != sum(_integer(row["volume"], positive=True) for row in actual) + delta
+        or _integer(daily_row.get("acml_tr_pbmn"), positive=True)
+           != _integer(auction["trading_value"], positive=True) + delta * expected_ohlc[3]
+    ):
+        raise ValueError("KRX daily total does not reconcile with the auction correction")
+    return {**auction, "volume": revised_volume, "trading_value": _integer(daily_row["acml_tr_pbmn"], positive=True)}
+
+
+def _verified_toss_auction_with_postmarket(
+    code: str, trade_date: date, regular: list[dict[str, Any]],
+    auction: dict[str, Any], chart_auction: dict[str, Any], proof: dict[str, Any],
+) -> dict[str, Any]:
+    """Separate a missing closing execution from fully observed later KRX trades."""
+    day = trade_date.isoformat()
+    target = trade_date.strftime("%Y%m%d")
+    if set(proof) != {"code", "trade_date", "kis_daily", "kis_late_pages", "toss_postmarket"} or proof["code"] != code or proof["trade_date"] != day:
+        raise ValueError("after-market reconciliation identity mismatch")
+    daily = proof["kis_daily"]
+    pages = proof["kis_late_pages"]
+    toss = proof["toss_postmarket"]
+    if not isinstance(daily, dict) or not isinstance(pages, list) or not isinstance(toss, dict):
+        raise ValueError("after-market reconciliation source missing")
+    if (
+        daily.get("market") != "J" or daily.get("tr_id") != "FHKST03010100"
+        or daily.get("code") != code or daily.get("requested_date") != target
+        or not isinstance(daily.get("row"), dict)
+        or daily["row"].get("stck_bsop_date") != target
+        or not 1 <= len(pages) <= 6
+    ):
+        raise ValueError("dated KRX daily source identity mismatch")
+    kis_rows: list[dict[str, Any]] = []
+    cursor = "200000"
+    for page in pages:
+        request = page.get("request") if isinstance(page, dict) else None
+        rows = page.get("output2") if isinstance(page, dict) else None
+        if (
+            not isinstance(request, dict) or page.get("rt_cd") != "0"
+            or request.get("FID_COND_MRKT_DIV_CODE") != "J"
+            or request.get("FID_INPUT_ISCD") != code
+            or request.get("FID_INPUT_DATE_1") != target
+            or request.get("FID_INPUT_HOUR_1") != cursor
+            or request.get("FID_PW_DATA_INCU_YN") != "Y"
+            or not isinstance(rows, list) or len(rows) != 120
+        ):
+            raise ValueError("dated KRX late-session page identity mismatch")
+        stamps = []
+        for row in rows:
+            if not isinstance(row, dict) or row.get("stck_bsop_date") != target:
+                raise ValueError("dated KRX late-session row identity mismatch")
+            stamp = str(row.get("stck_cntg_hour") or "")
+            if len(stamp) != 6 or not stamp.isdigit() or stamp > cursor:
+                raise ValueError("dated KRX late-session row time invalid")
+            stamps.append(stamp)
+        if any(left <= right for left, right in zip(stamps, stamps[1:])):
+            raise ValueError("dated KRX late-session page ordering invalid")
+        kis_rows.extend(rows)
+        cursor = (datetime.strptime(stamps[-1], "%H%M%S") - timedelta(minutes=1)).strftime("%H%M%S")
+    stamps = [str(row["stck_cntg_hour"]) for row in kis_rows]
+    if (
+        any(left <= right for left, right in zip(stamps, stamps[1:]))
+        or "153000" not in stamps or stamps[-1] >= "153000"
+        or stamps[0] > "195900"
+    ):
+        raise ValueError("dated KRX late-session path does not reach closing trade")
+    close_row = kis_rows[stamps.index("153000")]
+    if any(
+        _integer(close_row.get(kis_key), positive=True) != _integer(auction.get(row_key), positive=True)
+        for kis_key, row_key in (("stck_oprc", "open"), ("stck_hgpr", "high"),
+                                 ("stck_lwpr", "low"), ("stck_prpr", "price"),
+                                 ("cntg_vol", "volume"), ("acml_tr_pbmn", "trading_value"))
+    ):
+        raise ValueError("later KIS source conflicts with stored closing trade")
+    after = [row for row in kis_rows if row["stck_cntg_hour"] > "153000"]
+    if not after or any(not "160000" <= row["stck_cntg_hour"] <= "195900" for row in after):
+        raise ValueError("late-session trades outside supported window")
+    if (
+        toss.get("code") != code or toss.get("date") != day
+        or toss.get("exchange") != "krx" or toss.get("interval") != "1m"
+        or toss.get("invest_mode") != "krx" or toss.get("use_adjusted_rate") is not False
+        or toss.get("error") is not None
+    ):
+        raise ValueError("independent late-session source identity mismatch")
+    toss_pages = toss.get("pages")
+    candles = toss.get("candles")
+    if (
+        not isinstance(toss_pages, list) or len(toss_pages) != 2
+        or any(not isinstance(page, dict) or page.get("http_status") != 200
+               or page.get("response_code") != "A" + code
+               or page.get("exchange") != "krx" or page.get("returned_count") != 200
+               for page in toss_pages)
+        or toss_pages[0].get("requested_from") != day + "T20:01:00+09:00"
+        or toss_pages[1].get("requested_from") != toss_pages[0].get("next")
+        or toss_pages[0].get("next") != day + "T16:40:00+09:00"
+        or toss_pages[1].get("next") != day + "T13:20:00+09:00"
+        or not isinstance(candles, list) or len(candles) != 271
+    ):
+        raise ValueError("independent late-session pagination incomplete")
+    chart: dict[str, dict[str, Any]] = {}
+    for i, candle in enumerate(candles):
+        if not isinstance(candle, dict):
+            raise ValueError("invalid independent late-session candle")
+        stamp = datetime.fromisoformat(str(candle.get("dt") or ""))
+        expected = datetime.combine(trade_date, time(20), KST) - timedelta(minutes=i)
+        if stamp != expected:
+            raise ValueError("independent late-session minute path incomplete")
+        chart[stamp.strftime("%H%M%S")] = candle
+    if any(
+        _integer(chart["153000"].get(key), positive=True)
+        != _integer(chart_auction.get(key), positive=True)
+        for key in ("open", "high", "low", "close", "volume")
+    ):
+        raise ValueError("independent late-session auction conflicts with dated chart")
+    after_by_time = {row["stck_cntg_hour"]: row for row in after}
+    for i in range(270):
+        stamp = datetime.combine(trade_date, time(15, 30), KST) + timedelta(minutes=i)
+        kis_stamp = stamp.strftime("%H%M%S")
+        chart_stamp = (stamp + timedelta(minutes=1)).strftime("%H%M%S")
+        row = after_by_time.get(kis_stamp)
+        candle = chart[chart_stamp]
+        volume = _integer(candle.get("volume"))
+        if volume != (_integer(row.get("cntg_vol"), positive=True) if row else 0):
+            raise ValueError("independent late-session minute volume conflicts with KIS")
+        if row and any(
+            _integer(row.get(kis_key), positive=True) != _integer(candle.get(chart_key), positive=True)
+            for kis_key, chart_key in (("stck_oprc", "open"), ("stck_hgpr", "high"),
+                                       ("stck_lwpr", "low"), ("stck_prpr", "close"))
+        ):
+            raise ValueError("independent late-session minute OHLC conflicts with KIS")
+    if any(_integer(auction.get(key), positive=True) != _integer(auction.get("price"), positive=True)
+           for key in ("open", "high", "low")):
+        raise ValueError("closing auction is not single-price")
+    delta = _integer(chart_auction.get("volume"), positive=True) - _integer(auction.get("volume"), positive=True)
+    if delta <= 0:
+        raise ValueError("closing auction has no verified missing volume")
+    corrected_cash = _integer(auction["trading_value"], positive=True) + delta * _integer(auction["price"], positive=True)
+    prior_cash = corrected_cash
+    for row in reversed(after):
+        volume = _integer(row["cntg_vol"], positive=True)
+        cash = _integer(row["acml_tr_pbmn"], positive=True)
+        if not volume * _integer(row["stck_lwpr"], positive=True) <= cash - prior_cash <= volume * _integer(row["stck_hgpr"], positive=True):
+            raise ValueError("KIS late-session cumulative money discontinuity")
+        prior_cash = cash
+    actual = [row for row in regular if _integer(row.get("volume")) > 0]
+    daily_row = daily["row"]
+    expected_ohlc = (
+        _integer(actual[0]["open"], positive=True),
+        max(_integer(row["high"], positive=True) for row in actual),
+        min(_integer(row["low"], positive=True) for row in actual),
+        _integer(auction["price"], positive=True),
+    )
+    if (
+        tuple(_integer(daily_row.get(key), positive=True) for key in
+              ("stck_oprc", "stck_hgpr", "stck_lwpr", "stck_clpr")) != expected_ohlc
+        or _integer(daily_row.get("acml_vol"), positive=True)
+           != sum(_integer(row["volume"], positive=True) for row in actual) + delta
+              + sum(_integer(row["cntg_vol"], positive=True) for row in after)
+        or _integer(daily_row.get("acml_tr_pbmn"), positive=True) != prior_cash
+    ):
+        raise ValueError("KRX daily counters do not reconcile with both sessions")
+    return {**auction, "volume": _integer(chart_auction["volume"], positive=True), "trading_value": corrected_cash}
+
+
 def _verified_toss_dated_minute_path(
     code: str, trade_date: date, regular: list[dict[str, Any]], proof: dict[str, Any],
-) -> bool:
+) -> tuple[bool, dict[str, Any] | None]:
     """Corroborate every KIS minute against a complete dated KRX chart.
 
     Toss stamps continuous trades at the minute end, one minute after the KIS
     stamp. The 15:30 auction uses the same stamp in both feeds. The public
-    chart can include later trading in its 15:30 volume, so an exact auction
-    OHLCV match is mandatory; its KRX selector alone proves nothing.
+    chart can include later trading in its 15:30 volume. A volume mismatch
+    requires separate dated proof that all later KRX trades are accounted for
+    and that the KRX daily counters reconcile to the corrected auction.
     """
     day = trade_date.isoformat()
     if (
@@ -183,19 +454,30 @@ def _verified_toss_dated_minute_path(
     auction = kis.get("153000")
     chart_auction = by_time["153000"]
     if auction is None or _integer(auction.get("volume")) == 0:
+        if proof.get("auction_reconciliation") is not None:
+            raise ValueError("auction correction cannot replace an absent KIS closing trade")
         if _integer(chart_auction.get("volume")) != 0:
             raise ValueError("dated minute closing auction conflicts with KIS")
         if auction is not None:
             prior = next((row for row in reversed(regular) if row["trade_time"] < "153000" and _integer(row.get("volume")) > 0), None)
             if prior is None or _integer(auction.get("trading_value")) != _integer(prior.get("trading_value")):
                 raise ValueError("zero-volume auction changes cumulative turnover")
-        return True  # Both dated sources omit a closing execution.
+        return True, None  # Both dated sources omit a closing execution.
     if any(
         _integer(auction.get(left), positive=True) != _integer(chart_auction.get(right), positive=True)
-        for left, right in (("open", "open"), ("high", "high"), ("low", "low"), ("price", "close"), ("volume", "volume"))
+        for left, right in (("open", "open"), ("high", "high"), ("low", "low"), ("price", "close"))
     ):
         raise ValueError("dated minute closing auction conflicts with KIS")
-    return False
+    if _integer(auction.get("volume"), positive=True) != _integer(chart_auction.get("volume"), positive=True):
+        reconciliation = proof.get("auction_reconciliation")
+        if reconciliation is None:
+            raise ValueError("dated minute closing auction conflicts with KIS")
+        return False, _verified_toss_auction_reconciliation(
+            code, trade_date, regular, auction, chart_auction, reconciliation,
+        )
+    if proof.get("auction_reconciliation") is not None:
+        raise ValueError("unneeded auction correction proof")
+    return False, None
 
 
 def _corroborated_full_minute_path(
@@ -576,14 +858,18 @@ def regular_session_evidence(
         verified_closing = None
         verified_opening_offset = None
         if toss_dated_minute_proof is not None:
-            verified_no_closing_trade = _verified_toss_dated_minute_path(
+            verified_no_closing_trade, revised_auction = _verified_toss_dated_minute_path(
                 code, trade_date, regular, toss_dated_minute_proof,
             )
             sparse_prefix_verified = True
             result["coverage_basis"] = TOSS_DATED_MINUTE_PATH_BASIS
             result["source"] += "+toss_krx_dated_1m"
+            if revised_auction is not None:
+                result["coverage_basis"] = TOSS_AUCTION_RECONCILIATION_BASIS
+                result["source"] += "+kis_j_daily_no_postmarket_auction_correction"
             regular = [
-                row for row in regular
+                revised_auction if row["trade_time"] == "153000" and revised_auction is not None else row
+                for row in regular
                 if not (
                     ("090000" <= row["trade_time"] <= "151900" or row["trade_time"] == "153000")
                     and _integer(row.get("volume")) == 0
