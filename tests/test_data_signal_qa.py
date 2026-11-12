@@ -2243,8 +2243,8 @@ class FakeReadOnlyApi:
                     {
                         "id": "market_ai_signal",
                         "description": (
-                            "국내장 장중 예비 신호와 검증된 장중·장 마감 확정 "
-                            "매수·매도 신호를 알려드립니다."
+                            "국내장 전일 종가로 확인한 다음 거래일 매수 후보와 "
+                            "검증된 매도·수익확정 신호를 알려드립니다."
                         ),
                     },
                 ],
@@ -3423,6 +3423,35 @@ def test_live_intraday_push_contract_rejects_outdated_notification_copy(
 
     assert by_id["SIG-PUSH-INTRADAY-001"]["status"] == "fail"
     assert report["deployment_blocked"] is True
+
+
+def test_next_open_live_qa_keeps_only_verified_previous_close_buy_candidate() -> None:
+    from app.qa.runner import KST, _expired_preliminary_market_signal_codes
+
+    opening = datetime(2026, 11, 13, 9, 4, tzinfo=KST)
+    candidate = {
+        "code": "005930",
+        "side": "buy",
+        "signal_date": "2026-11-12",
+        "status": "preliminary",
+        "entry_execution_policy_version": "kr-close-next-open-entry-v1",
+        "alert_eligible": True,
+    }
+    check = _expired_preliminary_market_signal_codes
+    assert check([candidate], "2026-11-12", opening) == []
+    assert check([candidate], "2026-11-12", opening.replace(hour=9, minute=0)) == []
+    assert check([candidate], "2026-11-12", opening.replace(hour=9, minute=10)) == ["005930"]
+    assert check([candidate], "2026-11-12", opening.replace(hour=8, minute=59)) == ["005930"]
+    assert check([candidate], "2026-11-11", opening) == ["005930"]
+    for changes in (
+        {"signal_date": "2026-11-11"},
+        {"side": "sell"},
+        {"entry_execution_policy_version": None},
+        {"alert_eligible": False},
+        {"execution_replay_state": "unverified"},
+    ):
+        assert check([{**candidate, **changes}], "2026-11-12", opening) == ["005930"]
+    assert check([{**candidate, "signal_date": "2026-11-13"}], "2026-11-13", opening) == []
 
 
 @pytest.mark.qa_live

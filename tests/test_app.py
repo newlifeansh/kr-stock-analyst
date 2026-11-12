@@ -3459,10 +3459,13 @@ def test_push_config_includes_briefing_and_domestic_market_signal_alerts():
         "label": "국내장 시작·마감",
         "description": "국내 정규장 시작과 마감 5분 전에 알려드립니다.",
     }
+    assert options["ai_signal"]["description"] == (
+        "관심종목의 전일 장마감 매수 후보와 매도·수익확정 신호를 알려드립니다."
+    )
     assert options["market_ai_signal"] == {
         "id": "market_ai_signal",
         "label": "시장 AI 시그널",
-        "description": "국내장 장중 예비 신호와 검증된 장중·장 마감 확정 매수·매도 신호를 알려드립니다.",
+        "description": "국내장 전일 종가로 확인한 다음 거래일 매수 후보와 검증된 매도·수익확정 신호를 알려드립니다.",
     }
     assert options["recommendation_update"] == {
         "id": "recommendation_update",

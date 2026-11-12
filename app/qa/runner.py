@@ -24,6 +24,65 @@ from app.qa.catalog import load_qa_catalog
 KST = ZoneInfo("Asia/Seoul")
 QaMode = Literal["gate", "live", "e2e"]
 QaStatus = Literal["pass", "warn", "fail", "skip"]
+
+
+def _expired_preliminary_market_signal_codes(
+    items: list[Any], universe_as_of: object, observed_now: datetime
+) -> list[str]:
+    """Keep only the previous close's buy candidates during the next open alert window."""
+    from app.services.market_calendar import (
+        is_korea_market_session_date,
+        is_scheduled_korea_market_session_date,
+    )
+    from app.services.quant_signals import (
+        NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
+        NEXT_OPEN_ENTRY_POLICY_VERSION,
+    )
+
+    current = observed_now.astimezone(KST)
+    today = current.date().isoformat()
+    previous = None
+    if (
+        current.date() >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+        and is_korea_market_session_date(current.date(), current)
+        and time(9, 0) <= current.time() < time(9, 10)
+    ):
+        previous = next(
+            (
+                current.date() - timedelta(days=days_back)
+                for days_back in range(1, 15)
+                if is_scheduled_korea_market_session_date(
+                    current.date() - timedelta(days=days_back)
+                )
+            ),
+            None,
+        )
+    previous_date = previous.isoformat() if previous else None
+    expired = []
+    for item in items:
+        if not isinstance(item, dict) or not (
+            item.get("is_preliminary") is True
+            or item.get("status") == "preliminary"
+        ):
+            continue
+        signal_date = str(item.get("signal_date") or "")[:10]
+        if signal_date == today:
+            continue
+        if (
+            previous_date
+            and signal_date == previous_date
+            and str(universe_as_of or "")[:10] == previous_date
+            and item.get("side") == "buy"
+            and item.get("entry_execution_policy_version")
+            == NEXT_OPEN_ENTRY_POLICY_VERSION
+            and item.get("alert_eligible") is not False
+            and item.get("execution_replay_state") != "unverified"
+        ):
+            continue
+        expired.append(str(item.get("code") or ""))
+    return expired
+
+
 DEFAULT_STAGING_BASE_URLS = {
     "dashboard": "https://domestic-market-web-staging-staging.up.railway.app",
     "us": "https://us-market-web-staging.up.railway.app",
@@ -102,6 +161,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quant_signals.test_next_open_entry_does_not_invent_same_day_exit_without_minute_path",
         "tests.test_web_push.test_kr_next_open_buy_candidate_alerts_at_next_session_open_only",
         "tests.test_web_push.test_watchlist_next_open_candidate_alert_uses_prior_close_and_shared_key",
+        "tests.test_data_signal_qa.test_next_open_live_qa_keeps_only_verified_previous_close_buy_candidate",
         "tests.test_live_order_guard.test_next_open_model_event_cannot_be_promoted_to_intraday_order",
         "tests.test_app.test_next_open_release_changes_immutable_dashboard_asset_urls",
         "tests.test_home_ai_response.test_kr_next_open_candidate_uses_next_session_label",
@@ -4347,9 +4407,9 @@ def _live_checks(
                     {},
                 )
                 _assert(
-                    "검증된 장중·장 마감 확정 매수·매도"
+                    "전일 종가로 확인한 다음 거래일 매수 후보와 검증된 매도·수익확정"
                     in str(market_option.get("description") or ""),
-                    "시장 AI 알림 설정에 검증된 장중 매수·매도 확정 안내가 없습니다.",
+                    "시장 AI 알림 설정에 전일 종가 매수 후보와 검증된 매도 안내가 없습니다.",
                     **push_meta,
                 )
                 _assert(
@@ -4382,18 +4442,12 @@ def _live_checks(
                     )
                 items = feed.get("items")
                 _assert(isinstance(items, list), "시장 시그널 전체 항목이 배열이 아닙니다.")
-                expired_preliminary = [
-                    str(item.get("code") or "")
-                    for item in items
-                    if isinstance(item, dict)
-                    and (item.get("is_preliminary") is True
-                         or item.get("status") == "preliminary")
-                    and str(item.get("signal_date") or "")[:10]
-                    != observed_now.date().isoformat()
-                ]
+                expired_preliminary = _expired_preliminary_market_signal_codes(
+                    items, feed.get("universe_as_of"), observed_now
+                )
                 _assert(
                     not expired_preliminary,
-                    "이전 거래일 예비 후보가 현재 시장 피드에 남아 있습니다.",
+                    "오늘 장 시작 알림 대상이 아닌 지난 예비 후보가 현재 시장 피드에 남아 있습니다.",
                     expired_preliminary_codes=expired_preliminary,
                 )
                 verified = [
@@ -4428,7 +4482,7 @@ def _live_checks(
             collector.check(
                 "SIG-PUSH-INTRADAY-001",
                 intraday_market_push_contract,
-                pass_message="장중 알림 원천의 전략·스냅샷·이벤트 계약을 확인했습니다. 실제 전송은 거래 시간에 별도 확인이 필요합니다.",
+                pass_message="다음 거래일 매수 후보와 장중 매도 알림의 전략·스냅샷·이벤트 계약을 확인했습니다. 실제 전송은 거래 시간에 별도 확인이 필요합니다.",
             )
             collector.check(
                 "SIG-LIFECYCLE-003",
