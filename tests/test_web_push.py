@@ -1884,13 +1884,14 @@ def test_market_ai_preliminary_candidates_are_labeled_and_deduplicated_separatel
         db.close()
 
 
-def test_kr_next_open_buy_candidate_alerts_after_close_only(monkeypatch):
+def test_kr_next_open_buy_candidate_alerts_at_next_session_open_only(monkeypatch):
     db = _session()
     try:
         monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
         monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda now: now.hour >= 15)
         monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda now: now.hour < 15)
-        snapshot = {"items": [{
+        monkeypatch.setattr(web_push, "is_scheduled_korea_market_session_date", lambda day: day.weekday() < 5)
+        snapshot = {"universe_as_of": "2026-11-12", "items": [{
             "code": "005930", "name": "삼성전자", "side": "buy",
             "signal_date": "2026-11-12", "status": "preliminary", "is_preliminary": True,
             "entry_execution_policy_version": web_push.NEXT_OPEN_ENTRY_POLICY_VERSION,
@@ -1900,12 +1901,21 @@ def test_kr_next_open_buy_candidate_alerts_after_close_only(monkeypatch):
         )
         runtime = web_push.WebPushRuntime(_settings())
         assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 12, 13)) == []
-        candidates = runtime._market_ai_signal_candidates(db, datetime(2026, 11, 12, 16))
+        assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 12, 16)) == []
+        candidates = runtime._market_ai_signal_candidates(db, datetime(2026, 11, 13, 9, 2))
         assert len(candidates) == 1
         assert candidates[0].event_key == "market-ai-next-open:005930:buy:2026-11-12"
         assert candidates[0].title == "✨ [다음 거래일 매수 후보] 삼성전자"
         assert "다음 정규장 시가" in candidates[0].body
+        assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 13, 9, 10)) == []
         assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 13, 16)) == []
+        snapshot["universe_as_of"] = "2026-11-11"
+        assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 13, 9, 2)) == []
+        snapshot["universe_as_of"] = "2026-11-13"
+        snapshot["items"][0]["signal_date"] = "2026-11-13"
+        assert len(runtime._market_ai_signal_candidates(db, datetime(2026, 11, 16, 9, 2))) == 1
+        snapshot["items"][0]["alert_eligible"] = False
+        assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 16, 9, 2)) == []
     finally:
         db.close()
 

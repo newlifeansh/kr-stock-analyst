@@ -46,6 +46,7 @@ from app.services.market_calendar import (
     is_korea_daily_signal_window,
     is_korea_market_session_date,
     is_korea_regular_market_session,
+    is_scheduled_korea_market_session_date,
 )
 from app.services.recommendations import build_recommendations
 from app.services.quant_signals import (
@@ -1750,6 +1751,10 @@ class WebPushRuntime:
         )
         confirmed_window = is_korea_daily_signal_window(current)
         preliminary_window = not confirmed_window and is_korea_regular_market_session(current)
+        next_open_window = (
+            is_korea_market_session_date(current.date(), current)
+            and time(9, 0) <= current.time() < time(9, 10)
+        )
         intraday_window = (
             is_korea_market_session_date(current.date(), current)
             and time(9, 0) <= current.time() < time(15, 40)
@@ -1793,14 +1798,30 @@ class WebPushRuntime:
                     and item.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
                     and current_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
                 )
-                if not (confirmed_window if next_open_candidate else preliminary_window):
+                if not (next_open_window if next_open_candidate else preliminary_window):
                     continue
                 signal_date = str(item.get("signal_date") or "").strip()
                 try:
                     preliminary_date = date.fromisoformat(signal_date)
                 except ValueError:
                     continue
-                if preliminary_date != current_date or not code or side not in {"buy", "sell"}:
+                if not code or side not in {"buy", "sell"}:
+                    continue
+                if next_open_candidate:
+                    previous_session = next(
+                        (
+                            current_date - timedelta(days=days_back)
+                            for days_back in range(1, 15)
+                            if is_scheduled_korea_market_session_date(
+                                current_date - timedelta(days=days_back)
+                            )
+                        ),
+                        None,
+                    )
+                    snapshot_date = str(snapshot.get("universe_as_of") or "")[:10]
+                    if preliminary_date != previous_session or snapshot_date != signal_date:
+                        continue
+                elif preliminary_date != current_date:
                     continue
                 action = (
                     "다음 거래일 매수 후보" if next_open_candidate
