@@ -32,6 +32,74 @@ def evidence(rows=None):
     return rsp.regular_session_evidence("005930", DAY, minute_rows() if rows is None else rows, observed_at=OBSERVED)
 
 
+@pytest.fixture(scope="module")
+def toss_dated_fixture():
+    return json.loads((Path(__file__).parent / "fixtures" / "kr_regular_toss_dated_202610.json").read_text())
+
+
+def _toss_dated_evidence(case):
+    proof = case["toss_dated_minute_proof"]
+    return rsp.regular_session_evidence(
+        proof["code"], date.fromisoformat(proof["date"]), case["raw_rows"],
+        observed_at=datetime(2026, 11, 13, 2, tzinfo=rsp.KST),
+        preopen_baseline=case["preopen_baseline"], toss_dated_minute_proof=proof,
+    )
+
+
+def test_toss_dated_complete_krx_minute_path_recovers_halts_and_late_open(toss_dated_fixture, db):
+    for key, opening, closing in (
+        ("001040_2026-10-14", "090000", 125400),
+        ("273130_2026-10-22", "090200", 111770),
+        ("273130_2026-10-21", "090000", 111730),
+    ):
+        case = toss_dated_fixture[key]
+        without_proof = rsp.regular_session_evidence(
+            key[:6], date.fromisoformat(key[7:]), case["raw_rows"],
+            observed_at=datetime(2026, 11, 13, 2, tzinfo=rsp.KST),
+            preopen_baseline=case["preopen_baseline"],
+        )
+        assert without_proof["state"] == "unverified"
+        result = _toss_dated_evidence(case)
+        assert result["state"] == "bounded"
+        assert result["coverage_basis"] == rsp.TOSS_DATED_MINUTE_PATH_BASIS
+        assert result["regular_rows"][0]["trade_time"] == opening
+        assert result["prices"]["close"] == closing
+        if key == "273130_2026-10-21":
+            assert result["regular_rows"][-1]["trade_time"] == "151900"
+        assert result["prices"]["volume"] == sum(row["volume"] for row in result["regular_rows"])
+        record = rsp.store_regular_session_evidence(db, result, observed_at=datetime(2026, 11, 13, 2, tzinfo=rsp.KST))
+        db.commit()
+        assert record.evidence_hash
+        assert rsp.load_regular_session_evidence(db, key[:6], date.fromisoformat(key[7:]), allow_bounded=True)["prices"] == result["prices"]
+
+
+@pytest.mark.parametrize("mutation", ["date", "venue", "cursor", "gap", "hidden_trade", "minute_price", "auction_volume", "after_close_trade"])
+def test_toss_dated_proof_fails_closed_on_identity_path_and_auction_conflicts(toss_dated_fixture, mutation):
+    case = deepcopy(toss_dated_fixture["001040_2026-10-14"])
+    proof = case["toss_dated_minute_proof"]
+    candles = proof["candles"]
+    if mutation == "date": proof["date"] = "2026-10-15"
+    elif mutation == "venue": proof["exchange"] = "nxt"
+    elif mutation == "cursor": proof["pages"][1]["requested_from"] = "2026-10-14T12:12:00+09:00"
+    elif mutation == "gap": candles.pop(150)
+    elif mutation == "hidden_trade": next(c for c in candles if c["dt"].endswith("09:22:00+09:00"))["volume"] = 1
+    elif mutation == "minute_price": next(c for c in candles if c["dt"].endswith("09:01:00+09:00"))["close"] += 100
+    elif mutation == "auction_volume": next(c for c in candles if c["dt"].endswith("15:30:00+09:00"))["volume"] += 1
+    elif mutation == "after_close_trade": next(c for c in candles if c["dt"].endswith("15:31:00+09:00"))["volume"] = 1
+    assert _toss_dated_evidence(case)["state"] == "unverified"
+
+
+def test_toss_dated_absent_auction_requires_both_sources_to_show_no_trade(toss_dated_fixture):
+    case = deepcopy(toss_dated_fixture["273130_2026-10-21"])
+    assert _toss_dated_evidence(case)["state"] == "bounded"
+    next(c for c in case["toss_dated_minute_proof"]["candles"] if c["dt"].endswith("15:30:00+09:00"))["volume"] = 1
+    assert _toss_dated_evidence(case)["state"] == "unverified"
+    case = deepcopy(toss_dated_fixture["273130_2026-10-21"])
+    prior = case["raw_rows"][-1]
+    case["raw_rows"].append({**prior, "trade_time": "153000", "volume": 0, "trading_value": prior["trading_value"] + 1})
+    assert _toss_dated_evidence(case)["state"] == "unverified"
+
+
 @pytest.fixture
 def db():
     engine = create_engine("sqlite:///:memory:")
