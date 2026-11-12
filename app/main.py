@@ -1872,6 +1872,7 @@ async def _run_market_quant_signal_refresh_loop(
     detail_quotes: Optional[asyncio.Queue] = None,
 ) -> None:
     last_premarket_refresh_date: Optional[date] = None
+    last_preopen_refresh_date: Optional[date] = None
     last_detail_refresh_at: Optional[float] = None
     last_regular_preflight_key: Optional[tuple[date, str]] = None
     if regular_evidence_ready is not None:
@@ -1892,7 +1893,16 @@ async def _run_market_quant_signal_refresh_loop(
                 and is_korea_market_session_date(now.date(), now)
                 and last_premarket_refresh_date != now.date()
             )
-            if _quant_signal_quote_refresh_active(now) or premarket_refresh:
+            # The 06:00 premarket snapshot expires under the active 10-minute
+            # freshness rule as soon as the regular session starts. Publish a
+            # second completed-close frame shortly before 09:00 so next-open
+            # candidates remain available throughout their alert window.
+            preopen_refresh = (
+                time(8, 50) <= now.time() < time(9, 0)
+                and is_korea_market_session_date(now.date(), now)
+                and last_preopen_refresh_date != now.date()
+            )
+            if _quant_signal_quote_refresh_active(now) or premarket_refresh or preopen_refresh:
                 preflight_key = _market_signal_regular_preflight_key(now)
                 reuse_regular_preflight = last_regular_preflight_key == preflight_key
                 if not reuse_regular_preflight and regular_evidence_ready is not None:
@@ -1941,6 +1951,8 @@ async def _run_market_quant_signal_refresh_loop(
                     )
                     if premarket_refresh:
                         last_premarket_refresh_date = now.date()
+                    if preopen_refresh:
+                        last_preopen_refresh_date = now.date()
                     if _quant_signal_quote_refresh_active(datetime.now(KST)):
                         interval_seconds = MARKET_SIGNAL_CANDIDATE_SUCCESS_PAUSE_SECONDS
         except Exception:  # pragma: no cover - operational safeguard
