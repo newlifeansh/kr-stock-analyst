@@ -70,6 +70,9 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-US-ADR-NULL-CLOSE-001": (
+        "tests.test_us_market.test_completed_session_quote_uses_verified_regular_price_when_chart_close_is_null",
+    ),
     "DATA-US-ADR-HALF-CENT-001": (
         "tests.test_us_market.test_completed_session_quote_accepts_only_half_cent_prior_screen_rounding",
         "tests.test_us_market.test_completed_session_quote_uses_verified_prior_screen_when_yahoo_omits_shares",

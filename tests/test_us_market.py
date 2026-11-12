@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -270,6 +271,69 @@ def test_completed_session_quote_accepts_only_half_cent_prior_screen_rounding(mo
             "WDS", completed_date, refresh=True,
             fallback_quote=quote, prior_screen=screen,
         )
+
+
+def test_completed_session_quote_uses_verified_regular_price_when_chart_close_is_null(monkeypatch):
+    completed_date = date(2026, 11, 11)
+    prior_time = int(datetime(2026, 11, 10, 14, 30, tzinfo=UTC).timestamp())
+    completed_time = int(datetime(2026, 11, 11, 14, 30, tzinfo=UTC).timestamp())
+    regular_end = int(datetime(2026, 11, 11, 21, 0, tzinfo=UTC).timestamp())
+    quote_time = regular_end + 2
+    quote = {
+        "symbol": "WDS", "quoteType": "EQUITY", "exchange": "NYQ",
+        "currency": "USD", "regularMarketTime": quote_time,
+        "regularMarketPrice": Decimal("21.23"),
+    }
+    screen = {
+        "screen_as_of": "2026-11-10", "screen_last_price": Decimal("21.065"),
+        "screen_market_cap": Decimal("40046674512"),
+    }
+    chart = {
+        "meta": {
+            "symbol": "WDS", "exchangeName": "NYQ", "currency": "USD",
+            "instrumentType": "EQUITY", "regularMarketTime": quote_time,
+            "regularMarketPrice": Decimal("21.23"),
+            "currentTradingPeriod": {"regular": {"end": regular_end}},
+        },
+        "timestamp": [prior_time, completed_time],
+        "indicators": {"quote": [{
+            "close": [21.06999969482422, None],
+            "open": [21.0, 21.290000915527344],
+            "high": [21.1, 21.3700008392334],
+            "low": [20.9, 21.06999969482422],
+            "volume": [700000, 728297],
+        }]},
+    }
+    monkeypatch.setattr(
+        us_market, "fetch_us_quote_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("shares missing")),
+    )
+    monkeypatch.setattr(us_market, "fetch_chart_range", lambda *_args, **_kwargs: chart)
+
+    repaired = us_market.fetch_us_completed_session_quote(
+        "WDS", completed_date, refresh=True,
+        fallback_quote=quote, prior_screen=screen,
+    )
+    assert repaired["regularMarketPrice"] == Decimal("21.23")
+    assert repaired["regularMarketPriceDerivation"] == "verified_chart_meta_regular_price_for_null_close"
+    assert repaired["marketCapDerivation"] == "prior_nasdaq_shares_x_yahoo_completed_close"
+    assert repaired["marketCap"] > 0
+
+    for mutate in (
+        lambda data: data["meta"].update(regularMarketTime=regular_end - 1),
+        lambda data: data["meta"].update(regularMarketPrice=Decimal("21.25")),
+        lambda data: data["meta"].update(symbol="OTHER"),
+        lambda data: data["indicators"]["quote"][0]["volume"].__setitem__(1, 0),
+        lambda data: data["indicators"]["quote"][0]["high"].__setitem__(1, 21.20),
+    ):
+        invalid = deepcopy(chart)
+        mutate(invalid)
+        monkeypatch.setattr(us_market, "fetch_chart_range", lambda *_args, **_kwargs: invalid)
+        with pytest.raises(ValueError, match="completed-session close"):
+            us_market.fetch_us_completed_session_quote(
+                "WDS", completed_date, refresh=True,
+                fallback_quote=quote, prior_screen=screen,
+            )
 
 
 class _FakeNewsResponse:

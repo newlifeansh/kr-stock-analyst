@@ -1033,6 +1033,8 @@ def fetch_us_completed_session_quote(
     closes = list(chart_quote.get("close") or [])
     completed_timestamp: Optional[int] = None
     completed_close: Optional[Decimal] = None
+    completed_bar_index: Optional[int] = None
+    price_derivation: Optional[str] = None
     prior_close: Optional[Decimal] = None
     prior_date: Optional[date] = None
     if prior_screen is not None:
@@ -1049,11 +1051,63 @@ def fetch_us_completed_session_quote(
         except (TypeError, ValueError, OSError):
             continue
         close = _to_decimal(_list_get(closes, index))
-        if trade_date == completed_date and close is not None and close > 0:
+        if trade_date == completed_date:
             completed_timestamp = int(timestamp)
-            completed_close = close
+            completed_bar_index = index
+            if close is not None and close > 0:
+                completed_close = close
         elif trade_date == prior_date and close is not None and close > 0:
             prior_close = close
+    if completed_timestamp is not None and completed_close is None:
+        # Yahoo sometimes publishes the completed ADR bar with its close null
+        # while both the chart metadata and separate quote give the same
+        # regular-market price. Keep this confined to market-cap reconstruction.
+        trading_period = meta.get("currentTradingPeriod") or {}
+        regular_period = trading_period.get("regular") or {}
+        try:
+            meta_time = int(meta.get("regularMarketTime") or 0)
+            quote_time = int(summary.get("regularMarketTime") or 0)
+            regular_end = int(regular_period.get("end") or 0)
+            meta_date = datetime.fromtimestamp(
+                meta_time, timezone.utc,
+            ).astimezone(NEW_YORK_TZ).date()
+            regular_end_date = datetime.fromtimestamp(
+                regular_end, timezone.utc,
+            ).astimezone(NEW_YORK_TZ).date()
+        except (TypeError, ValueError, OSError):
+            meta_time = quote_time = regular_end = 0
+            meta_date = regular_end_date = None
+        meta_price = _to_decimal(meta.get("regularMarketPrice"))
+        quote_price = _to_decimal(summary.get("regularMarketPrice"))
+        bar_open = _to_decimal(_list_get(chart_quote.get("open") or [], completed_bar_index))
+        bar_high = _to_decimal(_list_get(chart_quote.get("high") or [], completed_bar_index))
+        bar_low = _to_decimal(_list_get(chart_quote.get("low") or [], completed_bar_index))
+        bar_volume = _to_decimal(_list_get(chart_quote.get("volume") or [], completed_bar_index))
+        chart_symbol = _symbol(str(meta.get("symbol") or ""))
+        if (
+            _list_get(closes, completed_bar_index) is None
+            and meta_time == quote_time
+            and meta_time >= regular_end > 0
+            and meta_date == regular_end_date == observed_date == completed_date
+            and meta_price is not None and meta_price > 0
+            and quote_price is not None and abs(meta_price - quote_price) <= Decimal("0.005")
+            and bar_open is not None and bar_open > 0
+            and bar_high is not None and bar_high > 0
+            and bar_low is not None and bar_low > 0
+            and bar_volume is not None and bar_volume > 0
+            and bar_low - Decimal("0.005") <= meta_price <= bar_high + Decimal("0.005")
+            and chart_symbol.replace("-", ".") == code.replace("-", ".")
+            and observed_symbol.replace("-", ".") == code.replace("-", ".")
+            and str(meta.get("exchangeName") or "").upper()
+            in {"NMS", "NGM", "NCM", "NYQ", "NASDAQ", "NYSE"}
+            and str(meta.get("currency") or "").upper() == "USD"
+            and str(meta.get("instrumentType") or "").upper() == "EQUITY"
+            and observed_exchange in {"NMS", "NGM", "NCM", "NYQ", "NASDAQ", "NYSE"}
+            and observed_currency == "USD"
+            and observed_type == "EQUITY"
+        ):
+            completed_close = meta_price
+            price_derivation = "verified_chart_meta_regular_price_for_null_close"
     if completed_timestamp is None or completed_close is None:
         raise ValueError("Yahoo chart does not contain the completed-session close")
 
@@ -1127,6 +1181,8 @@ def fetch_us_completed_session_quote(
     }
     if market_cap_derivation is not None:
         repaired["marketCapDerivation"] = market_cap_derivation
+    if price_derivation is not None:
+        repaired["regularMarketPriceDerivation"] = price_derivation
     return repaired
 
 
