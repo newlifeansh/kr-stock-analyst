@@ -129,6 +129,23 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-KR-CURSOR-MINUTE-001": (
+        "tests.test_regular_session_prices.test_036460_independent_cursor_and_adjacent_volume_proofs_keep_source_history",
+        "tests.test_regular_session_prices.test_036460_cursor_conflict_rejects_unproven_price_revision[missing_yahoo]",
+        "tests.test_regular_session_prices.test_036460_cursor_conflict_rejects_unproven_price_revision[wrong_yahoo_price]",
+        "tests.test_regular_session_prices.test_036460_cursor_conflict_rejects_unproven_price_revision[wrong_yahoo_date]",
+        "tests.test_regular_session_prices.test_036460_cursor_conflict_rejects_unproven_price_revision[wrong_toss_price]",
+        "tests.test_regular_session_prices.test_036460_cursor_conflict_rejects_unproven_price_revision[changed_kis_volume]",
+        "tests.test_regular_session_prices.test_036460_cursor_conflict_rejects_unproven_price_revision[changed_opening_boundary]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[missing_proof]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[wrong_yahoo_volume]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[wrong_yahoo_price]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[wrong_yahoo_source]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[oversized_shift]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[changed_kis_cash]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[changed_daily_total]",
+        "tests.test_regular_session_prices.test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof[third_mismatch]",
+    ),
     "DATA-US-ADR-NULL-CLOSE-001": (
         "tests.test_us_market.test_completed_session_quote_uses_verified_regular_price_when_chart_close_is_null",
     ),

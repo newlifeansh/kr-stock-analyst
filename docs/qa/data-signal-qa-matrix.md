@@ -3,7 +3,7 @@
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v8.1`
 - 미국 후보 전략: `position-lifecycle-us-v3-hybrid1`
-- QA 항목: 180개
+- QA 항목: 181개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -474,6 +474,12 @@
 | QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | DATA-US-NEWS-001 | P0 | 미국 시장 실시간 뉴스 실데이터·피드 레이아웃 | gate, live, e2e<br>pytest 최신 기사 정규화·중복·기간·fail-close·독립 Google/Naver 한쪽 장애·숫자 원문 ID·KST 원문 시각·API·한국시간·2열 탭 CSS 계약 + live 기사 URL·발행시각·실제 source_feed 검사 + Playwright 320/458px 실제 피드 링크·2열 탭·여백·리플로 검사 | us-market 스테이징에 같은 미국 뉴스 RC 이미지를 배포한다.<br>Google News RSS와 네이버 금융 mainnews의 미국 관련 기사만 병렬 수집한다. Google 12초·Naver 6초 제한을 유지하며 둘 다 실패하면 unavailable이다. Naver의 숫자 언론사/기사 ID와 원문 KST 발행시각만 사용하고 실제 사용된 수집원을 표시한다.<br>비교 기준인 /dashboard?view=news 피드와 공통 컴포넌트 자산을 사용한다. | route=/us?view=news&filter=positive&market_scope=us, endpoint=/us/market/trends?days=7, reference_route=/dashboard?view=news, client_version=20261113us167, window_days=7, required_article_fields=['title', 'source', 'url', 'published_at', 'impact', 'category'], forbidden_sources=['NASDAQ Brief', 'Macro Brief'], display_timezone=Asia/Seoul, visible_feed_tabs=['뉴스', '일정'], viewports=[320, 458] | /us/market/trends?days=7&refresh=true를 조회해 status=ready, data_state=live와 기사 목록을 확인한다.<br>모든 기사가 HTTP(S) 원문 URL과 실제 출처·발행시각을 갖고 7일 범위와 미래 10분 허용치 안에 있는지 검사한다.<br>NASDAQ Brief·Macro Brief·URL이 없는 요약·조회 시각을 발행 시각으로 사용한 항목이 없는지 검사한다.<br>미국 피드를 458px·320px에서 열어 뉴스·일정이 2개의 같은 너비 탭으로 보이고 콘텐츠 빈 열이 없는지 확인한다.<br>각 기사의 원문 링크·한국시간 표시·시장 태그가 보이고 콘텐츠가 적을 때도 64vh 강제 여백이 생기지 않는지 확인한다.<br>외부 수집이 모두 실패하면 가짜 기사를 만들지 않고 잠시 후 재시도 문구로 fail-close하는지 확인한다. | 미국 시장 뉴스는 실제 원문·출처·발행시각을 가진 최근 7일 기사로만 구성된다.<br>중복 기사는 제거되고 호재·악재·중립과 AI·반도체·금리·시장 분류가 일관되게 노출된다.<br>UTC 발행시각은 한국 화면에 Asia/Seoul 시각과 ‘한국시간’ 라벨로 표시된다.<br>미국 피드는 국내증시와 같은 기사 목록 계층을 유지하되 미국에 없는 콘텐츠 탭을 빈 3열로 남기지 않고 2열로 표시한다.<br>수집 장애 시 status를 unavailable로 두고 사용자에게 재시도 안내를 표시한다. | 조회할 때마다 현재 시각으로 생성된 NASDAQ Brief·Macro Brief가 뉴스로 노출된다.<br>기사에 원문 URL이 없거나 7일보다 오래된 발행시각·미래 시각이 포함된다.<br>UTC 시각이 한국시간 변환 없이 표시된다.<br>콘텐츠 탭을 숨긴 자리가 남아 뉴스·일정 탭이 양끝으로 벌어지거나 64vh 최소 높이로 빈 여백이 생긴다.<br>뉴스 수집 실패를 현재 시각의 가짜 기사로 숨기거나 status=ready로 표시한다.<br>320px·458px에서 가로 넘침·단절·원문 링크 조작 불가가 발생한다. |
+
+## 국내 정규장 원천 검증
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DATA-KR-CURSOR-MINUTE-001 | P0 | KIS 조회 커서 가격 차이와 인접 분 거래량 배분의 독립 검증 | gate<br>pytest 036460 2026-10-16·10-23 원천 고정 fixture, KIS 커서 차이·토스 1분봉·야후 1분봉·KIS 누적대금·일별/시간외 동시호가 정합성 및 변조·누락 차단 | 원본 KIS 날짜별 분봉과 원천 해시를 보존한다.<br>2026-10-16의 KIS 15:30·15:31 시작 커서가 09:02 OHLC만 달리 반환하고, 2026-10-23의 KIS·토스 09:36/09:37 거래량 배분이 9주 다르다.<br>토스 KRX 전체 분봉·시간외 분봉, 야후 거래일 1분봉, KIS J 일별·시간외 누적 원천을 날짜·종목·조회 조건으로 고정한다. | code=036460, dates=['2026-10-16', '2026-10-23'], cursor_difference=09:02 open/low only, adjacent_shift_shares=9, maximum_allowed_shift_shares=10, accepted_state=bounded | 원본 커서와 정정 커서의 시각·수량·누적대금을 비교하고, 유일한 OHLC 차이를 토스·야후 같은 1분 가격으로 독립 확인한다.<br>인접한 두 분의 KIS·토스·야후 거래량 합계가 같고 각 KIS 누적대금 증분이 해당 분 가격 범위에 들어가는지 확인한다.<br>KIS 일별·시간외 누적 원천과 토스 15:30 동시호가가 보정 수량·대금에 맞는지 확인한다.<br>원본 unverified 증거를 보존한 채 검증된 bounded sidecar만 추가하고, 다른 날짜·출처·가격·수량·누적대금·추가 불일치를 변조해 모두 차단한다. | 두 날짜 모두 출처가 특정된 동일 KRX 정규장 가격으로 bounded 재생되고, 과거 원본 증거 해시는 바뀌지 않는다.<br>허용된 차이는 2026-10-16의 단일 시가·저가 정정과 2026-10-23의 인접 두 분 거래량 상쇄에 한정된다.<br>검증되지 않은 종목·날짜는 계속 격리한다. | KIS 조회 커서 차이를 토스·야후 확인 없이 수용하거나 금액·거래량이 바뀐 커서 차이를 가격 정정으로 취급한다.<br>인접하지 않거나 상쇄되지 않는 분 거래량 차이, 10주 초과 배분 차이, 야후 2분 합계·가격 또는 KIS 누적대금 범위를 벗어난 차이를 허용한다.<br>KIS 일별·시간외 수량·대금 불일치나 제3의 분 차이를 무시하고 기존 게시 원본을 덮어쓴다. |
 
 ## 국내 시그널 체결 가정
 

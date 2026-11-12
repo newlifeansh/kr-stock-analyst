@@ -1951,3 +1951,113 @@ def test_cancelled_watcher_never_allows_prior_or_undated_minute_revision(db, can
         )
     assert db.get(QuantSignalIntradayPathSnapshot, (code, date(2026, 11, 11))).is_final is False
     assert db.scalar(select(func.count()).select_from(SignalSessionPrice)) == 1
+
+
+def _cursor_shift_036460_fixture():
+    return json.loads(
+        (Path(__file__).parent / "fixtures" / "kr_regular_036460_cursor_shift_202610.json")
+        .read_text()
+    )
+
+
+CURSOR_SHIFT_OBSERVED = datetime(2026, 11, 13, 6, tzinfo=rsp.KST)
+
+
+def test_036460_independent_cursor_and_adjacent_volume_proofs_keep_source_history(db):
+    fixture = _cursor_shift_036460_fixture()
+    expected_volumes = {"2026-10-16": 105923, "2026-10-23": 195989}
+    for day_text, expected_volume in expected_volumes.items():
+        case = fixture[f"036460_{day_text}"]
+        day = date.fromisoformat(day_text)
+        original = rsp.regular_session_evidence(
+            "036460", day, case["raw_rows"], observed_at=CURSOR_SHIFT_OBSERVED,
+            preopen_baseline=case["preopen_baseline"],
+        )
+        assert original["state"] == "unverified"
+        source_record = rsp.store_regular_session_evidence(db, original, observed_at=CURSOR_SHIFT_OBSERVED)
+        source_hash = source_record.evidence_hash
+        if day_text == "2026-10-16":
+            rows = rsp.verified_revised_dated_kis_rows(
+                day, case["raw_rows"], case["revised_rows"], case["alternate_rows"],
+                original_baseline=case["preopen_baseline"],
+                complete_baseline=case["preopen_baseline"], code="036460",
+                toss_dated_minute_proof=case["toss_dated_minute_proof"],
+                yahoo_minute_proof=case["yahoo_cursor_proof"],
+            )
+            assert rows == case["revised_rows"]
+        else:
+            rows = case["raw_rows"]
+        corrected = rsp.regular_session_evidence(
+            "036460", day, rows, observed_at=CURSOR_SHIFT_OBSERVED,
+            preopen_baseline=case["preopen_baseline"],
+            toss_dated_minute_proof=case["toss_dated_minute_proof"],
+        )
+        assert corrected["state"] == "bounded", (day_text, corrected.get("reason"))
+        assert corrected["prices"]["volume"] == expected_volume
+        assert corrected["coverage_basis"] == rsp.TOSS_AUCTION_RECONCILIATION_BASIS
+        revised_record = rsp.store_regular_session_evidence(db, corrected, observed_at=CURSOR_SHIFT_OBSERVED)
+        db.commit()
+        assert source_record.id != revised_record.id
+        assert source_record.evidence_hash == source_hash
+        assert rsp.load_regular_session_evidence(db, "036460", day, allow_bounded=True)["prices"] == corrected["prices"]
+
+
+@pytest.mark.parametrize("mutation", [
+    "missing_yahoo", "wrong_yahoo_price", "wrong_yahoo_date", "wrong_toss_price",
+    "changed_kis_volume", "changed_opening_boundary",
+])
+def test_036460_cursor_conflict_rejects_unproven_price_revision(mutation):
+    case = deepcopy(_cursor_shift_036460_fixture()["036460_2026-10-16"])
+    proof = case["yahoo_cursor_proof"]
+    toss = case["toss_dated_minute_proof"]
+    baseline = case["preopen_baseline"]
+    if mutation == "missing_yahoo":
+        proof = None
+    elif mutation == "wrong_yahoo_price":
+        proof["rows"][0]["low"] += 50
+    elif mutation == "wrong_yahoo_date":
+        proof["date"] = "2026-10-15"
+    elif mutation == "wrong_toss_price":
+        next(c for c in toss["candles"] if c["dt"].endswith("09:03:00+09:00"))["low"] += 50
+    elif mutation == "changed_kis_volume":
+        next(r for r in case["revised_rows"] if r["trade_time"] == "090200")["volume"] += 1
+    elif mutation == "changed_opening_boundary":
+        baseline = {**baseline, "value": 0}
+    with pytest.raises(ValueError):
+        rsp.verified_revised_dated_kis_rows(
+            date(2026, 10, 16), case["raw_rows"], case["revised_rows"],
+            case["alternate_rows"], original_baseline=case["preopen_baseline"],
+            complete_baseline=baseline, code="036460",
+            toss_dated_minute_proof=toss, yahoo_minute_proof=proof,
+        )
+
+
+@pytest.mark.parametrize("mutation", [
+    "missing_proof", "wrong_yahoo_volume", "wrong_yahoo_price", "wrong_yahoo_source",
+    "oversized_shift", "changed_kis_cash", "changed_daily_total", "third_mismatch",
+])
+def test_036460_two_minute_volume_shift_rejects_missing_or_conflicting_proof(mutation):
+    case = deepcopy(_cursor_shift_036460_fixture()["036460_2026-10-23"])
+    proof = case["toss_dated_minute_proof"]
+    shift = proof["minute_volume_reallocation"]
+    if mutation == "missing_proof":
+        del proof["minute_volume_reallocation"]
+    elif mutation == "wrong_yahoo_volume":
+        shift["yahoo_minute_proof"]["rows"][0]["volume"] += 1
+    elif mutation == "wrong_yahoo_price":
+        shift["yahoo_minute_proof"]["rows"][0]["low"] += 50
+    elif mutation == "wrong_yahoo_source":
+        shift["yahoo_minute_proof"]["meta"]["symbol"] = "000660.KS"
+    elif mutation == "oversized_shift":
+        next(c for c in proof["candles"] if c["dt"].endswith("09:37:00+09:00"))["volume"] += 2
+    elif mutation == "changed_kis_cash":
+        next(r for r in case["raw_rows"] if r["trade_time"] == "093600")["trading_value"] += 100000
+    elif mutation == "changed_daily_total":
+        proof["auction_reconciliation"]["kis_daily"]["row"]["acml_vol"] = "200069"
+    elif mutation == "third_mismatch":
+        next(c for c in proof["candles"] if c["dt"].endswith("09:39:00+09:00"))["volume"] += 1
+    result = rsp.regular_session_evidence(
+        "036460", date(2026, 10, 23), case["raw_rows"], observed_at=CURSOR_SHIFT_OBSERVED,
+        preopen_baseline=case["preopen_baseline"], toss_dated_minute_proof=proof,
+    )
+    assert result["state"] == "unverified", (mutation, result.get("reason"))
