@@ -101,6 +101,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quant_signals.test_next_open_policy_metadata_follows_last_completed_signal_date",
         "tests.test_quant_signals.test_next_open_entry_does_not_invent_same_day_exit_without_minute_path",
         "tests.test_web_push.test_kr_next_open_buy_candidate_alerts_at_next_session_open_only",
+        "tests.test_web_push.test_watchlist_next_open_candidate_alert_uses_prior_close_and_shared_key",
         "tests.test_live_order_guard.test_next_open_model_event_cannot_be_promoted_to_intraday_order",
         "tests.test_app.test_next_open_release_changes_immutable_dashboard_asset_urls",
         "tests.test_home_ai_response.test_kr_next_open_candidate_uses_next_session_label",
