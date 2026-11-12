@@ -70,6 +70,24 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-KR-LEGACY-WARMUP-001": (
+        "tests.test_legacy_warmup_repair.test_missing_warmup_is_frozen_without_rewriting_display_history[0043B0]",
+        "tests.test_legacy_warmup_repair.test_missing_warmup_is_frozen_without_rewriting_display_history[423160]",
+        "tests.test_legacy_warmup_repair.test_missing_warmup_is_frozen_without_rewriting_display_history[036460]",
+        "tests.test_legacy_warmup_repair.test_missing_warmup_is_frozen_without_rewriting_display_history[273130]",
+        "tests.test_legacy_warmup_repair.test_warmup_repair_rejects_unverified_price_history[source]",
+        "tests.test_legacy_warmup_repair.test_warmup_repair_rejects_unverified_price_history[symbol]",
+        "tests.test_legacy_warmup_repair.test_warmup_repair_rejects_unverified_price_history[close]",
+        "tests.test_legacy_warmup_repair.test_warmup_repair_rejects_unverified_price_history[overlap]",
+    ),
+    "SIG-KR-CONFIRMED-PLACEHOLDER-001": (
+        "tests.test_confirmed_path_repair.test_confirmed_entry_path_seals_only_after_independent_placeholder_proof[000810]",
+        "tests.test_confirmed_path_repair.test_confirmed_entry_path_seals_only_after_independent_placeholder_proof[138040]",
+        "tests.test_confirmed_path_repair.test_confirmed_placeholder_rejects_unproven_or_pre_entry_revision[naver_close]",
+        "tests.test_confirmed_path_repair.test_confirmed_placeholder_rejects_unproven_or_pre_entry_revision[naver_volume]",
+        "tests.test_confirmed_path_repair.test_confirmed_placeholder_rejects_unproven_or_pre_entry_revision[yahoo_low]",
+        "tests.test_confirmed_path_repair.test_confirmed_placeholder_rejects_unproven_or_pre_entry_revision[decision_time]",
+    ),
     "SIG-KR-NEXT-OPEN-001": (
         "tests.test_quant_signals.test_kr_next_open_entry_is_signal_date_scoped_and_keeps_old_breakout",
         "tests.test_quant_signals.test_kr_next_open_entry_waits_for_completed_regular_bar_and_rejects_gap",

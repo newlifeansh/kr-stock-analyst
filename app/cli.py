@@ -1411,6 +1411,53 @@ def corroborate_regular_path_command(
     typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+@app.command("corroborate-confirmed-placeholder")
+def corroborate_confirmed_placeholder_command(
+    code: str = typer.Option(..., "--code"),
+    trade_date: str = typer.Option(..., "--trade-date"),
+    proof_file: Path = typer.Option(..., "--proof-file"),
+    persist: bool = typer.Option(False, "--persist"),
+) -> None:
+    """Seal a proven post-confirmation placeholder without publishing signals."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.services.confirmed_path_repair import corroborate_confirmed_placeholder_path
+
+    code = code.strip().upper()
+    if len(code) != 6 or not code.isascii() or not code.isalnum():
+        raise typer.BadParameter("--code requires one six-character KRX symbol")
+    day = datetime.strptime(trade_date, "%Y-%m-%d").date()
+    source_proof = json.loads(proof_file.read_text(encoding="utf-8")).get(code)
+    if not isinstance(source_proof, dict):
+        raise typer.BadParameter("--proof-file must contain the selected code")
+    with SessionLocal() as db:
+        report = corroborate_confirmed_placeholder_path(
+            db, code, day, observed_at=datetime.now(ZoneInfo("Asia/Seoul")),
+            source_proof=source_proof, persist=persist,
+        )
+    typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+@app.command("restore-legacy-warmup")
+def restore_legacy_warmup_command(
+    code: str = typer.Option(..., "--code"),
+    proof_file: Path = typer.Option(..., "--proof-file"),
+    persist: bool = typer.Option(False, "--persist"),
+) -> None:
+    """Freeze historical KIS warmup rows for one forward-only replay."""
+    from app.services.legacy_warmup_repair import restore_legacy_warmup
+
+    code = code.strip().upper()
+    if len(code) != 6 or not code.isascii() or not code.isalnum():
+        raise typer.BadParameter("--code requires one six-character KRX symbol")
+    proof = json.loads(proof_file.read_text(encoding="utf-8")).get(code)
+    if not isinstance(proof, dict):
+        raise typer.BadParameter("--proof-file must contain the selected code")
+    with SessionLocal() as db:
+        report = restore_legacy_warmup(db, code, proof, persist=persist)
+    typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+
+
 @app.command("migrate-performance-indexes")
 def migrate_performance_indexes_command(
     dry_run: bool = typer.Option(

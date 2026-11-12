@@ -3,7 +3,7 @@
 - 카탈로그 버전: `1.0`
 - 기준 전략: `position-lifecycle-v8.1`
 - 미국 후보 전략: `position-lifecycle-us-v3-hybrid1`
-- QA 항목: 171개
+- QA 항목: 173개
 - 상태 규칙: `PASS` 정상, `WARN` 외부 원천 일시 장애 또는 허용된 caution, `FAIL` 계약 위반
 
 이 문서는 `app/qa/data_signal_cases.json`에서 생성합니다. 직접 수정하지 않습니다.
@@ -523,3 +523,15 @@
 | QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SIG-KR-REGULAR-VALIDATION-CACHE-001 | P0 | 동일 정규장 근거 재검증의 내용 기반 재사용 | gate<br>pytest 동일 저장 근거 재계산 1회·반환값 독립성·같은 세션의 원본 및 해시 변조 차단·현재일 근거 보유 시 종목별 envelope 단일 준비·근거 누락 시 선행 저장 후 과거 경로 격리 fixture; 운영 게시 간격은 SIG-PUSH-INTRADAY-001 live와 수집기 스냅샷 시각으로 확인 | 날짜별 KRX 정규장 근거가 별도 테이블에 해시와 함께 저장돼 있다.<br>Top150 계산은 동일 근거를 상대 강도와 체결 재생에서 반복 조회한다. | cache_scope=process_local_bounded_64_mib, identity=['basis_version', 'record_id', 'stock_code', 'trade_date', 'observed_at', 'state', 'evidence_hash', 'stored_payload_sha256'], fallback=recompute_on_any_content_change, scan_envelope=one stock at a time, once per canonical feed build, peer_context=build only when a strategy-version-matched current-day evidence snapshot is missing | 같은 저장 근거를 두 번 읽어 가격·거래량·경로가 같고 재계산은 한 번만 실행되는지 확인한다.<br>호출자 반환값을 변조해도 다음 읽기에 전파되지 않는지 확인한다.<br>같은 DB 세션에서 저장 원본 또는 해시를 바꾼 뒤 다시 읽으면 캐시를 우회하고 무결성 오류를 반환하는지 확인한다.<br>현재일 독립 근거가 있으면 Top150의 각 종목 정규장 envelope를 한 번만 준비하고 동종 종목 비교 기준을 다시 계산하지 않는지 확인한다.<br>현재일 근거가 없으면 해당 근거를 먼저 고정하고 과거 분봉 경로 오류는 계속 격리하는지 확인한다. | 변경되지 않은 근거만 검증 결과를 재사용하고 신호 계산 결과를 바꾸지 않는다.<br>원본·해시·상태가 바뀌면 재검증하며 불일치 근거로 신호를 확정하지 않는다.<br>정상 장중 반복 스캔은 중복 가격 근거 검증을 생략하되 누락 당일 근거는 동일한 상대강도 집합으로 생성하고 과거 경로 실패는 확정 시그널을 차단한다. | 변조된 저장 근거가 캐시 적중으로 승인된다.<br>호출자의 반환값 수정이 다음 시그널 계산에 전파된다.<br>캐시가 무제한으로 증가한다.<br>Top150 근거를 모두 메모리에 보관하거나 한 종목의 envelope를 정상 장중 스캔에서 두 번 검증한다.<br>현재일 근거가 없는데 비교 기준 생성을 건너뛰거나 오래된 경로 오류를 무시하고 매수를 확정한다. |
+
+## 국내 장중 경로 봉인
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SIG-KR-CONFIRMED-PLACEHOLDER-001 | P0 | 확정 관측 후 임시 분봉의 독립 근거 재검증 | gate<br>pytest 실제 11월 4·5일 분봉·네이버 누적 거래량·야후 OHLC 회귀 fixture와 변조 차단 | 매수 관측은 이미 확정됐고 이후 저장된 마지막 1분봉이 거래량 0인 임시 표시다.<br>같은 날짜의 KIS 완료 정규장 경로와 독립 네이버·야후 1분봉이 있다. | codes=['000810', '138040'], prior_path_state=unsealed, confirmed_order=before corrected minute, proof_sources=['KIS dated 1m', 'Naver dated 1m close and cumulative volume', 'Yahoo dated 1m OHLC'] | 저장 경로 해시와 확정 매수 판정 시각을 확인한다.<br>KIS 완료 경로의 모든 종가·누적 거래량을 네이버와 대조하고 보정 대상 봉의 OHLC를 야후와 대조한다.<br>확정 판정 이후 마지막 거래량 0 봉 하나만 실제 체결 봉으로 교정해 봉인한다.<br>근거 변조·매수 시각 이전 보정·기존 체결 봉 수정은 거부하고 알림과 과거 공개 이력은 유지한다. | 검증된 2종목 경로만 최종 봉인된다.<br>이미 확정한 매수 판정과 공개 이력은 바뀌지 않고 새 알림은 발송되지 않는다.<br>독립 근거가 불일치하면 격리 상태를 유지한다. | 확정 매수 이전 봉을 다시 계산하거나 기존 체결 근거를 덮어쓴다.<br>네이버 종가·누적 거래량 또는 야후 OHLC 불일치에도 봉인한다.<br>재검증 중 신호를 게시하거나 푸시를 발송한다. |
+
+## 국내 정규장 신호 전환
+
+| QA ID | 우선순위 | 제목 | 실행 | 사전조건 | 입력 | 검증 절차 | 기대 결과 | 실패 기준 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SIG-KR-LEGACY-WARMUP-001 | P0 | 전환 전 준비 일봉의 독립 확인 및 미래 신호 전용 고정 | gate<br>pytest 실제 0043B0·423160·036460·273130 원천 및 기존 일봉 회귀 fixture, 변조·중복 고정 차단 | 2026-10-13 이후 시그널 재생에 125개 이상의 완료 일봉이 필요하다.<br>기존 화면 일봉 일부는 장중 스냅샷이어서 과거 표시와 공개 이력을 덮어쓰지 않는다. | codes=['0043B0', '423160', '036460', '273130'], source=KIS dated original daily, independent_last_close=KRX KIND or Naver monthly 2026-10-12, minimum_matching_existing_days=20, baseline=forward-only immutable 2026-10-13 transition | 날짜 순서와 OHLCV가 완전한 KIS 완료 일봉 125개 이상을 검사한다.<br>10월 12일 종가를 독립 원천과 확인하고 기존 9월 11일 이전 완료 일봉 20개 이상과 대조한다.<br>검증된 기준선만 전환 버전에 고정하고 기존 화면 일봉·공개 신호·알림은 그대로 둔다.<br>원천·종목·종가·기존 일봉 일치성이 바뀌면 저장을 거부한다. | 4종목 모두 검증된 준비 일봉 150개가 미래 신호 전용 기준선으로 고정된다.<br>기존 일봉과 과거 공개 결과가 변하지 않으며 새 알림은 발송되지 않는다. | 125개 미만이나 잘못된 과거 일봉을 기준선으로 승인한다.<br>독립 종가 또는 기존 완료 일봉과 충돌하는 근거를 승인한다.<br>기존 일봉·공개 신호를 수정하거나 알림을 발송한다. |
