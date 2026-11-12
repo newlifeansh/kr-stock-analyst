@@ -70,6 +70,10 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-US-ADR-HALF-CENT-001": (
+        "tests.test_us_market.test_completed_session_quote_accepts_only_half_cent_prior_screen_rounding",
+        "tests.test_us_market.test_completed_session_quote_uses_verified_prior_screen_when_yahoo_omits_shares",
+    ),
     "SIG-KR-LEGACY-WARMUP-001": (
         "tests.test_legacy_warmup_repair.test_missing_warmup_is_frozen_without_rewriting_display_history[0043B0]",
         "tests.test_legacy_warmup_repair.test_missing_warmup_is_frozen_without_rewriting_display_history[423160]",
@@ -1045,6 +1049,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_quote_summary_price_uses_yahoo_alias_when_dotted_symbol_is_incomplete",
         "tests.test_us_market."
         "test_completed_session_quote_rebuilds_stale_adr_from_chart_and_shares",
+        "tests.test_us_market."
+        "test_completed_session_quote_accepts_only_half_cent_prior_screen_rounding",
         "tests.test_us_signal_universe."
         "test_prior_session_bridge_repairs_isolated_batch_omission_with_quote_price",
         "tests.test_us_signal_universe."

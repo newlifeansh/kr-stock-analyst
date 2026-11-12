@@ -1088,8 +1088,10 @@ def fetch_us_completed_session_quote(
             and screen_cap is not None and screen_cap > 0
             and screen_price is not None and screen_price > 0
             and prior_close is not None
-            and prior_close.quantize(Decimal("0.01"))
-            == screen_price.quantize(Decimal("0.01"))
+            # Nasdaq can report a half-cent last sale (WDS: 21.065) while
+            # Yahoo's daily chart rounds that trade to cents (21.07).
+            # Half-cent is the maximum possible display rounding difference.
+            and abs(prior_close - screen_price) <= Decimal("0.005")
             and current_price is not None and current_price > 0
             and current_price.quantize(Decimal("0.01"))
             == completed_close.quantize(Decimal("0.01"))
