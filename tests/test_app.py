@@ -1661,6 +1661,55 @@ def test_market_quant_signal_detail_queue_does_not_hold_candidate_loop(monkeypat
 
 
 @pytest.mark.qa_gate
+def test_market_signal_refreshes_completed_close_once_before_open(monkeypatch):
+    from app import main as main_module
+
+    kst = ZoneInfo("Asia/Seoul")
+    phase = [datetime(2026, 11, 13, 8, 49, tzinfo=kst)]
+    next_phases = [
+        datetime(2026, 11, 13, 8, 51, tzinfo=kst),
+        datetime(2026, 11, 13, 8, 56, tzinfo=kst),
+        datetime(2026, 11, 13, 9, 0, tzinfo=kst),
+    ]
+    scans = []
+
+    class PhaseDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return phase[0].astimezone(tz) if tz else phase[0]
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def advance(_seconds):
+        if next_phases:
+            phase[0] = next_phases.pop(0)
+        else:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "datetime", PhaseDatetime)
+    monkeypatch.setattr(
+        main_module, "is_korea_market_session_date", lambda *_args: True
+    )
+    monkeypatch.setattr(
+        main_module, "_quant_signal_quote_refresh_active",
+        lambda now: now.time() >= main_module.time(9, 0),
+    )
+    monkeypatch.setattr(
+        main_module, "_refresh_market_quant_signal_views_snapshot",
+        lambda **_kwargs: scans.append(phase[0].strftime("%H:%M"))
+        or {"status": "ready", "snapshot_generated_at": phase[0].isoformat()},
+    )
+    monkeypatch.setattr(main_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(main_module.asyncio, "sleep", advance)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module._run_market_quant_signal_refresh_loop())
+
+    assert scans == ["08:49", "08:51", "09:00"]
+
+
+@pytest.mark.qa_gate
 def test_market_quant_signal_detail_worker_uses_separate_scope(monkeypatch):
     from app import main as main_module
 
