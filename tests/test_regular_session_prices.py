@@ -740,6 +740,53 @@ def test_cross_source_auction_never_recovers_wrong_venue_date_or_bad_prefix():
     assert rsp.regular_session_evidence("005930", DAY, rows[:70] + rows[71:], observed_at=OBSERVED, closing_auction_evidence=naver_auction_fixture())["state"] == "unverified"
 
 
+def test_november_10_last_continuous_trade_is_verified_and_replayed(db):
+    from app.services.regular_price_replay import regular_price_envelope, regular_ordered_paths
+
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "kr_regular_122630_20261110.json").read_text())
+    trade_date = date.fromisoformat(fixture["trade_date"])
+    observed_at = datetime(2026, 11, 13, 2, 30, tzinfo=rsp.KST)
+
+    def verify(source):
+        return rsp.regular_session_evidence(
+            fixture["code"], trade_date, source["raw_rows"],
+            observed_at=observed_at,
+            preopen_baseline=source["preopen_baseline"],
+            closing_auction_evidence=source["closing_auction_evidence"],
+        )
+
+    result = verify(fixture)
+    assert result["state"] == "bounded", result["reason"]
+    assert result["prices"]["volume"] == 24_919_754
+    assert result["prices"]["close"] == 58_435
+    assert [(row["trade_time"], row["price"], row["volume"]) for row in result["regular_rows"][-2:]] == [
+        ("152000", 58_525, 20), ("153000", 58_435, 149_796),
+    ]
+    stored = rsp.store_regular_session_evidence(db, result, observed_at=observed_at)
+    db.commit()
+    assert stored.state == "bounded"
+    loaded = rsp.load_regular_session_evidence(db, fixture["code"], trade_date, allow_bounded=True)
+    assert loaded["regular_rows"] == result["regular_rows"]
+    envelope = regular_price_envelope(
+        db, fixture["code"], [DailyPrice(code=fixture["code"], trade_date=trade_date, close=58_435)],
+        completed_through=trade_date,
+    )
+    assert len(regular_ordered_paths(envelope)[trade_date]) == 380
+
+    bad_naver_volume = deepcopy(fixture)
+    bad_naver_volume["closing_auction_evidence"]["priceInfos"]["20261110"][-2]["accumulatedTradingVolume"] += 1
+    bad_naver_price = deepcopy(fixture)
+    bad_naver_price["closing_auction_evidence"]["priceInfos"]["20261110"][-2]["currentPrice"] += 5
+    bad_kis_money = deepcopy(fixture)
+    next(row for row in bad_kis_money["raw_rows"] if row["trade_time"] == "152000")["trading_value"] += 1
+    missing_kis_trade = deepcopy(fixture)
+    missing_kis_trade["raw_rows"] = [row for row in missing_kis_trade["raw_rows"] if row["trade_time"] != "152000"]
+    after_auction_trade = deepcopy(fixture)
+    after_auction_trade["raw_rows"].append({**next(row for row in after_auction_trade["raw_rows"] if row["trade_time"] == "152000"), "trade_time": "152100", "volume": 1})
+    for changed in (bad_naver_volume, bad_naver_price, bad_kis_money, missing_kis_trade, after_auction_trade):
+        assert verify(changed)["state"] == "unverified"
+
+
 def test_regular_backfill_checks_scheduled_days_missing_from_display_database(db):
     from types import SimpleNamespace
     provider = SimpleNamespace(fetch_regular_session_data=lambda *_args: {"rows": minute_rows()})
