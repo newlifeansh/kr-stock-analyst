@@ -2461,7 +2461,10 @@ def _simulate(
     lifecycle_start_date: Optional[date] = None,
     entry_filter_version: Optional[str] = None,
     observed_entries: Optional[dict[date, dict[str, Any]]] = None,
+    comparison_execution_mode: Optional[str] = None,
 ) -> dict[str, Any]:
+    if comparison_execution_mode not in (None, "daily_next_open", "hybrid_next_open"):
+        raise ValueError("unsupported comparison execution mode")
     lifecycle_start_index = WARMUP_ROWS
     if lifecycle_start_date is not None:
         lifecycle_start_index = max(WARMUP_ROWS, next(
@@ -2881,7 +2884,14 @@ def _simulate(
                 position = None
                 last_exit_index = index
 
-        if position and bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE:
+        if (
+            position
+            and (
+                bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                or comparison_execution_mode == "hybrid_next_open"
+            )
+            and comparison_execution_mode != "daily_next_open"
+        ):
             ordered_minutes = session_minutes
             same_day_next_open_entry = bool(
                 position["entry_date"] == bar.trade_date
@@ -3077,7 +3087,13 @@ def _simulate(
             position["peak_price"] = max(
                 position["peak_price"],
                 session_peak
-                if bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                if (
+                    (
+                        bar.trade_date >= INTRADAY_EXECUTION_EFFECTIVE_DATE
+                        or comparison_execution_mode == "hybrid_next_open"
+                    )
+                    and comparison_execution_mode != "daily_next_open"
+                )
                 else bar.close,
             )
             marked_equity = cash + (shares * bar.close * (1.0 - _execution_cost(indicator)))
@@ -3203,7 +3219,10 @@ def _simulate(
                     "side": "buy",
                     "signal_date": bar.trade_date,
                     **({"entry_execution_policy_version": NEXT_OPEN_ENTRY_POLICY_VERSION}
-                       if bar.trade_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE else {}),
+                       if (
+                           bar.trade_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+                           or comparison_execution_mode in ("daily_next_open", "hybrid_next_open")
+                       ) else {}),
                     "score": indicator["score"],
                     "reason": (
                         f"{_signal_reason(reason_indicator, 'buy')} · "

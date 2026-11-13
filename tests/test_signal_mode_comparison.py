@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 import app.services.signal_mode_comparison as mode_comparison
+from scripts.compare_signal_modes import _run_pair
 from app.services import quant_signals as qs
 from app.services.signal_mode_comparison import (
     IntradayExitDecision,
@@ -83,6 +84,98 @@ def test_hybrid_proxy_is_stop_first_when_low_and_target_share_a_candle() -> None
     assert decision.side == "sell"
     assert decision.price == 98.0
     assert "하드 리스크선" in decision.reason
+
+
+def test_daily_proxy_remains_close_confirmed_after_intraday_policy_date(monkeypatch) -> None:
+    bars = [
+        qs.PriceBar(
+            trade_date=date(2026, 10, 1) + timedelta(days=index),
+            open=100.0,
+            high=106.0 if index == 66 else 101.0,
+            low=99.0,
+            close=101.0 if index == 66 else 100.0,
+            volume=1_000_000.0,
+            trading_value=30_000_000_000.0,
+        )
+        for index in range(70)
+    ]
+    indicators = [{**_indicator(), "ema10": 101.0} for _ in bars]
+    monkeypatch.setattr(qs, "_entry_signal", lambda bar, indicator, **kwargs: True)
+    monkeypatch.setattr(qs, "_entry_setup_kind", lambda bar, indicator, **kwargs: "trend_continuation")
+    monkeypatch.setattr(qs, "_signal_reason", lambda indicator, side: "test entry")
+    monkeypatch.setattr(
+        qs,
+        "entry_confirmation_decision",
+        lambda *args, **kwargs: {"allowed": True, "reason": "test", "state": "ready"},
+    )
+
+    daily = qs._simulate(bars, indicators, comparison_execution_mode="daily_next_open")
+    hybrid = qs._simulate(bars, indicators)
+    same_entry_hybrid = qs._simulate(
+        bars, indicators, comparison_execution_mode="hybrid_next_open"
+    )
+
+    assert daily["performance"]["completed_trades"] == 0
+    assert daily["performance"]["turnover_percent"] == 100.0
+    assert hybrid["performance"]["turnover_percent"] > daily["performance"]["turnover_percent"]
+    assert same_entry_hybrid["performance"]["turnover_percent"] > daily["performance"]["turnover_percent"]
+
+
+def test_hybrid_comparison_uses_next_open_without_intraday_breakout(monkeypatch) -> None:
+    bars = [
+        qs.PriceBar(
+            trade_date=date(2026, 8, 1) + timedelta(days=index),
+            open=100.0,
+            high=101.0,
+            low=99.0,
+            close=100.0,
+            volume=1_000_000.0,
+            trading_value=30_000_000_000.0,
+        )
+        for index in range(70)
+    ]
+    indicators = [{**_indicator(), "prior_high": 102.0, "ema10": 101.0} for _ in bars]
+    monkeypatch.setattr(qs, "_entry_signal", lambda bar, indicator, **kwargs: True)
+    monkeypatch.setattr(qs, "_entry_setup_kind", lambda bar, indicator, **kwargs: "trend_continuation")
+    monkeypatch.setattr(qs, "_signal_reason", lambda indicator, side: "test entry")
+    monkeypatch.setattr(
+        qs,
+        "entry_confirmation_decision",
+        lambda *args, **kwargs: {"allowed": True, "reason": "test", "state": "ready"},
+    )
+
+    current = qs._simulate(bars, indicators)
+    comparable = qs._simulate(
+        bars, indicators, comparison_execution_mode="hybrid_next_open"
+    )
+
+    assert current["performance"]["turnover_percent"] == 0.0
+    assert comparable["performance"]["turnover_percent"] == 100.0
+
+
+def test_mode_report_uses_same_price_only_entry_assumption_after_evidence_date(monkeypatch) -> None:
+    bars = [
+        qs.PriceBar(
+            trade_date=date(2026, 9, 1) + timedelta(days=index),
+            open=100.0,
+            high=101.0,
+            low=99.0,
+            close=100.0,
+            volume=1_000_000.0,
+            trading_value=30_000_000_000.0,
+        )
+        for index in range(70)
+    ]
+    indicators = [{**_indicator(), "ema10": 101.0} for _ in bars]
+    monkeypatch.setattr(qs, "_entry_signal", lambda bar, indicator, **kwargs: True)
+    monkeypatch.setattr(qs, "_entry_setup_kind", lambda bar, indicator, **kwargs: "trend_continuation")
+    monkeypatch.setattr(qs, "_signal_reason", lambda indicator, side: "test entry")
+
+    daily, hybrid, full_intraday = _run_pair(bars, indicators)
+
+    assert daily["turnover_percent"] >= 100.0
+    assert hybrid["turnover_percent"] >= 100.0
+    assert full_intraday["turnover_percent"] >= 100.0
 
 
 def test_full_intraday_proxy_enters_at_signal_day_close(monkeypatch) -> None:
