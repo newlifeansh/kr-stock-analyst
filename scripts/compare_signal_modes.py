@@ -1,10 +1,11 @@
-"""Compare the current daily-open signal model with the hybrid sell model.
+"""Compare pure close-only and intraday OHLC execution counterfactuals.
 
 This report is intentionally an analysis artifact.  It uses the same daily
-entries, strategy-date-aware rules, and execution-cost model for both runs.
-The hybrid side only changes hard-stop and profit-target sells, replayed with a
-conservative daily OHLC proxy because persistent intraday history is not yet
-available in the application database.
+price-only entries and execution-cost model for all runs. Independent entry
+evidence and market-regime vetoes are omitted in every mode. The hybrid side
+changes hard-stop and profit-target sells, replayed with a conservative daily
+OHLC proxy because persistent intraday history is not yet available in the
+application database. This report is not realized operational performance.
 """
 
 from __future__ import annotations
@@ -62,10 +63,25 @@ def _run_pair(
     *,
     performance_start_index: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    # The OHLC proxy has no independent-evidence ledger. Give the audited
+    # simulator the same price-only entry assumption for a comparable replay.
+    # This is a counterfactual execution comparison, not operational P&L.
+    price_only_evidence = {
+        bar.trade_date: {
+            "quality": {"state": "ready"},
+            "required_supports": {"trend_continuation": 1, "early_turn": 2},
+            "supportive_count": 2,
+            "caution_count": 0,
+            "vetoes": [],
+        }
+        for bar in bars
+    }
     daily = qs._simulate(
         bars,
         indicators,
+        entry_evidence_by_date=price_only_evidence,
         performance_start_index_override=performance_start_index,
+        comparison_execution_mode="daily_next_open",
     )
     hybrid = simulate_hybrid_ohlc_proxy(
         bars,
@@ -203,7 +219,7 @@ def build_report(
     return {
         "generated_at": datetime.now(timezone.utc),
         "strategy_version": qs.STRATEGY_VERSION,
-        "comparison_candidate": "hybrid-sell-intraday-v7.5-rc2",
+        "comparison_candidate": "price-only-execution-mode-comparison-v2",
         "latest_price_date": latest_price_date,
         "universe_market_cap_date": latest_market_cap_date,
         "universe_limit": universe_limit,
@@ -213,11 +229,13 @@ def build_report(
         "symbols_skipped": skipped,
         "scope": {
             "entries": "same close-confirmed entries and next-open execution",
+            "entry_evidence": "price-only counterfactual for all modes; independent evidence and market veto not replayed",
             "normal_trend_exits": "same close-confirmed exits and next-open execution",
             "hybrid_sell_exits": "hard stop and +3%/+5% profit targets within the current OHLC bar",
             "full_intraday_proxy": "signal-day close entry plus the same OHLC-bar intraday sell rules",
             "costs": "same liquidity/volatility-dependent one-way execution cost",
             "intraday_data": "not available; daily OHLC conservative proxy, not a minute-level fill replay",
+            "operational_return": "not measured by this report",
         },
         "aggregate": aggregate,
         "recent_month_aggregate": recent_aggregate,

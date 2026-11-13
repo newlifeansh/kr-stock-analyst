@@ -1655,14 +1655,14 @@
       "id": "SIG-EXECUTION-004",
       "title": "종가형·하이브리드·장중 매수매도 비교",
       "domain": "시그널 체결 모델",
-      "priority": "P1",
+      "priority": "P0",
       "modes": ["gate"],
-      "automation": "pytest deterministic OHLC proxy + three-mode comparison report artifact",
+      "automation": "pytest deterministic close-only and OHLC proxy fixtures + three-mode comparison report artifact",
       "preconditions": ["동일 일봉 이력·동일 전략 규칙·동일 체결비용과 +3%/+5% 목표를 준비한다."],
-      "inputs": {"daily_mode": "close-confirmed then next-open", "hybrid_mode": "close-confirmed entries with intraday sell proxy", "full_intraday_mode": "signal-day close entry with intraday sell proxy", "ambiguous_candle": "stop-first"},
-      "steps": ["동일 종목·기간을 종가형·하이브리드형·장중 매수매도형으로 각각 재생한다.", "하이브리드형은 진입을 다음 시가에 두고 하드 리스크선과 +3%/+5% 매도만 현재 일봉 OHLC 안에서 우선 처리한다.", "장중 매수매도형은 일봉 신호가 확인된 당일 종가 진입 프록시와 같은 장중 매도 처리를 사용한다.", "수익률·최대낙폭·승률·거래횟수·회전율의 차이를 보고서에 기록한다."],
-      "expected": ["진입과 일반 추세청산은 종가형·하이브리드형에서 동일하고, 장중 매수매도형만 신호일 종가 프록시로 진입한다.", "저가와 목표가가 같은 봉에 함께 닿으면 낙관적 체결을 만들지 않고 보호선 우선으로 계산한다.", "실제 분봉 이력이 없으므로 장중 매수 결과는 종가 진입 프록시임이 보고서에 표시된다."],
-      "failure_criteria": ["비교 중 전략 규칙·과거 날짜별 사다리·체결비용이 달라진다.", "OHLC만으로 장중 경로 또는 장중 매수 시점을 확정했다고 표시하거나 같은 봉을 목표가 우선으로 계산한다.", "세 모드의 지표 차이와 데이터 한계가 산출물에 남지 않는다."]
+      "inputs": {"daily_mode": "close-confirmed entry and exit then next-open throughout the entire sample", "hybrid_mode": "close-confirmed entries with intraday sell proxy", "full_intraday_mode": "signal-day close entry with intraday sell proxy", "entry_evidence": "same price-only counterfactual across modes", "ambiguous_candle": "stop-first", "intraday_policy_effective_date": "2026-10-03"},
+      "steps": ["동일 종목·기간을 종가형·하이브리드형·장중 매수매도형으로 각각 재생한다.", "8월 21일 이후 독립 근거 적용 기간에도 종가형에 동일한 가격조건 전용 가상 근거를 주입해 세 모드의 진입 가정을 맞춘다.", "10월 3일 이후에도 종가형 매도는 장중 고가·저가가 아니라 완료 종가에서 판정하고 다음 시가에 체결한다.", "하이브리드형은 진입을 다음 시가에 두고 하드 리스크선과 +3%/+5% 매도만 현재 일봉 OHLC 안에서 우선 처리한다.", "장중 매수매도형은 일봉 신호가 확인된 당일 종가 진입 프록시와 같은 장중 매도 처리를 사용한다.", "수익률·최대낙폭·승률·거래횟수·회전율의 차이를 보고서에 기록한다."],
+      "expected": ["진입과 일반 추세청산은 종가형·하이브리드형에서 동일하고, 장중 매수매도형만 신호일 종가 프록시로 진입한다.", "종가형은 10월 3일 이후에도 장중 목표가 터치만으로 수익확정하지 않는다.", "모든 결과에 독립 매수 근거·시장 차단을 재생하지 않은 가격조건 전용 가상 비교임을 명시한다.", "저가와 목표가가 같은 봉에 함께 닿으면 낙관적 체결을 만들지 않고 보호선 우선으로 계산한다.", "실제 분봉 이력이 없으므로 장중 매수 결과는 종가 진입 프록시임이 보고서에 표시된다."],
+      "failure_criteria": ["종가형 결과에 10월 3일 이후 장중 매도 규칙을 혼합한다.", "한 모드만 8월 21일 이후 독립 근거 부족으로 진입이 막혀 서로 다른 진입 조건을 비교한다.", "가격조건 전용 가상 수익률을 운영 실현 수익률로 표시한다.", "비교 중 전략 규칙·과거 날짜별 사다리·체결비용이 달라진다.", "OHLC만으로 장중 경로 또는 장중 매수 시점을 확정했다고 표시하거나 같은 봉을 목표가 우선으로 계산한다.", "세 모드의 지표 차이와 데이터 한계가 산출물에 남지 않는다."]
     },
     {
       "id": "SIG-KR-NEXT-OPEN-001",
