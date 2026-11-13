@@ -55,6 +55,7 @@ from app.services.quant_signals import (
     NEXT_OPEN_ENTRY_POLICY_VERSION,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     SNAPSHOT_MAX_FUTURE_SKEW_SECONDS,
+    STRATEGY_VERSION,
     load_external_market_quant_signal_feed,
     load_market_quant_signal_snapshot,
     load_quant_signal_payload,
@@ -778,6 +779,51 @@ def _fresh_v8_intraday_market_snapshot(snapshot: dict[str, object], now: datetim
         return False
     age_seconds = (current - generated_at.astimezone(KST)).total_seconds()
     return -SNAPSHOT_MAX_FUTURE_SKEW_SECONDS <= age_seconds <= 600
+
+
+def _fresh_next_open_market_snapshot(
+    snapshot: dict[str, object], now: datetime, signal_date: Optional[date]
+) -> bool:
+    """Require a completed-close publication from this preopen for market alerts."""
+
+    current = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    price_basis = snapshot.get("price_basis")
+    if not (
+        signal_date is not None
+        and signal_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+        and snapshot.get("status") == "ready"
+        and snapshot.get("strategy_version") == STRATEGY_VERSION
+        and snapshot.get("data_state") in {None, "ready"}
+        and snapshot.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
+        and isinstance(price_basis, dict)
+        and price_basis.get("version") == "krx-regular-forward-v1"
+        and str(snapshot.get("universe_as_of") or "")[:10] == signal_date.isoformat()
+    ):
+        return False
+    try:
+        unverified_count = int(snapshot.get("execution_replay_unverified_count") or 0)
+    except (TypeError, ValueError):
+        return False
+    unverified_codes = snapshot.get("execution_replay_unverified_codes") or []
+    if not isinstance(unverified_codes, (list, tuple)):
+        return False
+    if unverified_count > 0 and snapshot.get("unverified_codes_isolated") is not True:
+        return False
+    try:
+        generated_at = datetime.fromisoformat(
+            str(snapshot.get("snapshot_generated_at") or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        return False
+    if generated_at.tzinfo is None or generated_at.utcoffset() is None:
+        return False
+    generated_at = generated_at.astimezone(KST)
+    age_seconds = (current - generated_at).total_seconds()
+    return bool(
+        generated_at >= datetime.combine(signal_date, time(15, 40), tzinfo=KST)
+        and generated_at >= datetime.combine(current.date(), time(6, 0), tzinfo=KST)
+        and -SNAPSHOT_MAX_FUTURE_SKEW_SECONDS <= age_seconds <= 6 * 60 * 60
+    )
 
 
 def _us_stock_url(code: str) -> str:
@@ -1838,6 +1884,14 @@ class WebPushRuntime:
         if not snapshot:
             return []
         snapshot = apply_market_signal_reconciliations(snapshot, now=current) or snapshot
+        next_open_snapshot_ready = _fresh_next_open_market_snapshot(
+            snapshot, current, previous_next_open_session
+        )
+        unverified_codes = snapshot.get("execution_replay_unverified_codes") or []
+        isolated_codes = (
+            {str(code) for code in unverified_codes}
+            if isinstance(unverified_codes, (list, tuple)) else set()
+        )
         intraday_confirmed_ready = intraday_window and _fresh_v8_intraday_market_snapshot(
             snapshot, current
         )
@@ -1867,6 +1921,8 @@ class WebPushRuntime:
                 if not code or side not in {"buy", "sell"}:
                     continue
                 if next_open_candidate:
+                    if not next_open_snapshot_ready or code in isolated_codes:
+                        continue
                     snapshot_date = str(snapshot.get("universe_as_of") or "")[:10]
                     if preliminary_date != previous_next_open_session or snapshot_date != preliminary_date.isoformat():
                         continue

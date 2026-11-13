@@ -15897,6 +15897,8 @@ function marketAiSignalItems(payload = {}) {
         reconciliation_id: canonicalCurrent?.reconciliation_id || item.reconciliation_id || null,
         source_strategy_version: item.source_strategy_version || null,
         target_strategy_version: item.target_strategy_version || null,
+        entry_execution_policy_version: item.entry_execution_policy_version || null,
+        next_open_candidate_verified: item.next_open_candidate_verified === true,
         side,
         event_side: effectiveEventSide,
         signal: canonicalPending ? canonicalCurrent?.label || item.signal || null : item.signal || null,
@@ -16120,8 +16122,15 @@ function combineAiSignalPayloads(watchlistPayload = {}, marketPayload = {}) {
   const marketStatus = marketPayload.market_status || marketPayload.status || "ready";
   const marketRefreshing = marketStatus === "refreshing";
   const marketItems = marketRefreshing
-    ? allMarketItems.filter((item) => !isPreliminaryAiSignal(item))
+    ? allMarketItems.filter((item) => !isPreliminaryAiSignal(item) || (
+      item.next_open_candidate_verified === true
+      && marketScopeForItem(item) === "kr"
+      && item.entry_execution_policy_version === "kr-close-next-open-entry-v1"
+    ))
     : allMarketItems;
+  const retainedPreliminaryCount = marketRefreshing
+    ? marketItems.filter((item) => isPreliminaryAiSignal(item)).length
+    : (marketPayload.preliminary_count || 0);
   // Public AI signals are one canonical market feed for every account.
   // Watchlist rows remain available only to the personalized home response.
   const items = marketItems;
@@ -16151,8 +16160,8 @@ function combineAiSignalPayloads(watchlistPayload = {}, marketPayload = {}) {
     market_status: marketStatus,
     universe_count: marketPayload.universe_count || 0,
     current_universe_count: marketPayload.current_universe_count || 0,
-    confirmed_count: marketRefreshing ? marketItems.length : (marketPayload.confirmed_count || 0),
-    preliminary_count: marketRefreshing ? 0 : (marketPayload.preliminary_count || 0),
+    confirmed_count: marketRefreshing ? marketItems.length - retainedPreliminaryCount : (marketPayload.confirmed_count || 0),
+    preliminary_count: retainedPreliminaryCount,
     entry_pending_count: entryPendingItemCount(marketItems),
     performance_summary: marketPayload.performance_summary || null,
     filter_forward_comparison: marketPayload.filter_forward_comparison || null,

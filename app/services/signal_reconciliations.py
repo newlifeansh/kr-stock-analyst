@@ -210,7 +210,10 @@ def apply_stock_signal_reconciliations(
 ) -> Optional[dict[str, Any]]:
     """Overlay an audited legacy close without changing model calculations."""
 
-    if not isinstance(payload, dict) or payload.get("price_basis", {}).get("version") == "krx-regular-forward-v1":
+    if not isinstance(payload, dict):
+        return payload
+    price_basis = payload.get("price_basis", {})
+    if not isinstance(price_basis, dict) or price_basis.get("version") == "krx-regular-forward-v1":
         return payload
     strategy_version = str(payload.get("strategy_version") or "").strip()
     records = _active_records(
@@ -263,7 +266,10 @@ def apply_market_signal_reconciliations(
 ) -> Optional[dict[str, Any]]:
     """Merge audited legacy closes into the canonical recent market feed."""
 
-    if not isinstance(payload, dict) or payload.get("price_basis", {}).get("version") == "krx-regular-forward-v1":
+    if not isinstance(payload, dict):
+        return payload
+    price_basis = payload.get("price_basis", {})
+    if not isinstance(price_basis, dict) or price_basis.get("version") == "krx-regular-forward-v1":
         return payload
     strategy_version = str(payload.get("strategy_version") or "").strip()
     current_time = _normalized_now(now)

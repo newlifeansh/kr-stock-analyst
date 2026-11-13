@@ -1807,6 +1807,53 @@ console.log(JSON.stringify({{
     }
 
 
+def test_refreshing_ai_signal_view_keeps_only_verified_next_open_candidate() -> None:
+    source = app_source()
+    market_scope_start = source.index("function marketScopeForItem(")
+    market_scope_end = source.index("function itemMatchesMarketScope(", market_scope_start)
+    preliminary_start = source.index("function isPreliminaryAiSignal(")
+    preliminary_end = source.index("function isSignalReconciliation(", preliminary_start)
+    market_start = source.index("function marketAiSignalItems(")
+    market_end = source.index("function preliminaryHistoryAiSignalItems(", market_start)
+    function_source = "\n".join((
+        source[market_scope_start:market_scope_end],
+        source[preliminary_start:preliminary_end],
+        source[market_start:market_end],
+    ))
+    script = f"""
+{function_source}
+const view = combineAiSignalPayloads({{items: []}}, {{
+  status: "refreshing",
+  market_scope: "kr",
+  items: [
+    {{code: "005930", side: "buy", signal_date: "2026-11-13", status: "preliminary", is_preliminary: true,
+      entry_execution_policy_version: "kr-close-next-open-entry-v1",
+      next_open_candidate_verified: true}},
+    {{code: "035420", side: "buy", signal_date: "2026-11-13", status: "preliminary", is_preliminary: true}},
+    {{code: "000660", side: "buy", signal_date: "2026-11-13", status: "preliminary",
+      is_preliminary: true, entry_execution_policy_version: "legacy-intraday-v1",
+      next_open_candidate_verified: true}},
+    {{code: "090430", side: "sell", signal_date: "2026-11-13", status: "confirmed", is_preliminary: false}},
+  ],
+}});
+console.log(JSON.stringify({{
+  codes: view.items.map((item) => item.code),
+  preliminary_count: view.preliminary_count,
+  confirmed_count: view.confirmed_count,
+  status: view.status,
+}}));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script], check=True, capture_output=True, text=True
+    )
+    assert json.loads(completed.stdout) == {
+        "codes": ["005930", "090430"],
+        "preliminary_count": 1,
+        "confirmed_count": 1,
+        "status": "refreshing",
+    }
+
+
 def test_us_ai_signal_composition_preserves_identity_and_fails_closed() -> None:
     source = app_source()
     market_scope_start = source.index("function marketScopeForItem(")

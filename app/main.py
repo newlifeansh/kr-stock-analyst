@@ -185,6 +185,8 @@ from app.services.local_stock_ai import enrich_stock_ai_analysis
 from app.services.quant_signals import (
     EXECUTION_MODEL,
     INTRADAY_EXECUTION_EFFECTIVE_DATE,
+    NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
+    NEXT_OPEN_ENTRY_POLICY_VERSION,
     MARKET_SIGNAL_RECENT_DAYS,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
@@ -314,7 +316,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261113v595"
+DASHBOARD_CLIENT_VERSION = "20261113v596"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -322,7 +324,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261113us167"
+US_DASHBOARD_CLIENT_VERSION = "20261113us168"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -1069,7 +1071,7 @@ def _canonical_ai_signal_revision_payload(
     result.update(freshness)
     if freshness["snapshot_state"] == "stale":
         result["status"] = "refreshing"
-        result = _suppress_stale_preliminary_market_signals(result)
+        result = _suppress_stale_preliminary_market_signals(result, now)
     result = apply_market_signal_reconciliations(result, now=now) or result
     result = _suppress_out_of_session_preliminary_market_signals(result, now)
     result = enrich_market_quant_signal_sectors(db, result)
@@ -1722,23 +1724,109 @@ def _is_preliminary_market_quant_signal(item: Any) -> bool:
     )
 
 
-def _suppress_stale_preliminary_market_signals(payload: dict[str, Any]) -> dict[str, Any]:
-    """Never expose an actionable preliminary state from an expired snapshot."""
+def _verified_next_open_market_candidate(
+    payload: dict[str, Any], item: dict[str, Any], now: datetime
+) -> bool:
+    """Keep a dated completed-close plan visible while a full scan catches up."""
+
+    current = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    price_basis = payload.get("price_basis")
+    if not (
+        payload.get("status") in {"ready", "refreshing"}
+        and payload.get("strategy_version") == STRATEGY_VERSION
+        and payload.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
+        and isinstance(price_basis, dict)
+        and price_basis.get("version") == "krx-regular-forward-v1"
+        and payload.get("data_state") in {None, "ready"}
+        and item.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION
+        and item.get("side") == "buy"
+        and _is_preliminary_market_quant_signal(item)
+        and item.get("alert_eligible") is not False
+        and item.get("execution_replay_state") != "unverified"
+    ):
+        return False
+    try:
+        unverified_count = int(payload.get("execution_replay_unverified_count") or 0)
+    except (TypeError, ValueError):
+        return False
+    unverified_codes = payload.get("execution_replay_unverified_codes") or []
+    if not isinstance(unverified_codes, (list, tuple)):
+        return False
+    if unverified_count > 0 and payload.get("unverified_codes_isolated") is not True:
+        return False
+    if str(item.get("code") or "") in {
+        str(code) for code in unverified_codes
+    }:
+        return False
+    try:
+        signal_date = date.fromisoformat(str(item.get("signal_date") or "")[:10])
+        generated_at = datetime.fromisoformat(
+            str(payload.get("snapshot_generated_at") or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        return False
+    if generated_at.tzinfo is None or generated_at.utcoffset() is None:
+        return False
+    generated_at = generated_at.astimezone(KST)
+    age_seconds = (current - generated_at).total_seconds()
+    if not (
+        str(payload.get("universe_as_of") or "")[:10] == signal_date.isoformat()
+        and signal_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
+        and generated_at >= datetime.combine(signal_date, time(15, 40), tzinfo=KST)
+        and age_seconds >= -SNAPSHOT_MAX_FUTURE_SKEW_SECONDS
+        and current.date() > signal_date
+    ):
+        return False
+    next_session = next(
+        (
+            signal_date + timedelta(days=offset)
+            for offset in range(1, 15)
+            if is_scheduled_korea_market_session_date(signal_date + timedelta(days=offset))
+        ),
+        None,
+    )
+    if next_session is None or current.date() > next_session:
+        return False
+    if current.date() == next_session:
+        if current.time() >= time(9, 10):
+            return False
+        if (
+            current.time() >= time(6, 0)
+            and (
+                generated_at < datetime.combine(current.date(), time(6, 0), tzinfo=KST)
+                or age_seconds > MARKET_QUANT_SIGNAL_CLOSED_MAX_AGE_SECONDS
+            )
+        ):
+            return False
+    return True
+
+
+def _suppress_stale_preliminary_market_signals(
+    payload: dict[str, Any], now: Optional[datetime] = None
+) -> dict[str, Any]:
+    """Keep only verified prior-close plans from an expired live snapshot."""
 
     result = deepcopy(payload)
     items = [item for item in result.get("items") or [] if isinstance(item, dict)]
-    stale_preliminary_count = sum(
-        1 for item in items if _is_preliminary_market_quant_signal(item)
-    )
-    result["items"] = [
-        item for item in items if not _is_preliminary_market_quant_signal(item)
-    ]
+    current = now or datetime.now(KST)
+    kept = []
+    stale_preliminary_count = 0
+    for item in items:
+        if not _is_preliminary_market_quant_signal(item):
+            kept.append(item)
+        elif _verified_next_open_market_candidate(result, item, current):
+            kept.append({**item, "next_open_candidate_verified": True})
+        else:
+            stale_preliminary_count += 1
+    result["items"] = kept
     result["stale_preliminary_count"] = max(
         int(result.get("stale_preliminary_count") or 0),
         stale_preliminary_count,
     )
-    result["preliminary_count"] = 0
-    result["confirmed_count"] = len(result["items"])
+    result["preliminary_count"] = sum(
+        1 for item in kept if _is_preliminary_market_quant_signal(item)
+    )
+    result["confirmed_count"] = len(kept) - result["preliminary_count"]
     return result
 
 
@@ -1749,13 +1837,17 @@ def _suppress_out_of_session_preliminary_market_signals(
 
     current_date = now.astimezone(KST).date().isoformat()
     items = [item for item in payload.get("items") or [] if isinstance(item, dict)]
-    kept = [
-        item for item in items
-        if not _is_preliminary_market_quant_signal(item)
-        or str(item.get("signal_date") or "")[:10] == current_date
-    ]
+    kept = []
+    for item in items:
+        if (
+            not _is_preliminary_market_quant_signal(item)
+            or str(item.get("signal_date") or "")[:10] == current_date
+        ):
+            kept.append(item)
+        elif _verified_next_open_market_candidate(payload, item, now):
+            kept.append({**item, "next_open_candidate_verified": True})
     removed = len(items) - len(kept)
-    if not removed:
+    if not removed and kept == items:
         return payload
     result = {**payload, "items": kept}
     result["stale_preliminary_count"] = int(
@@ -4584,7 +4676,7 @@ def get_market_quant_signals(
             execution_evidence_incomplete and not isolated_unverified
         ):
             payload["status"] = "refreshing"
-            payload = _suppress_stale_preliminary_market_signals(payload)
+            payload = _suppress_stale_preliminary_market_signals(payload, current_time)
         if freshness["snapshot_state"] == "stale" or (
             execution_evidence_incomplete and not isolated_unverified
         ):
