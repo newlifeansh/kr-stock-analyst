@@ -42,7 +42,7 @@ def test_health():
     assert response.json()["strategy_version"] == "position-lifecycle-v8.1"
     assert response.json()["execution_model"] == "close-confirmed-intraday-trigger-v1"
     assert response.json()["intraday_execution_effective_date"] == "2026-10-03"
-    assert response.json()["dashboard_version"] == "20261113v595"
+    assert response.json()["dashboard_version"] == "20261113v596"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -2013,8 +2013,8 @@ def test_us_stock_path_serves_shell_without_shadowing_us_api_routes():
     assert stock_shell.status_code == 200
     assert 'id="stock-view"' in stock_shell.text
     assert 'id="ai-analysis-panel"' in stock_shell.text
-    assert 'src="/dashboard-app-v170.js?v=20261113us167"' in stock_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261113us167&amp;build=20261113us167"' in stock_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261113us168"' in stock_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261113us168&amp;build=20261113us168"' in stock_shell.text
     assert '<meta name="secret-note-market-universe" content="us" />' in stock_shell.text
     assert search_api.status_code == 200
     assert search_api.headers["content-type"].startswith("application/json")
@@ -2282,7 +2282,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261113v595"}
+    assert version.json() == {"version": "20261113v596"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -2292,9 +2292,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
     assert 'pathname === "/us-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' not in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261113v595" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261113v596" in refresh.text
     assert 'params.get("market") === "us"' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261113v595" not in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261113v596" not in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -2302,14 +2302,14 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
 def test_next_open_release_changes_immutable_dashboard_asset_urls():
     client = TestClient(app)
     shell = client.get("/dashboard?view=home").text
-    assert 'src="/dashboard-app-v170.js?v=20261113v595"' in shell
-    assert "20261113v595" in client.get("/dashboard-sw.js").text
-    assert client.get("/us-version").json() == {"version": "20261113us167"}
-    assert "20261113us167" in client.get("/us-sw.js").text
+    assert 'src="/dashboard-app-v170.js?v=20261113v596"' in shell
+    assert "20261113v596" in client.get("/dashboard-sw.js").text
+    assert client.get("/us-version").json() == {"version": "20261113us168"}
+    assert "20261113us168" in client.get("/us-sw.js").text
 
-    current = client.get("/dashboard-app-v170.js?v=20261113v595")
+    current = client.get("/dashboard-app-v170.js?v=20261113v596")
     previous = client.get("/dashboard-app-v170.js?v=20261111v594")
-    us_current = client.get("/dashboard-app-v170.js?v=20261113us167")
+    us_current = client.get("/dashboard-app-v170.js?v=20261113us168")
     us_previous = client.get("/dashboard-app-v170.js?v=20261111us166")
     assert "다음 거래일 매수 후보" in current.text
     assert current.headers["cache-control"] == "public, max-age=31536000, immutable"
@@ -2323,7 +2323,7 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
 
     version = client.get("/us-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261113us167"}
+    assert version.json() == {"version": "20261113us168"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/us-refresh?view=trend&code=NVDA")
@@ -2332,9 +2332,9 @@ def test_us_refresh_and_version_are_isolated_from_the_domestic_product_cache():
     assert 'pathname === "/dashboard-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-us-static-")' in refresh.text
     assert 'key.startsWith("secret-note-static-")' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261113us167" in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261113us168" in refresh.text
 
-    versioned_script = client.get("/dashboard-app-v170.js?v=20261113us167")
+    versioned_script = client.get("/dashboard-app-v170.js?v=20261113us168")
     mutable_script = client.get("/dashboard-app-v170.js")
     assert versioned_script.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert mutable_script.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -2348,12 +2348,12 @@ def test_us_service_worker_owns_only_the_us_scope_and_caches_versioned_us_assets
     assert worker.status_code == 200
     assert worker.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert worker.headers["service-worker-allowed"] == "/us"
-    assert 'DASHBOARD_SW_VERSION = "20261113us167"' in worker.text
+    assert 'DASHBOARD_SW_VERSION = "20261113us168"' in worker.text
     assert "secret-note-us-static-${DASHBOARD_SW_VERSION}" in worker.text
     assert ".map((key) => caches.delete(key))" in worker.text
     assert '"/us?view=home"' in worker.text
-    assert '"/assets/dashboard/styles.css?v=20261113us167' in worker.text
-    assert '"/dashboard-app-v170.js?v=20261113us167"' in worker.text
+    assert '"/assets/dashboard/styles.css?v=20261113us168' in worker.text
+    assert '"/dashboard-app-v170.js?v=20261113us168"' in worker.text
     assert 'url.pathname.startsWith("/assets/dashboard/")' in worker.text
     assert 'url.pathname.startsWith("/assets/staging/")' in worker.text
     assert 'url.pathname = "/dashboard"' not in worker.text
@@ -3085,6 +3085,134 @@ def test_market_signal_snapshot_keeps_completed_close_until_premarket_refresh(mo
         assert main_module._market_quant_signal_snapshot_freshness(
             invalid, tuesday
         )["snapshot_state"] == "stale"
+
+
+@pytest.mark.qa_gate
+def test_next_open_market_feed_keeps_only_verified_prior_close_candidate_during_slow_scan(monkeypatch):
+    from app import main as main_module
+
+    kst = ZoneInfo("Asia/Seoul")
+    current = [datetime(2026, 11, 16, 8, 0, tzinfo=kst)]
+
+    class PhaseDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current[0].astimezone(tz) if tz else current[0]
+
+    def candidate(code, signal_date="2026-11-13", **extra):
+        return {
+            "code": code,
+            "name": code,
+            "side": "buy",
+            "signal_date": signal_date,
+            "status": "preliminary",
+            "is_preliminary": True,
+            "entry_execution_policy_version": main_module.NEXT_OPEN_ENTRY_POLICY_VERSION,
+            **extra,
+        }
+
+    payload = {
+        "status": "ready",
+        "data_state": "ready",
+        "strategy_version": main_module.STRATEGY_VERSION,
+        "entry_execution_policy_version": main_module.NEXT_OPEN_ENTRY_POLICY_VERSION,
+        "snapshot_generated_at": "2026-11-16T06:30:00+09:00",
+        "universe_as_of": "2026-11-13",
+        "universe_count": 150,
+        "recent_days": 30,
+        "price_basis": {"version": "krx-regular-forward-v1"},
+        "execution_replay_unverified_count": 1,
+        "execution_replay_unverified_codes": ["122630"],
+        "unverified_codes_isolated": True,
+        "preliminary_count": 4,
+        "confirmed_count": 1,
+        "items": [
+            candidate("005930"),
+            candidate("122630"),
+            candidate("035420", signal_date="2026-11-12"),
+            {"code": "000660", "side": "buy", "signal_date": "2026-11-13",
+             "status": "preliminary", "is_preliminary": True},
+            {"code": "090430", "side": "sell", "signal_date": "2026-11-12",
+             "status": "confirmed", "is_preliminary": False},
+        ],
+    }
+    refresh_calls = []
+    main_module.market_quant_signal_cache.clear()
+    monkeypatch.setattr(main_module, "datetime", PhaseDatetime)
+    monkeypatch.setattr(
+        main_module, "is_korea_market_session_date", lambda target, *_args: target.weekday() < 5
+    )
+    monkeypatch.setattr(
+        main_module, "is_scheduled_korea_market_session_date", lambda target: target.weekday() < 5
+    )
+    monkeypatch.setattr(main_module, "load_market_quant_signal_snapshot", lambda *_a, **_kw: payload)
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", lambda *_a, **_kw: refresh_calls.append(True))
+    monkeypatch.setattr(main_module, "enrich_market_quant_signal_sectors", lambda _db, value: value)
+    monkeypatch.setattr(main_module, "_merge_market_preliminary_notification_history", lambda _db, value: value)
+    monkeypatch.setattr(
+        main_module, "_record_ai_signal_revision", lambda *_a, **_kw: {"revision": 1, "as_of": None}
+    )
+    assert main_module._verified_next_open_market_candidate(payload, payload["items"][0], current[0])
+    assert "005930" in {
+        item["code"] for item in main_module._suppress_out_of_session_preliminary_market_signals(payload, current[0])["items"]
+    }
+    client = TestClient(app)
+    try:
+        for phase, status in (("08:00", "ready"), ("09:02", "refreshing"), ("09:10", "refreshing")):
+            hour, minute = map(int, phase.split(":"))
+            current[0] = datetime(2026, 11, 16, hour, minute, tzinfo=kst)
+            body = client.get("/market/quant-signals?limit=0&recent_days=30").json()
+            assert body["status"] == status
+            codes = {item["code"] for item in body["items"]}
+            assert codes == ({"005930", "090430"} if phase != "09:10" else {"090430"})
+            assert body["preliminary_count"] == (1 if phase != "09:10" else 0)
+            if phase != "09:10":
+                retained = next(item for item in body["items"] if item["code"] == "005930")
+                assert retained["next_open_candidate_verified"] is True
+        assert refresh_calls
+    finally:
+        main_module.market_quant_signal_cache.clear()
+
+
+@pytest.mark.qa_gate
+def test_next_open_market_candidate_rejects_unverified_old_or_predated_snapshots(monkeypatch):
+    from app import main as main_module
+
+    monkeypatch.setattr(
+        main_module, "is_scheduled_korea_market_session_date", lambda target: target.weekday() < 5
+    )
+    now = datetime(2026, 11, 16, 9, 2, tzinfo=ZoneInfo("Asia/Seoul"))
+    item = {"code": "005930", "side": "buy", "signal_date": "2026-11-13",
+            "status": "preliminary", "is_preliminary": True,
+            "entry_execution_policy_version": main_module.NEXT_OPEN_ENTRY_POLICY_VERSION}
+    payload = {"status": "ready", "data_state": "ready",
+               "strategy_version": main_module.STRATEGY_VERSION,
+               "entry_execution_policy_version": main_module.NEXT_OPEN_ENTRY_POLICY_VERSION,
+               "price_basis": {"version": "krx-regular-forward-v1"},
+               "snapshot_generated_at": "2026-11-16T06:30:00+09:00",
+               "universe_as_of": "2026-11-13",
+               "execution_replay_unverified_count": 0}
+    assert main_module._verified_next_open_market_candidate(payload, item, now)
+    for invalid_payload, invalid_item in (
+        ({**payload, "snapshot_generated_at": "2026-11-13T14:00:00+09:00"}, item),
+        ({**payload, "snapshot_generated_at": "2026-11-13T18:00:00+09:00"}, item),
+        ({**payload, "snapshot_generated_at": "2026-11-16T03:30:00+09:00"}, item),
+        ({**payload, "universe_as_of": "2026-11-12"}, item),
+        ({**payload, "price_basis": {"version": "legacy-close-v1"}}, item),
+        ({**payload, "price_basis": "krx-regular-forward-v1"}, item),
+        ({**payload, "data_state": "degraded"}, item),
+        ({**payload, "execution_replay_unverified_count": "invalid"}, item),
+        ({**payload, "execution_replay_unverified_codes": "005930"}, item),
+        ({**payload, "execution_replay_unverified_count": 1}, item),
+        ({**payload, "execution_replay_unverified_count": 1,
+          "unverified_codes_isolated": True,
+          "execution_replay_unverified_codes": ["005930"]}, item),
+        (payload, {**item, "alert_eligible": False}),
+        (payload, {**item, "execution_replay_state": "unverified"}),
+    ):
+        assert not main_module._verified_next_open_market_candidate(
+            invalid_payload, invalid_item, now
+        )
 
 
 def test_market_signal_revision_removes_prior_session_preliminary(monkeypatch):
@@ -4186,8 +4314,8 @@ def test_all_app_loading_surfaces_use_spinners_without_logo_splashes():
     assert 'class="login-loading" id="login-loading" role="status"' in nasdaq_shell.text
     assert 'class="page-loading" id="page-loading" role="status"' in nasdaq_shell.text
     assert nasdaq_shell.text.count('class="loading-spinner" aria-hidden="true"') >= 2
-    assert 'src="/dashboard-app-v170.js?v=20261113us167"' in nasdaq_shell.text
-    assert 'href="/assets/dashboard/styles.css?v=20261113us167&amp;build=20261113us167"' in nasdaq_shell.text
+    assert 'src="/dashboard-app-v170.js?v=20261113us168"' in nasdaq_shell.text
+    assert 'href="/assets/dashboard/styles.css?v=20261113us168&amp;build=20261113us168"' in nasdaq_shell.text
     assert "splash" not in nasdaq_shell.text.lower()
     assert "splash" not in nasdaq_source.lower()
     assert "splash" not in nasdaq_styles.lower()
@@ -4413,7 +4541,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert "시총 상위 종목의 최근 신호" not in home_shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20261113v595' in shell
+    assert 'styles.css?v=20261113v596' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -4500,7 +4628,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20261113v595"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20261113v596"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -4538,7 +4666,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20261113v595"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20261113v596"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source

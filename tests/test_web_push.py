@@ -1981,7 +1981,13 @@ def test_kr_next_open_buy_candidate_alerts_at_next_session_open_only(monkeypatch
         monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda now: now.hour >= 15)
         monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda now: now.hour < 15)
         monkeypatch.setattr(web_push, "is_scheduled_korea_market_session_date", lambda day: day.weekday() < 5)
-        snapshot = {"universe_as_of": "2026-11-12", "items": [{
+        snapshot = {
+            "status": "ready", "data_state": "ready",
+            "strategy_version": web_push.STRATEGY_VERSION,
+            "entry_execution_policy_version": web_push.NEXT_OPEN_ENTRY_POLICY_VERSION,
+            "price_basis": {"version": "krx-regular-forward-v1"},
+            "snapshot_generated_at": "2026-11-13T06:30:00+09:00",
+            "universe_as_of": "2026-11-12", "items": [{
             "code": "005930", "name": "삼성전자", "side": "buy",
             "signal_date": "2026-11-12", "status": "preliminary", "is_preliminary": True,
             "entry_execution_policy_version": web_push.NEXT_OPEN_ENTRY_POLICY_VERSION,
@@ -2003,9 +2009,55 @@ def test_kr_next_open_buy_candidate_alerts_at_next_session_open_only(monkeypatch
         assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 13, 9, 2)) == []
         snapshot["universe_as_of"] = "2026-11-13"
         snapshot["items"][0]["signal_date"] = "2026-11-13"
+        snapshot["snapshot_generated_at"] = "2026-11-16T06:30:00+09:00"
         assert len(runtime._market_ai_signal_candidates(db, datetime(2026, 11, 16, 9, 2))) == 1
         snapshot["items"][0]["alert_eligible"] = False
         assert runtime._market_ai_signal_candidates(db, datetime(2026, 11, 16, 9, 2)) == []
+    finally:
+        db.close()
+
+
+@pytest.mark.qa_gate
+def test_kr_next_open_market_alert_rejects_old_or_unisolated_snapshot(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr(web_push, "is_korea_market_session_date", lambda *_args: True)
+        monkeypatch.setattr(web_push, "is_korea_daily_signal_window", lambda _now: False)
+        monkeypatch.setattr(web_push, "is_korea_regular_market_session", lambda _now: True)
+        monkeypatch.setattr(web_push, "is_scheduled_korea_market_session_date", lambda day: day.weekday() < 5)
+        snapshot = {
+            "status": "ready", "data_state": "ready", "universe_as_of": "2026-11-12",
+            "strategy_version": web_push.STRATEGY_VERSION,
+            "entry_execution_policy_version": web_push.NEXT_OPEN_ENTRY_POLICY_VERSION,
+            "price_basis": {"version": "krx-regular-forward-v1"},
+            "snapshot_generated_at": "2026-11-13T06:30:00+09:00",
+            "items": [{"code": "005930", "name": "삼성전자", "side": "buy",
+                       "signal_date": "2026-11-12", "status": "preliminary",
+                       "is_preliminary": True,
+                       "entry_execution_policy_version": web_push.NEXT_OPEN_ENTRY_POLICY_VERSION}],
+        }
+        monkeypatch.setattr(web_push, "load_market_quant_signal_snapshot", lambda *_a, **_kw: snapshot)
+        runtime = web_push.WebPushRuntime(_settings())
+        now = datetime(2026, 11, 13, 9, 2, tzinfo=web_push.KST)
+        assert len(runtime._market_ai_signal_candidates(db, now)) == 1
+        for update in (
+            {"snapshot_generated_at": "2026-11-12T18:00:00+09:00"},
+            {"snapshot_generated_at": "2026-11-13T03:30:00+09:00"},
+            {"universe_as_of": "2026-11-11"},
+            {"price_basis": {"version": "legacy-close-v1"}},
+            {"price_basis": "krx-regular-forward-v1"},
+            {"strategy_version": "position-lifecycle-v7.4"},
+            {"execution_replay_unverified_count": "invalid"},
+            {"execution_replay_unverified_codes": "005930"},
+            {"execution_replay_unverified_count": 1},
+            {"execution_replay_unverified_count": 1,
+             "unverified_codes_isolated": True,
+             "execution_replay_unverified_codes": ["005930"]},
+        ):
+            changed = dict(snapshot)
+            changed.update(update)
+            monkeypatch.setattr(web_push, "load_market_quant_signal_snapshot", lambda *_a, **_kw: changed)
+            assert runtime._market_ai_signal_candidates(db, now) == []
     finally:
         db.close()
 
