@@ -3,7 +3,8 @@ name: QA data-signal live
 on:
   workflow_dispatch:
   schedule:
-    # KST weekdays 08:20, 10:00 and 16:20.
+    # Read-only production checks at KST weekdays 08:20, 10:00 and 16:20.
+    # Manual dispatch uses the isolated staging runtime below.
     - cron: "20 23 * * 0-4"
     - cron: "0 1 * * 1-5"
     - cron: "20 7 * * 1-5"
@@ -16,7 +17,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  live:
+  live_production:
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        surface: [dashboard, us]
+    env:
+      QA_BASE_URL: ${{ matrix.surface == 'us' && vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and QA dependencies
+        run: pip install -e '.[qa,mcp]'
+      - name: Run read-only production checks
+        run: |
+          test -n "$QA_BASE_URL"
+          analyst qa data-signal \
+            --mode live \
+            --surface "${{ matrix.surface }}" \
+            --base-url "$QA_BASE_URL" \
+            --output artifacts/qa-data-signal/live.json
+      - name: Upload production live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-data-signal-live-production-${{ matrix.surface }}-${{ github.run_id }}
+          path: artifacts/qa-data-signal/live.json
+          if-no-files-found: error
+          retention-days: 30
+
+  live_staging:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -77,8 +114,8 @@ jobs:
           retention-days: 30
 
   shutdown_staging:
-    if: ${{ always() }}
-    needs: live
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    needs: live_staging
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging

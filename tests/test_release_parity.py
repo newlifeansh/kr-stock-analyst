@@ -437,7 +437,12 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
         "start_order": ["database", "collector", "web"],
         "stop_order": ["web", "collector", "database"],
         "removed_application_resume": "verify configured source equals explicit GHCR sha256, then redeploy --from-source only after restart failure or removed state",
-        "scheduled_qa_pin": "read-only pin of matching web/collector immutable GHCR sources before up; reject tags, repositories, mixed or missing sources; production parity uses approved image_ref",
+        "manual_staging_qa_pin": "read-only pin of matching web/collector immutable GHCR sources before manual staging up; reject tags, repositories, mixed or missing sources; production parity uses approved image_ref",
+    }
+    assert release_case["inputs"]["scheduled_live_qa"] == {
+        "schedule": "read-only production dashboard and US surfaces",
+        "manual": "resume isolated staging, run live QA, then stop staging",
+        "production_mutation": False,
     }
 
 
@@ -491,7 +496,7 @@ def test_staging_e2e_does_not_retrigger_itself_from_deployment_status() -> None:
     assert "group: domestic-staging-runtime" in workflow
 
 
-def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -> None:
+def test_manual_staging_qa_starts_domestic_runtime_only_while_collecting_evidence() -> None:
     for name, start, stop in (
         (
             "qa-data-signal-live.yml",
@@ -504,9 +509,14 @@ def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -
             "Stop selected staging after browser QA",
         ),
     ):
-        workflow = Path(".github/workflows", name).read_text(encoding="utf-8")
+        full_workflow = Path(".github/workflows", name).read_text(encoding="utf-8")
+        assert "group: domestic-staging-runtime" in full_workflow
+        workflow = (
+            full_workflow.split("  live_staging:", 1)[1]
+            if name == "qa-data-signal-live.yml"
+            else full_workflow
+        )
 
-        assert "group: domestic-staging-runtime" in workflow
         assert "RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}" in workflow
         assert "RAILWAY_DATABASE_SERVICE" in workflow
         assert "RAILWAY_REGION" in workflow
@@ -515,3 +525,25 @@ def test_scheduled_qa_starts_domestic_runtime_only_while_collecting_evidence() -
         assert 'RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"' in workflow
         assert 'test -n "$RAILWAY_RESUME_IMAGE_REF"' in workflow
         assert workflow.index(start) < workflow.index("Upload") < workflow.index(stop)
+
+
+def test_scheduled_live_qa_reads_production_without_resuming_staging() -> None:
+    workflow = Path(".github/workflows/qa-data-signal-live.yml").read_text(
+        encoding="utf-8"
+    )
+    scheduled = workflow.split("  live_production:", 1)[1].split("  live_staging:", 1)[0]
+    manual = workflow.split("  live_staging:", 1)[1].split("  shutdown_staging:", 1)[0]
+    shutdown = workflow.split("  shutdown_staging:", 1)[1]
+
+    assert "if: ${{ github.event_name == 'schedule' }}" in scheduled
+    assert "vars.US_PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL" in scheduled
+    assert 'surface "${{ matrix.surface }}"' in scheduled
+    assert "--mode live" in scheduled
+    assert "railway_staging_runtime.sh" not in scheduled
+    assert "RAILWAY_API_TOKEN" not in scheduled
+    assert "--direct-kis" not in scheduled
+    assert "if: ${{ github.event_name == 'workflow_dispatch' }}" in manual
+    assert "environment: staging" in manual
+    assert "./scripts/railway_staging_runtime.sh up" in manual
+    assert "if: ${{ always() && github.event_name == 'workflow_dispatch' }}" in shutdown
+    assert "needs: live_staging" in shutdown

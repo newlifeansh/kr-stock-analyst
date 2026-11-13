@@ -578,7 +578,7 @@
             "database"
           ],
           "removed_application_resume": "verify configured source equals explicit GHCR sha256, then redeploy --from-source only after restart failure or removed state",
-          "scheduled_qa_pin": "read-only pin of matching web/collector immutable GHCR sources before up; reject tags, repositories, mixed or missing sources; production parity uses approved image_ref"
+          "manual_staging_qa_pin": "read-only pin of matching web/collector immutable GHCR sources before manual staging up; reject tags, repositories, mixed or missing sources; production parity uses approved image_ref"
         },
         "staging_urls": {
           "dashboard": "DASHBOARD_STAGING_BASE_URL",
@@ -605,6 +605,11 @@
           "dashboard": "PRODUCTION_BASE_URL",
           "us": "US_PRODUCTION_BASE_URL"
         },
+        "scheduled_live_qa": {
+          "schedule": "read-only production dashboard and US surfaces",
+          "manual": "resume isolated staging, run live QA, then stop staging",
+          "production_mutation": false
+        },
         "production_market_flags": {
           "dashboard": "preserve_existing_until_url_cutover",
           "us": true
@@ -623,7 +628,8 @@
         "기존 후보 up은 CRASHED·stopped 프로세스를 재빌드 없이 재시작하고 /readyz의 database_ok=true를 확인한다. 새 후보 prepare는 이전 앱의 health를 요구하지 않는다. 종료는 web·collector running=0 확인 후 DB를 중지한다.",
         "종료 시 scale=0을 호출하지 않는다. 이는 지역 override 삭제이며 기본 replica가 다시 살아날 수 있다. 선택한 web·collector 배포만 직접 중지하고 실제 running=0을 확인한 뒤 DB를 중지한다.",
         "scale 설정 반영으로 중지 직후 새 배포가 나타나면 동일 스테이징 앱의 활성 배포만 최대 3회 중지하고 30초 동안 프로세스 0이 유지되는지 확인한다. 기한을 넘기면 DB를 유지하고 실패한다.",
-        "기존 배포가 restart 불가하면 명시한 RAILWAY_RESUME_IMAGE_REF와 실제 source.image가 정확히 같은 불변 다이제스트인지 조회 검증한 뒤 그 이미지로만 재배포한다. 정기 QA는 up 전에 web·collector의 동일 GHCR 다이제스트를 읽기 전용 pin으로 고정하며, 운영 parity는 승인된 image_ref를 사용한다. 태그·저장소 빌드·다른 이미지·누락·production 환경은 거부한다.",
+        "기존 배포가 restart 불가하면 명시한 RAILWAY_RESUME_IMAGE_REF와 실제 source.image가 정확히 같은 불변 다이제스트인지 조회 검증한 뒤 그 이미지로만 재배포한다. 수동 스테이징 QA는 up 전에 web·collector의 동일 GHCR 다이제스트를 읽기 전용 pin으로 고정하며, 운영 parity는 승인된 image_ref를 사용한다. 태그·저장소 빌드·다른 이미지·누락·production 환경은 거부한다.",
+        "정기 live QA는 현재 운영 국내·미국 URL을 읽기 전용으로 점검하고 스테이징을 기동하지 않는다. 수동 live QA만 격리된 스테이징을 기동·점검·종료한다.",
         "기동 시 sfo와 us-west2가 함께 남은 픽스처는 설정값과 일치하는 관측 canonical region ID만 선택하고 나머지 지역 override를 제거한다. Railway가 기존 이름을 opaque ID로 교체한 단일 관측 지역은 그 ID로만 안전하게 해석하되, 여러 지역에서 설정값이 없으면 모호하므로 실패시킨다. CLI 응답의 타 지역 replica 잔존·잘못된 JSON을 실패시키고 확인된 프로세스 종료 후 DB를 중지한다. 운영 환경은 모든 명령 전에 거부한다."
       ],
       "expected": [
@@ -636,7 +642,8 @@
         "운영자의 정확한 후보 승인 전에는 운영 배포를 시작하지 않으며 선택한 시장의 독립 운영 프로젝트와 URL만 승격·검증한다. 국내 기존 /us 호환 경로는 별도 라우팅 승인 전까지 유지한다.",
         "미국 스테이징과 운영은 같은 Railway 프로젝트여도 서로 다른 환경·web·collector·DB·URL로 격리된다.",
         "기존 후보 기동 성공은 단순 scale 성공이 아니라 DB 연결 준비를 뜻하며 종료 확인 실패 시 DB를 유지한다.",
-        "지역 설정 변경은 해당 스테이징 앱에만 한정되며 이전 지역 replica가 중복 실행되지 않는다. 600초의 제한된 대기 안에 실제 프로세스와 DB readiness를 확인한다."
+        "지역 설정 변경은 해당 스테이징 앱에만 한정되며 이전 지역 replica가 중복 실행되지 않는다. 600초의 제한된 대기 안에 실제 프로세스와 DB readiness를 확인한다.",
+        "정기 live QA는 두 운영 URL의 현재 버전·데이터 상태를 검사하고, 수동 스테이징 QA는 사용한 스테이징을 종료한다."
       ],
       "failure_criteria": [
         "국내·미국 스테이징이 같은 프로젝트·서비스·DB·URL을 공유하거나 국내 QA가 오래된 preview 프록시를 대상으로 실행된다.",
@@ -652,7 +659,8 @@
         "미국 staging/production이 같은 프로젝트라는 이유만으로 차단하거나, 반대로 같은 환경·서비스·URL을 공유해도 통과시킨다.",
         "CRASHED 프로세스를 복구하지 않거나 실제 프로세스가 남은 채 DB를 중지한다.",
         "desired replica=0만으로 실행 중인 앱이 없다고 간주하거나 앱 배포 중지 실패 후 DB를 먼저 중지한다.",
-        "제거된 배포의 재시작 실패를 숨기거나 확인하지 않은 구성 소스·mutable tag를 재빌드/배포한다."
+        "제거된 배포의 재시작 실패를 숨기거나 확인하지 않은 구성 소스·mutable tag를 재빌드/배포한다.",
+        "정기 live QA가 오래된 스테이징을 현재 운영의 실패로 표시하거나 운영 서비스를 변경한다."
       ]
     },
 
