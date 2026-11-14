@@ -556,7 +556,9 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
         "market_session": calendar["session"], "new_entries_allowed": base_ready and worker_fresh,
         "legacy_strategy_version": state["legacy"]["strategy_version"],
         "legacy_performance_summary": state["legacy"]["performance_summary"],
-        "performance_summary": build_us_signal_performance_summary(state["events"], as_of=current),
+        "performance_summary": build_us_signal_performance_summary(
+            state["events"], as_of=current, one_share=True,
+        ),
         "signal_revision": str(state["revision"]), "source_interval_seconds": 60,
         "confirmation_max_age_seconds": US_HYBRID_MAX_AGE_SECONDS,
     })

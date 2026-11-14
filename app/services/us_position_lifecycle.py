@@ -1347,18 +1347,46 @@ def _model_lifecycle_item(
 
 
 def build_us_signal_performance_summary(
-    events: list[dict[str, Any]], *, as_of: datetime,
+    events: list[dict[str, Any]], *, as_of: datetime, one_share: bool = False,
 ) -> dict[str, Any]:
     """Full replay exits, not the display-limited/current-position rows.
 
     US replay returns are gross price returns. Never label them net of costs
     or apply the domestic entry guard to this presentation-only summary.
     """
-    completed_events: list[tuple[dict[str, Any], date, Decimal]] = []
+    completed_events: list[tuple[dict[str, Any], date, Decimal, Optional[tuple[Decimal, Decimal]]]] = []
+    open_shares: dict[str, dict[str, Decimal]] = {}
     seen = set()
     for event in events:
+        code = str(event.get("code") or "")
+        side = event.get("side")
+        if one_share and side == "buy":
+            try:
+                entry_price = Decimal(str(event.get("price")))
+            except Exception:
+                entry_price = Decimal("0")
+            if code and entry_price.is_finite() and entry_price > 0:
+                open_shares[code] = {
+                    "entry": entry_price, "proceeds": Decimal("0"),
+                    "fraction": Decimal("0"),
+                }
+            continue
+        if one_share and side == "partial_sell" and code in open_shares:
+            position = open_shares[code]
+            try:
+                price = Decimal(str(event.get("price")))
+                fraction = Decimal(str(event.get("sell_fraction_original")))
+            except Exception:
+                price = fraction = Decimal("0")
+            if (price.is_finite() and price > 0 and fraction.is_finite()
+                    and 0 < fraction <= 1 - position["fraction"]):
+                position["proceeds"] += price * fraction
+                position["fraction"] += fraction
+            else:
+                position["fraction"] = Decimal("-1")
+            continue
         exited_on = _parse_snapshot_date(event.get("execution_date"))
-        if event.get("side") != "sell" or event.get("state_after") != "exited" or exited_on is None:
+        if side != "sell" or event.get("state_after") != "exited" or exited_on is None:
             continue
         try:
             value = Decimal(str(event.get("return_rate")))
@@ -1373,25 +1401,60 @@ def build_us_signal_performance_summary(
         if not value.is_finite() or identity in seen:
             continue
         seen.add(identity)
-        completed_events.append((event, exited_on, value))
+        cash_flow: Optional[tuple[Decimal, Decimal]] = None
+        if one_share:
+            position = open_shares.pop(code, None)
+            if position is None:
+                try:
+                    entry = Decimal(str(event.get("entry_price")))
+                except Exception:
+                    entry = Decimal("0")
+                if entry.is_finite() and entry > 0:
+                    position = {"entry": entry, "proceeds": Decimal("0"), "fraction": Decimal("0")}
+            if position is not None and position["fraction"] >= 0:
+                try:
+                    price = Decimal(str(event.get("price") or event.get("exit_price")))
+                    fraction_source = event.get("sell_fraction_original")
+                    fraction = Decimal(str(
+                        fraction_source if fraction_source is not None
+                        else 1 - position["fraction"]
+                    ))
+                except Exception:
+                    price = fraction = Decimal("0")
+                if (price.is_finite() and price > 0 and fraction.is_finite()
+                        and fraction > 0):
+                    total_fraction = position["fraction"] + fraction
+                    proceeds = position["proceeds"] + price * fraction
+                    computed_return = (proceeds / position["entry"] - 1) * 100
+                    if (abs(total_fraction - 1) <= Decimal("0.0001")
+                            and abs(computed_return - value) <= Decimal("0.02")):
+                        cash_flow = (position["entry"], proceeds)
+        completed_events.append((event, exited_on, value, cash_flow))
 
     windows = {}
     for days in (7, 15, 30):
         cutoff = as_of.date() - timedelta(days=days)
-        values = [
-            value
-            for _event, exited_on, value in completed_events
-            if cutoff <= exited_on <= as_of.date()
-        ]
+        selected = [entry for entry in completed_events if cutoff <= entry[1] <= as_of.date()]
+        values = [entry[2] for entry in selected]
         count = len(values)
         wins = sum(value > 0 for value in values)
+        cash_flows = [entry[3] for entry in selected if entry[3] is not None]
+        invested = sum((flow[0] for flow in cash_flows), Decimal("0"))
+        proceeds = sum((flow[1] for flow in cash_flows), Decimal("0"))
+        one_share_return = (
+            _decimal((proceeds / invested - 1) * 100)
+            if count and len(cash_flows) == count and invested > 0 else None
+        )
         windows[f"{days}d"] = {
             "window_days": days, "period_start": cutoff, "period_end": as_of.date(),
             "completed_trades": count, "wins": wins,
             "losses": sum(value < 0 for value in values),
             "breakeven": sum(value == 0 for value in values),
             "win_rate": _decimal(Decimal(wins * 100) / count) if count else None,
-            "average_return": _decimal(sum(values) / count) if count else None,
+            "average_return": (
+                one_share_return if one_share else _decimal(sum(values) / count) if count else None
+            ),
+            **({"one_share_basis_count": len(cash_flows)} if one_share else {}),
             "median_return": _decimal(median(values)) if count else None,
             "sample_state": "sufficient" if count >= 20 else "limited",
             "minimum_required_trades": 20,
@@ -1424,7 +1487,7 @@ def build_us_signal_performance_summary(
             "is_preliminary": False,
             "lifecycle_replay_version": US_LIFECYCLE_REPLAY_VERSION,
         }
-        for event, exited_on, value in sorted(
+        for event, exited_on, value, _cash_flow in sorted(
             (
                 entry
                 for entry in completed_events
@@ -1439,8 +1502,11 @@ def build_us_signal_performance_summary(
         )
     ]
     return {
-        "version": "us-performance-v1", "as_of": as_of,
-        "return_basis": "completed_trade_gross_price_return",
+        "version": "us-performance-v2-one-share" if one_share else "us-performance-v1", "as_of": as_of,
+        "return_basis": (
+            "completed_trade_one_share_gross_cash_return" if one_share
+            else "completed_trade_gross_price_return"
+        ),
         "benchmark_basis": "not_available",
         "completed_trade_window_days": ledger_days,
         "completed_trade_items": completed_trade_items,

@@ -1666,6 +1666,16 @@ def _run_us_e2e_checks(
                     ready_selector="#ai-signals-view",
                 )
                 page.wait_for_selector("#ai-signal-performance:not([hidden])", state="visible")
+                placement = page.evaluate("""() => {
+                  const card = document.querySelector('#ai-signal-performance');
+                  return { collapsed: !card.open,
+                    afterList: card.previousElementSibling?.id === 'ai-signals-page-list' };
+                }""")
+                if placement != {"collapsed": True, "afterList": True}:
+                    raise QaFailure("미국 수익률 접기가 목록 아래에서 닫힌 상태로 시작하지 않습니다.", placement)
+                page.locator("#ai-signal-performance > summary").click()
+                if not page.locator("#ai-signal-performance").evaluate("node => node.open"):
+                    raise QaFailure("미국 수익률 접기가 열리지 않습니다.", placement)
                 page.locator('[data-ai-signal-stage="recent-sell"]').click()
                 page.wait_for_selector(".ai-signal-completed-list-header", state="visible")
                 evidence = []
@@ -1682,6 +1692,7 @@ def _run_us_e2e_checks(
                         )];
                         return {
                           marketTitle: card.querySelector('#ai-signal-performance-title')?.textContent || '',
+                          aggregationBasis: summary.aggregation_basis || '',
                           foreignTradeCount: ledger.filter(item => marketScopeForItem(item) !== 'us').length,
                           labels: [...card.querySelectorAll('.ai-signal-performance-label')].map(n => n.textContent.trim()),
                           values: [...card.querySelectorAll('.ai-signal-performance-value')].map(n => n.textContent.trim()),
@@ -1690,6 +1701,7 @@ def _run_us_e2e_checks(
                           pageOverflow: document.documentElement.scrollWidth - innerWidth,
                           ledgerCount: ledger.length,
                           summaryCount: Number(summary.windows?.['30d']?.completed_trades || 0),
+                          verifiedCount: Number(summary.windows?.['30d']?.one_share_basis_count || 0),
                           tabCount: Number(document.querySelector(
                             '[data-ai-signal-stage="recent-sell"] span'
                           )?.textContent?.replace(/,/g, '') || 0),
@@ -1704,11 +1716,14 @@ def _run_us_e2e_checks(
                         };
                         }"""
                     )
-                    if (observed.get("marketTitle") != "최근 미국 시그널 평균 수익률"
+                    if (observed.get("marketTitle") != "최근 미국 시그널 1주 기준 수익률"
+                            or observed.get("aggregationBasis") != "one_share_gross_cash_return"
+                            or "1주 매수·부분매도·전량매도" not in observed["note"]
                             or observed.get("foreignTradeCount") != 0
                             or observed["labels"] != ["최근 7일", "최근 15일", "최근 30일"]
                             or "비용·세금·환율 반영 전" not in observed["note"]
                             or observed["ledgerCount"] != observed["summaryCount"]
+                            or observed["verifiedCount"] != observed["summaryCount"]
                             or observed["rowCount"] != observed["ledgerCount"]
                             or observed["tabCount"] != observed["ledgerCount"]
                             or "청산일 최신순" not in observed["header"]
@@ -1724,9 +1739,9 @@ def _run_us_e2e_checks(
                     """() => {
                       const original = state.aiSignalPerformanceSummary;
                       const windows = {
-                        '7d': { completed_trades: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
-                        '15d': { completed_trades: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
-                        '30d': { completed_trades: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
+                        '7d': { completed_trades: 3, one_share_basis_count: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
+                        '15d': { completed_trades: 3, one_share_basis_count: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
+                        '30d': { completed_trades: 3, one_share_basis_count: 3, average_return: 4.13, win_rate: 100, sample_state: 'limited' },
                       };
                       state.aiSignalPerformanceSummary = {
                         ...original, as_of: '2026-10-21T10:28:00+00:00', windows,
@@ -1745,28 +1760,47 @@ def _run_us_e2e_checks(
                       renderAiSignalPerformance();
                       const sameSample = inspect();
                       state.aiSignalPerformanceSummary.windows['30d'] = {
-                        ...windows['30d'], completed_trades: 4, average_return: 3.5,
+                        ...windows['30d'], completed_trades: 4, one_share_basis_count: 4, average_return: 3.5,
                       };
                       renderAiSignalPerformance();
                       const newTrade = inspect();
+                      state.aiSignalPerformanceSummary.windows['30d'] = {
+                        ...windows['30d'], completed_trades: 4, one_share_basis_count: 3, average_return: null,
+                      };
+                      renderAiSignalPerformance();
+                      const incomplete = {
+                        ...inspect(),
+                        lead: document.querySelector('#ai-signal-performance-lead')?.textContent?.trim(),
+                      };
                       state.aiSignalPerformanceSummary = original;
                       renderAiSignalPerformance();
-                      return { sameSample, newTrade };
+                      return { sameSample, newTrade, incomplete };
                     }"""
                 )
                 same = repeated_window["sameSample"]
                 new = repeated_window["newTrade"]
+                incomplete = repeated_window["incomplete"]
                 if (
-                    same["values"] != ["+4.13%", "-", "-"]
-                    or any("is-neutral" not in tone for tone in same["tones"][1:])
+                    same["values"] != ["+4.13%", "+4.13%", "+4.13%"]
                     or same["statuses"] != ["참고 표본", "동일 표본", "동일 표본"]
                     or any("추가 완료 거래 없음" not in item for item in same["evidence"][1:])
                     or same["asOf"] != "2026-10-21 19:28 한국시간 기준"
-                    or new["values"] != ["+4.13%", "-", "+3.50%"]
+                    or new["values"] != ["+4.13%", "+4.13%", "+3.50%"]
                     or new["statuses"][2] != "참고 표본"
+                    or incomplete["values"][2] != "-"
+                    or incomplete["statuses"][2] != "매수가 확인 중"
+                    or "1주 기준 확인 3/4건" not in incomplete["evidence"][2]
+                    or "완료된 매도는 있지만" not in incomplete["lead"]
                 ):
-                    raise QaFailure("미국 성과의 동일 표본 대시·새 거래·한국시간 표시가 일치하지 않습니다.", repeated_window)
-                return {"theme": theme, "viewports": evidence, "repeated_window": repeated_window}
+                    raise QaFailure("미국 성과의 동일 표본 수익률·새 거래·한국시간 표시가 일치하지 않습니다.", repeated_window)
+                reentry_collapsed = page.evaluate("""() => {
+                  setView('home', { historyMode: 'none' });
+                  setView('ai-signals', { historyMode: 'none' });
+                  return !document.querySelector('#ai-signal-performance').open;
+                }""")
+                if not reentry_collapsed:
+                    raise QaFailure("미국 수익률 접기가 재진입 때 다시 닫히지 않습니다.")
+                return {"theme": theme, "viewports": evidence, "repeated_window": repeated_window, "reentry_collapsed": reentry_collapsed}
 
             performance_result = _run_page_case(
                 browser=browser, catalog_by_id=catalog_by_id, case_id="SIG-PERF-US-001",
@@ -3480,6 +3514,17 @@ def run_e2e_checks(
                     }""",
                     timeout=int(timeout * 1000),
                 )
+                placement = page.evaluate("""() => {
+                  const card = document.querySelector('#ai-signal-performance');
+                  return { collapsed: !card.open,
+                    afterList: card.previousElementSibling?.id === 'ai-signals-page-list' };
+                }""")
+                if placement != {"collapsed": True, "afterList": True}:
+                    raise QaFailure("국내 수익률 접기가 목록 아래에서 닫힌 상태로 시작하지 않습니다.", placement)
+                page.locator("#ai-signal-performance > summary").focus()
+                page.keyboard.press("Enter")
+                if not page.locator("#ai-signal-performance").evaluate("node => node.open"):
+                    raise QaFailure("국내 수익률 접기가 키보드로 열리지 않습니다.", placement)
                 contract = page.evaluate(
                     """() => {
                       const summary = state.aiSignalPerformanceSummary;
@@ -3668,12 +3713,20 @@ def run_e2e_checks(
                         "30일 요약과 매도 확정 목록의 건수·정렬·날짜 표기가 일치하지 않습니다.",
                         completed_list,
                     )
+                reentry_collapsed = page.evaluate("""() => {
+                  setView('home', { historyMode: 'none' });
+                  setView('ai-signals', { historyMode: 'none' });
+                  return !document.querySelector('#ai-signal-performance').open;
+                }""")
+                if not reentry_collapsed:
+                    raise QaFailure("국내 수익률 접기가 재진입 때 다시 닫히지 않습니다.")
                 return {
                     **shell,
                     "contract": contract,
                     "reflow": reflow,
                     "missing_state": missing_state,
                     "completed_trade_list": completed_list,
+                    "reentry_collapsed": reentry_collapsed,
                 }
 
             results.append(

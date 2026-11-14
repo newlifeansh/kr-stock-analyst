@@ -653,7 +653,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_ai_signal_performance_overview_contract_is_responsive_and_uses_30_day_source",
     ),
     "SIG-PERF-US-001": (
-        "tests.test_signal_performance_windows.test_us_performance_display_hides_only_repeated_window_samples",
+        "tests.test_signal_performance_windows.test_us_performance_marks_repeated_window_samples",
+        "tests.test_signal_performance_windows.test_us_hybrid_performance_uses_one_share_cash_flows_and_keeps_legacy_mean",
+        "tests.test_signal_performance_windows.test_us_one_share_performance_fails_closed_when_entry_or_exit_cash_is_unverified",
         "tests.test_ai_signal_empty_states.test_zero_completed_trades_are_an_empty_sample_not_an_endless_loading_state",
         "tests.test_signal_market_isolation.test_signal_market_metrics_follow_selected_market_without_cross_market_fallback",
         "tests.test_signal_market_isolation.test_signal_snapshot_signature_tracks_both_markets_performance_changes",
