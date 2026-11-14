@@ -97,13 +97,25 @@ def _safe_regular_evidence_rejection_code(reason: object) -> str:
         "missing regular opening or closing trade",
         "missing regular minute",
         "unverified zero-volume regular minute",
+        "empty regular turnover",
     }:
         return "kis_regular_minute_path_incomplete"
     if text in {
         "unverified auction-window trade",
         "unverified positive-volume closing auction interval",
+        "closing source conflicts with actual KIS closing trade",
     }:
         return "krx_closing_auction_unverified"
+    if text == "wrong date, duplicate or non-minute source row":
+        return "kis_dated_minute_identity_invalid"
+    if text == "invalid minute OHLC":
+        return "kis_minute_ohlc_invalid"
+    if text in {
+        "opening cumulative turnover cannot cover actual trades",
+        "negative preopen cumulative turnover baseline",
+        "missing preopen cumulative turnover baseline",
+    }:
+        return "kis_preopen_turnover_unverified"
     return "evidence_validation_rejected"
 
 

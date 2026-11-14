@@ -247,6 +247,9 @@ def _qa_regular_evidence_diagnostic(
         "kis_cumulative_turnover_conflict",
         "kis_regular_minute_path_incomplete",
         "krx_closing_auction_unverified",
+        "kis_dated_minute_identity_invalid",
+        "kis_minute_ohlc_invalid",
+        "kis_preopen_turnover_unverified",
         "evidence_validation_rejected",
     }
     allowed_codes = set(top_codes)

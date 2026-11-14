@@ -861,6 +861,9 @@ def test_qa_regular_backfill_cools_source_failures_without_revealing_error_text(
         ("cumulative turnover does not reconcile with actual trades", "kis_cumulative_turnover_conflict"),
         ("missing regular minute", "kis_regular_minute_path_incomplete"),
         ("unverified positive-volume closing auction interval", "krx_closing_auction_unverified"),
+        ("wrong date, duplicate or non-minute source row", "kis_dated_minute_identity_invalid"),
+        ("invalid minute OHLC", "kis_minute_ohlc_invalid"),
+        ("missing preopen cumulative turnover baseline", "kis_preopen_turnover_unverified"),
         ("https://provider.example?token=never-export", "evidence_validation_rejected"),
     ],
 )
