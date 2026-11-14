@@ -345,6 +345,19 @@ jobs:
           --timeout 45
           --output artifacts/qa-data-signal/us-production-ui-e2e.json
           --artifact-dir artifacts/qa-data-signal/us-production-ui-screenshots
+      - id: dashboard_ui_e2e
+        name: Verify current domestic screen and one-share performance
+        continue-on-error: true
+        env:
+          QA_DASHBOARD_SHARE_ID: qa-automation
+        run: >-
+          analyst qa data-signal
+          --mode e2e
+          --surface dashboard
+          --base-url "$PRODUCTION_BASE_URL"
+          --timeout 45
+          --output artifacts/qa-data-signal/dashboard-production-ui-e2e.json
+          --artifact-dir artifacts/qa-data-signal/dashboard-production-ui-screenshots
       - name: Install Railway CLI for failed production readiness diagnostics
         if: >-
           always() &&
@@ -393,6 +406,7 @@ jobs:
           test "${{ steps.dashboard_readiness.outcome }}" = "success"
           test "${{ steps.us_readiness.outcome }}" = "success"
           test "${{ steps.us_ui_e2e.outcome }}" = "success"
+          test "${{ steps.dashboard_ui_e2e.outcome }}" = "success"
           if test "${{ steps.dashboard_live.outcome }}" != "success"; then
             echo "::warning::Domestic read-only live QA reported a post-deploy operational P0; evidence is retained."
           fi

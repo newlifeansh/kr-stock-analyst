@@ -124,10 +124,12 @@ def test_legacy_market_snapshot_adds_complete_ledger_without_rewriting_publicati
     items = [
         {"code": "005930", "name": "삼성전자", "status": "confirmed",
          "event_side": "sell", "state_after": "exited", "return_rate": "2.00",
-         "signal_date": "2026-10-15", "execution_date": "2026-10-16"},
+         "signal_date": "2026-10-15", "execution_date": "2026-10-16",
+         "entry_date": "2026-10-10", "price": "102000"},
         {"code": "005930", "name": "삼성전자", "status": "confirmed",
          "event_side": "sell", "state_after": "exited", "return_rate": "-1.00",
-         "signal_date": "2026-09-30", "execution_date": "2026-10-01"},
+         "signal_date": "2026-09-30", "execution_date": "2026-10-01",
+         "entry_date": "2026-09-25", "price": "99000"},
     ]
     summary = {
         "as_of": "2026-10-16T18:00:00+09:00", "return_basis": "completed_trade_net_of_costs",
@@ -148,8 +150,18 @@ def test_legacy_market_snapshot_adds_complete_ledger_without_rewriting_publicati
         assert not db.dirty
     assert loaded is not None
     result = loaded["performance_summary"]
-    assert {key: result[key] for key in summary} == summary
+    assert {key: result[key] for key in summary if key != "windows"} == {
+        key: value for key, value in summary.items() if key != "windows"
+    }
+    assert {key: result["windows"]["30d"][key] for key in summary["windows"]["30d"]} == (
+        summary["windows"]["30d"]
+    )
     assert loaded["items"] == items
+    assert result["display_aggregation_basis"] == "one_share_gross_cash_return"
+    assert result["windows"]["30d"]["one_share_basis_count"] == 2
+    assert result["windows"]["30d"]["one_share_return"] == (
+        Decimal("0.50") if ledger_expected else None
+    )
     if ledger_expected:
         assert result["completed_trade_window_days"] == 30
         assert [item["execution_date"] for item in result["completed_trade_items"]] == [
@@ -5687,17 +5699,22 @@ def test_market_signal_performance_summary_uses_completed_net_returns_and_matche
     assert week["completed_trades"] == 1
     assert week["wins"] == 0
     assert week["average_return"] == Decimal("-3.00")
+    assert week["one_share_return"] == Decimal("-3.00")
     assert week["median_return"] == Decimal("-3.00")
 
     fortnight = summary["windows"]["15d"]
     assert fortnight["completed_trades"] == 2
     assert fortnight["average_return"] == Decimal("1.00")
+    assert fortnight["one_share_return"] == Decimal("0.96")
+    assert fortnight["one_share_basis_count"] == 2
     assert fortnight["median_return"] == Decimal("1.00")
     assert fortnight["matched_benchmark_trades"] == 2
     assert fortnight["average_excess_return"] == Decimal("1.47")
 
     month = summary["windows"]["30d"]
     assert month["completed_trades"] == 2
+    assert month["one_share_return"] == Decimal("0.96")
+    assert summary["display_aggregation_basis"] == "one_share_gross_cash_return"
     assert summary["completed_trade_window_days"] == 30
     assert month["completed_trades"] == len(summary["completed_trade_items"])
     assert [item["execution_date"] for item in summary["completed_trade_items"]] == [

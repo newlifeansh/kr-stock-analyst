@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 import subprocess
 
 from app.services import us_position_lifecycle as lifecycle
+from app.services import quant_signals
 from app.services.us_market import build_us_quant_signals
 from app.services.public_signal import public_market_signal_payload
 
@@ -32,8 +33,8 @@ assert.equal(us(thirty, fifteen).sameSample, true);
 assert.equal(us({ ...thirty, completed_trades: 4 }, fifteen).sameSample, false);
 assert.equal(us({ completed_trades: 0, average_return: null }, seven).statusLabel, '표본 없음');
 assert.equal(us({ completed_trades: 2, average_return: 1 }, { completed_trades: 0 }).sameSample, false);
-assert.equal(kr(fifteen, seven).sameSample, false);
-assert.equal(unifiedKr(fifteen, seven).sameSample, false);
+assert.equal(kr(fifteen, seven).sameSample, true);
+assert.equal(unifiedKr(fifteen, seven).sameSample, true);
 """
     subprocess.run(["node", "-e", script, str(source_path)], check=True, capture_output=True, text=True)
 
@@ -153,3 +154,71 @@ def test_us_one_share_performance_fails_closed_when_entry_or_exit_cash_is_unveri
     assert window["completed_trades"] == 1
     assert window["one_share_basis_count"] == 0
     assert window["average_return"] is None
+
+
+def test_kr_one_share_display_uses_cash_flows_and_preserves_net_guard_mean():
+    as_of = datetime(2026, 11, 14, 15, tzinfo=timezone.utc)
+
+    def event(code, days, side, price, *, entry_price, net_return=None, sold_percent=None,
+              profit_stage=0):
+        row = {
+            "code": code, "event_side": side, "status": "confirmed",
+            "state_after": "exited" if side == "sell" else "partially_exited",
+            "signal_date": (as_of - timedelta(days=days + 1)).date(),
+            "execution_date": (as_of - timedelta(days=days)).date(),
+            "entry_date": (as_of - timedelta(days=days + 5)).date(),
+            "entry_price": entry_price, "price": price,
+            "profit_stage": profit_stage,
+        }
+        if net_return is not None:
+            row["return_rate"] = net_return
+        if sold_percent is not None:
+            row["sold_percent"] = sold_percent
+        return row
+
+    items = [
+        event("LOW", 2, "sell", 11, entry_price=10, net_return="9.70"),
+        event("HIGH", 10, "sell", 95, entry_price=100, net_return="-5.30"),
+        event("PART", 20, "partial_sell", 206, entry_price=200, sold_percent=50),
+        event("PART", 20, "sell", 210, entry_price=200, net_return="3.70", profit_stage=1),
+    ]
+    # The partial and final event belong to the same entry date.
+    items[-2]["entry_date"] = items[-1]["entry_date"]
+    summary = {
+        "return_basis": "completed_trade_net_of_costs",
+        "windows": {
+            "7d": {"period_start": (as_of - timedelta(days=7)).date(), "period_end": as_of.date(),
+                   "completed_trades": 1, "average_return": Decimal("9.70")},
+            "15d": {"period_start": (as_of - timedelta(days=15)).date(), "period_end": as_of.date(),
+                    "completed_trades": 2, "average_return": Decimal("2.20")},
+            "30d": {"period_start": (as_of - timedelta(days=30)).date(), "period_end": as_of.date(),
+                    "completed_trades": 3, "average_return": Decimal("2.70")},
+        },
+    }
+    quant_signals.attach_market_one_share_performance(summary, items)
+    assert summary["return_basis"] == "completed_trade_net_of_costs"
+    assert summary["display_aggregation_basis"] == "one_share_gross_cash_return"
+    assert [summary["windows"][key]["one_share_return"] for key in ("7d", "15d", "30d")] == [
+        Decimal("10.00"), Decimal("-3.64"), Decimal("1.29"),
+    ]
+    assert [summary["windows"][key]["one_share_basis_count"] for key in ("7d", "15d", "30d")] == [1, 2, 3]
+    assert summary["windows"]["30d"]["average_return"] == Decimal("2.70")
+
+
+def test_kr_one_share_display_hides_incomplete_or_inconsistent_cash_flow():
+    as_of = date(2026, 11, 14)
+    base = {"code": "005930", "event_side": "sell", "status": "confirmed",
+            "state_after": "exited", "signal_date": as_of, "execution_date": as_of,
+            "entry_date": date(2026, 11, 10), "entry_price": 100, "price": 110,
+            "return_rate": "9.70"}
+    summary = {"windows": {"7d": {"period_start": date(2026, 11, 7),
+                                  "period_end": as_of, "completed_trades": 2,
+                                  "average_return": Decimal("1.00")}}}
+    quant_signals.attach_market_one_share_performance(summary, [base])
+    assert summary["windows"]["7d"]["one_share_basis_count"] == 1
+    assert summary["windows"]["7d"]["one_share_return"] is None
+    missing_partial = {**base, "profit_stage": 1}
+    summary["windows"]["7d"]["completed_trades"] = 1
+    quant_signals.attach_market_one_share_performance(summary, [missing_partial])
+    assert summary["windows"]["7d"]["one_share_basis_count"] == 0
+    assert summary["windows"]["7d"]["one_share_return"] is None
