@@ -15036,6 +15036,9 @@ function setView(requestedViewName, options = {}) {
     setAIAnalysisButtonsLoading(false);
   }
   state.view = view;
+  if (view === "ai-signals" && previousView !== view && elements.aiSignalPerformance) {
+    elements.aiSignalPerformance.open = false;
+  }
   if (view !== "home") closeWatchMarketMapSheet();
   if (["home", "ai-signals"].includes(view) && previousView !== view) {
     prepareAiSignalEntrySurface(view);
@@ -19613,10 +19616,6 @@ function formatAiSignalRate(value) {
 
 function renderAiSignalPerformance() {
   if (!elements.aiSignalPerformance || !elements.aiSignalPerformanceRows) return;
-  if (elements.aiSignalPerformanceTitle) {
-    const marketLabel = isUsHubContext && state.marketScope === "us" ? "미국" : "국내";
-    elements.aiSignalPerformanceTitle.textContent = `최근 ${marketLabel} 시그널 평균 수익률`;
-  }
   const summary = state.aiSignalPerformanceSummary;
   const windows = summary?.windows || {};
   if (!summary) {
@@ -19624,6 +19623,16 @@ function renderAiSignalPerformance() {
     return;
   }
   elements.aiSignalPerformance.hidden = false;
+  const oneShare = isUsHubContext && state.marketScope === "us" && (
+    summary.aggregation_basis === "one_share_gross_cash_return"
+    || summary.return_basis === "completed_trade_one_share_gross_cash_return"
+  );
+  if (elements.aiSignalPerformanceTitle) {
+    const marketLabel = isUsHubContext && state.marketScope === "us" ? "미국" : "국내";
+    elements.aiSignalPerformanceTitle.textContent = oneShare
+      ? "최근 미국 시그널 1주 기준 수익률"
+      : `최근 ${marketLabel} 시그널 평균 수익률`;
+  }
   if (elements.aiSignalPerformanceAsOf) {
     const asOf = isUsHubContext && state.marketScope === "us"
       ? formatMarketNewsDate({ published_at: summary.as_of, market_scope: "us" })
@@ -19632,15 +19641,24 @@ function renderAiSignalPerformance() {
   }
   const guard = state.aiSignalEntrySafetyGuard || {};
   const grossReturns = summary.cost_basis === "gross_before_costs_tax_fx"
-    || summary.return_basis === "completed_trade_gross_price_return";
+    || summary.return_basis === "completed_trade_gross_price_return"
+    || oneShare;
   const recentAverage = toNumber(windows["30d"]?.average_return);
+  const recentCompleted = Math.max(0, Number(windows["30d"]?.completed_trades) || 0);
+  const recentVerified = Math.max(0, Number(windows["30d"]?.one_share_basis_count) || 0);
   if (elements.aiSignalPerformanceLead) {
     elements.aiSignalPerformanceLead.textContent = guard.active === true
       ? "최근 실현 기대값이 음수라 새 매수 신호를 관찰 단계로 낮추고 있습니다. 기존 보유·매도 이력은 유지됩니다."
+      : oneShare && recentCompleted > recentVerified
+        ? "완료된 매도는 있지만 매수가·매도가 확인이 부족해 1주 기준 수익률을 표시할 수 없습니다."
       : recentAverage !== null && recentAverage < 0
-        ? "최근 완료된 매도 시그널의 평균 수익률이 약한 상태입니다."
+        ? oneShare
+          ? "최근 완료된 매도 시그널의 1주 기준 수익률이 약한 상태입니다."
+          : "최근 완료된 매도 시그널의 평균 수익률이 약한 상태입니다."
         : recentAverage === null
           ? "완료된 매도 시그널이 없어 아직 수익률 표본이 없습니다."
+          : oneShare
+            ? "미국 모델의 완료 거래마다 1주씩 매수한 기준으로 계산했습니다."
           : grossReturns
             ? "완료된 미국 매도 시그널의 비용 차감 전 평균 수익률입니다."
             : "거래비용을 반영한 완료 매도 시그널의 평균 수익률입니다.";
@@ -19649,7 +19667,9 @@ function renderAiSignalPerformance() {
     const windowSummary = performanceWindow || {};
     const windowState = aiSignalPerformanceWindowState(windowSummary, shorterWindow);
     const { completed, average } = windowState;
-    const visibleAverage = windowState.empty || windowState.sameSample ? null : average;
+    const verifiedCount = Math.max(0, Number(windowSummary.one_share_basis_count) || 0);
+    const basisIncomplete = oneShare && completed > verifiedCount;
+    const visibleAverage = windowState.empty || basisIncomplete ? null : average;
     const row = el("div", "ai-signal-performance-row");
     const heading = el("div", "ai-signal-performance-row-heading");
     heading.append(
@@ -19657,7 +19677,7 @@ function renderAiSignalPerformance() {
       el(
         "span",
         `ai-signal-performance-status is-${windowState.statusState}`,
-        windowState.statusLabel,
+        basisIncomplete ? "매수가 확인 중" : windowState.statusLabel,
       ),
     );
     const value = el(
@@ -19668,13 +19688,16 @@ function renderAiSignalPerformance() {
     const evidenceParts = windowState.sameSample
       ? [`완료 ${formatNumber(completed)}건`, "추가 완료 거래 없음"]
       : [`완료 ${formatNumber(completed)}건`, `승률 ${formatAiSignalRate(windowSummary.win_rate)}`];
+    if (basisIncomplete) evidenceParts.push(`1주 기준 확인 ${formatNumber(verifiedCount)}/${formatNumber(completed)}건`);
     const evidence = el("p", "ai-signal-performance-evidence", evidenceParts.join(" · "));
     row.append(heading, value, evidence);
     return row;
   });
   elements.aiSignalPerformanceRows.replaceChildren(...rows);
   if (elements.aiSignalPerformanceNote) {
-    elements.aiSignalPerformanceNote.textContent = grossReturns
+    elements.aiSignalPerformanceNote.textContent = oneShare
+      ? "완료 거래마다 1주 매수·부분매도·전량매도를 가정한 (총 매도금액 − 총 매수금액) ÷ 총 매수금액입니다. 실제 주문이 아니며 비용·세금·환율 반영 전 성과입니다."
+      : grossReturns
       ? "실제 주문 수익이 아닌 미국 모델의 비용·세금·환율 반영 전 성과이며, 전량 매도된 거래만 집계합니다."
       : "실제 주문 수익이 아닌 거래비용 반영 모델 체결 성과이며, 전량 매도된 거래만 집계합니다.";
   }

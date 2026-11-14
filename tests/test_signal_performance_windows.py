@@ -8,7 +8,7 @@ from app.services.us_market import build_us_quant_signals
 from app.services.public_signal import public_market_signal_payload
 
 
-def test_us_performance_display_hides_only_repeated_window_samples():
+def test_us_performance_marks_repeated_window_samples():
     source_path = Path(__file__).resolve().parents[1] / "app/static/dashboard/app.js"
     script = r"""
 const assert = require('node:assert/strict');
@@ -96,3 +96,60 @@ def test_us_performance_is_independent_of_public_row_limit():
     assert len(response["performance_summary"]["completed_trade_items"]) == 100
     assert response["performance_summary"]["windows"]["7d"]["sample_state"] == "sufficient"
     assert len(feed["items"]) == 100
+
+
+def test_us_hybrid_performance_uses_one_share_cash_flows_and_keeps_legacy_mean():
+    as_of = datetime(2026, 11, 13, 20, tzinfo=timezone.utc)
+
+    def event(code, days, side, price, *, fraction=None, return_rate=None):
+        row = {
+            "code": code, "side": side, "price": str(price),
+            "execution_date": (as_of - timedelta(days=days)).date(),
+            "signal_date": (as_of - timedelta(days=days + 1)).date(),
+            "state_after": "exited" if side == "sell" else "partially_exited" if side == "partial_sell" else "holding",
+        }
+        if fraction is not None:
+            row["sell_fraction_original"] = str(fraction)
+        if return_rate is not None:
+            row["return_rate"] = str(return_rate)
+        return row
+
+    events = [
+        event("LOW", 2, "buy", 10), event("LOW", 1, "sell", 11, fraction=1, return_rate=10),
+        event("HIGH", 11, "buy", 100), event("HIGH", 10, "sell", 95, fraction=1, return_rate=-5),
+        event("PART", 21, "buy", 200),
+        event("PART", 20, "partial_sell", 206, fraction="0.5"),
+        event("PART", 20, "sell", 210, fraction="0.5", return_rate=4),
+    ]
+    hybrid = lifecycle.build_us_signal_performance_summary(events, as_of=as_of, one_share=True)
+    legacy = lifecycle.build_us_signal_performance_summary(events, as_of=as_of)
+    assert hybrid["version"] == "us-performance-v2-one-share"
+    assert hybrid["return_basis"] == "completed_trade_one_share_gross_cash_return"
+    assert [hybrid["windows"][key]["average_return"] for key in ("7d", "15d", "30d")] == [
+        Decimal("10.00"), Decimal("-3.64"), Decimal("1.29"),
+    ]
+    assert [hybrid["windows"][key]["one_share_basis_count"] for key in ("7d", "15d", "30d")] == [1, 2, 3]
+    assert hybrid["windows"]["30d"]["completed_trades"] == 3
+    assert legacy["version"] == "us-performance-v1"
+    assert legacy["windows"]["30d"]["average_return"] == Decimal("3.00")
+    public = public_market_signal_payload({
+        "strategy_version": "position-lifecycle-us-v3-hybrid1", "items": [],
+        "performance_summary": hybrid,
+    })["performance_summary"]
+    assert public["aggregation_basis"] == "one_share_gross_cash_return"
+    assert public["cost_basis"] == "gross_before_costs_tax_fx"
+    assert "return_basis" not in public
+    assert all("entry_price" not in item for item in public["completed_trade_items"])
+
+
+def test_us_one_share_performance_fails_closed_when_entry_or_exit_cash_is_unverified():
+    as_of = datetime(2026, 11, 13, 20, tzinfo=timezone.utc)
+    events = [
+        {"code": "AAPL", "side": "sell", "state_after": "exited",
+         "execution_date": as_of.date(), "price": "110", "return_rate": "10"},
+    ]
+    summary = lifecycle.build_us_signal_performance_summary(events, as_of=as_of, one_share=True)
+    window = summary["windows"]["7d"]
+    assert window["completed_trades"] == 1
+    assert window["one_share_basis_count"] == 0
+    assert window["average_return"] is None
