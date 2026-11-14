@@ -5585,6 +5585,140 @@ def _market_completed_trade_ledger(
     ]
 
 
+def _market_one_share_cash_flows(
+    items: list[dict[str, Any]], closed: list[dict[str, Any]],
+) -> dict[tuple[str, date, str, str], tuple[Decimal, Decimal]]:
+    """Reconstruct gross one-share cash flows without changing net strategy returns."""
+
+    partials: dict[tuple[str, date], list[dict[str, Any]]] = {}
+    for item in items:
+        if not isinstance(item, dict) or item.get("event_side") != "partial_sell":
+            continue
+        entry_on = _date_value(item.get("entry_date"))
+        if entry_on is not None:
+            partials.setdefault((str(item.get("code") or ""), entry_on), []).append(item)
+
+    flows: dict[tuple[str, date, str, str], tuple[Decimal, Decimal]] = {}
+    last_exit: dict[tuple[str, date], date] = {}
+    for item in sorted(
+        closed,
+        key=lambda row: (
+            _date_value(row.get("execution_date")) or date.min,
+            str(row.get("signal_date") or ""),
+        ),
+    ):
+        code = str(item.get("code") or "")
+        entry_on = _date_value(item.get("entry_date"))
+        exit_on = _date_value(item.get("execution_date"))
+        if not code or entry_on is None or exit_on is None or exit_on < entry_on:
+            continue
+        position_key = (code, entry_on)
+        previous_exit = last_exit.get(position_key)
+        last_exit[position_key] = exit_on
+        identity = (
+            code, exit_on, str(item.get("signal_date") or "")[:10],
+            str(item.get("entry_date") or "")[:10],
+        )
+        try:
+            entry = Decimal(str(item.get("entry_price")))
+            final_price = Decimal(str(item.get("price")))
+            net_return = Decimal(str(item.get("return_rate")))
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+        if not all(value.is_finite() for value in (entry, final_price, net_return)):
+            continue
+        if entry <= 0 or final_price <= 0:
+            continue
+        seen_partials: set[tuple[str, str, str, str]] = set()
+        partial_proceeds = Decimal("0")
+        sold_fraction = Decimal("0")
+        invalid_partial = False
+        matched_partial = False
+        for partial in partials.get(position_key, []):
+            partial_on = _date_value(partial.get("execution_date"))
+            if (partial_on is None or partial_on < entry_on or partial_on > exit_on
+                    or previous_exit is not None and partial_on <= previous_exit):
+                continue
+            partial_identity = (
+                str(partial.get("signal_date") or ""),
+                str(partial.get("execution_date") or ""),
+                str(partial.get("price") or ""),
+                str(partial.get("sold_percent") or ""),
+            )
+            if partial_identity in seen_partials:
+                continue
+            seen_partials.add(partial_identity)
+            matched_partial = True
+            try:
+                price = Decimal(str(partial.get("price")))
+                fraction = Decimal(str(partial.get("sold_percent"))) / 100
+            except (ArithmeticError, TypeError, ValueError):
+                invalid_partial = True
+                break
+            if (not price.is_finite() or price <= 0 or not fraction.is_finite()
+                    or fraction <= 0 or sold_fraction + fraction >= 1):
+                invalid_partial = True
+                break
+            sold_fraction += fraction
+            partial_proceeds += price * fraction
+        try:
+            profit_stage = int(item.get("profit_stage") or 0)
+        except (TypeError, ValueError):
+            continue
+        if invalid_partial or (profit_stage > 0 and not matched_partial):
+            continue
+        proceeds = partial_proceeds + final_price * (1 - sold_fraction)
+        gross_return = (proceeds / entry - 1) * 100
+        # Model fees are at most 0.5% per side. A larger discrepancy means
+        # a partial fill or entry price is missing from the public event set.
+        if net_return > gross_return + Decimal("0.02") or gross_return - net_return > 2:
+            continue
+        flows[identity] = (entry, proceeds)
+    return flows
+
+
+def attach_market_one_share_performance(
+    summary: dict[str, Any], items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Add display-only one-share returns to a fresh or frozen KR snapshot."""
+
+    closed = _market_completed_exit_items(items)
+    flows = _market_one_share_cash_flows(items, closed)
+    summary["one_share_display_version"] = "kr-one-share-display-v1"
+    summary["display_aggregation_basis"] = "one_share_gross_cash_return"
+    summary["display_cost_basis"] = "gross_before_costs_tax"
+    for key, window in (summary.get("windows") or {}).items():
+        if not isinstance(window, dict):
+            continue
+        start = _date_value(window.get("period_start"))
+        end = _date_value(window.get("period_end"))
+        selected = [
+            item for item in closed
+            if start is not None and end is not None
+            and start <= (_date_value(item.get("execution_date")) or date.min) <= end
+        ]
+        selected_flows = [
+            flows.get((
+                str(item.get("code") or ""),
+                _date_value(item.get("execution_date")) or date.min,
+                str(item.get("signal_date") or "")[:10],
+                str(item.get("entry_date") or "")[:10],
+            ))
+            for item in selected
+        ]
+        verified = [flow for flow in selected_flows if flow is not None]
+        completed = int(window.get("completed_trades") or 0)
+        invested = sum((flow[0] for flow in verified), Decimal("0"))
+        proceeds = sum((flow[1] for flow in verified), Decimal("0"))
+        window["one_share_basis_count"] = len(verified)
+        window["one_share_return"] = (
+            _decimal((proceeds / invested - 1) * 100)
+            if completed and len(selected) == completed and len(verified) == completed
+            and invested > 0 else None
+        )
+    return summary
+
+
 def build_market_signal_performance_summary(
     db: Session,
     items: list[dict[str, Any]],
@@ -5671,7 +5805,7 @@ def build_market_signal_performance_summary(
     completed_trade_items = _market_completed_trade_ledger(
         closed, period_start=ledger_cutoff, period_end=as_of.date(),
     )
-    return {
+    return attach_market_one_share_performance({
         "version": MARKET_SIGNAL_PERFORMANCE_VERSION,
         "as_of": as_of,
         "return_basis": "completed_trade_net_of_costs",
@@ -5679,7 +5813,7 @@ def build_market_signal_performance_summary(
         "completed_trade_window_days": ledger_days,
         "completed_trade_items": completed_trade_items,
         "windows": result_windows,
-    }
+    }, items)
 
 
 def evaluate_entry_safety_guard(
@@ -7612,6 +7746,10 @@ def load_market_quant_signal_snapshot(
             if len(ledger) == window.get("completed_trades"):
                 summary["completed_trade_window_days"] = 30
                 summary["completed_trade_items"] = ledger
+    if isinstance(summary, dict) and summary.get("display_aggregation_basis") != "one_share_gross_cash_return":
+        # Historic publications stay frozen; derive presentation values only
+        # in the read response when their retained events provide full proof.
+        attach_market_one_share_performance(summary, payload.get("items") or [])
     payload["status"] = "ready"
     generated_at = snapshot.generated_at
     if generated_at.tzinfo is None:

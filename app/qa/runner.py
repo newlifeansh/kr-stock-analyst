@@ -4557,6 +4557,12 @@ def _live_checks(
                     == "same_market_same_holding_period",
                     "완료 거래 순수익·동일 보유기간 지수 비교 기준이 다릅니다.",
                 )
+                _assert(
+                    summary.get("display_aggregation_basis") == "one_share_gross_cash_return"
+                    and summary.get("display_cost_basis") == "gross_before_costs_tax"
+                    and summary.get("one_share_display_version") == "kr-one-share-display-v1",
+                    "국내 화면의 1주 기준 현금흐름 계약이 없거나 다릅니다.",
+                )
                 windows = summary.get("windows") or {}
                 evidence: dict[str, Any] = {
                     "version": summary.get("version"),
@@ -4567,6 +4573,7 @@ def _live_checks(
                     window = windows.get(key) if isinstance(windows, dict) else None
                     _assert(isinstance(window, dict), f"{key} 성과 창이 없습니다.")
                     completed = int(window.get("completed_trades") or 0)
+                    verified = int(window.get("one_share_basis_count") or 0)
                     wins = int(window.get("wins") or 0)
                     losses = int(window.get("losses") or 0)
                     breakeven = int(window.get("breakeven") or 0)
@@ -4580,6 +4587,16 @@ def _live_checks(
                         == ("sufficient" if completed >= minimum else "limited")
                         and 0 <= matched <= completed,
                         f"{key} 성과 표본·상태·지수 매칭 수가 일관되지 않습니다.",
+                        window=window,
+                    )
+                    _assert(
+                        0 <= verified <= completed
+                        and (
+                            _finite_number(window.get("one_share_return")) is not None
+                            if completed and verified == completed
+                            else window.get("one_share_return") is None
+                        ),
+                        f"{key} 1주 기준 확인 건수·수익률이 일치하지 않습니다.",
                         window=window,
                     )
                     if completed:
@@ -4605,6 +4622,8 @@ def _live_checks(
                         "completed_trades": completed,
                         "win_rate": window.get("win_rate"),
                         "average_return": window.get("average_return"),
+                        "one_share_return": window.get("one_share_return"),
+                        "one_share_basis_count": verified,
                         "median_return": window.get("median_return"),
                         "matched_benchmark_trades": matched,
                         "average_excess_return": window.get("average_excess_return"),

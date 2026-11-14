@@ -19566,7 +19566,7 @@ function aiSignalPerformanceWindowState(windowSummary = {}, shorterWindowSummary
   const average = toNumber(windowSummary.average_return);
   const empty = completed === 0;
   const shorterCompleted = Math.max(0, Number(shorterWindowSummary?.completed_trades) || 0);
-  const sameSample = Boolean(isUsHubContext && state.marketScope === "us" && !empty && shorterWindowSummary
+  const sameSample = Boolean(!empty && shorterWindowSummary
     && completed === shorterCompleted);
   return {
     completed,
@@ -19623,14 +19623,15 @@ function renderAiSignalPerformance() {
     return;
   }
   elements.aiSignalPerformance.hidden = false;
-  const oneShare = isUsHubContext && state.marketScope === "us" && (
-    summary.aggregation_basis === "one_share_gross_cash_return"
-    || summary.return_basis === "completed_trade_one_share_gross_cash_return"
-  );
+  const usMarket = isUsHubContext && state.marketScope === "us";
+  const oneShare = usMarket
+    ? summary.aggregation_basis === "one_share_gross_cash_return"
+      || summary.return_basis === "completed_trade_one_share_gross_cash_return"
+    : summary.display_aggregation_basis === "one_share_gross_cash_return";
   if (elements.aiSignalPerformanceTitle) {
-    const marketLabel = isUsHubContext && state.marketScope === "us" ? "미국" : "국내";
+    const marketLabel = usMarket ? "미국" : "국내";
     elements.aiSignalPerformanceTitle.textContent = oneShare
-      ? "최근 미국 시그널 1주 기준 수익률"
+      ? `최근 ${marketLabel} 시그널 1주 기준 수익률`
       : `최근 ${marketLabel} 시그널 평균 수익률`;
   }
   if (elements.aiSignalPerformanceAsOf) {
@@ -19643,7 +19644,8 @@ function renderAiSignalPerformance() {
   const grossReturns = summary.cost_basis === "gross_before_costs_tax_fx"
     || summary.return_basis === "completed_trade_gross_price_return"
     || oneShare;
-  const recentAverage = toNumber(windows["30d"]?.average_return);
+  const recentAverage = toNumber(oneShare && !usMarket
+    ? windows["30d"]?.one_share_return : windows["30d"]?.average_return);
   const recentCompleted = Math.max(0, Number(windows["30d"]?.completed_trades) || 0);
   const recentVerified = Math.max(0, Number(windows["30d"]?.one_share_basis_count) || 0);
   if (elements.aiSignalPerformanceLead) {
@@ -19658,14 +19660,18 @@ function renderAiSignalPerformance() {
         : recentAverage === null
           ? "완료된 매도 시그널이 없어 아직 수익률 표본이 없습니다."
           : oneShare
-            ? "미국 모델의 완료 거래마다 1주씩 매수한 기준으로 계산했습니다."
+          ? `${usMarket ? "미국" : "국내"} 모델의 완료 거래마다 1주씩 매수한 기준으로 계산했습니다.`
           : grossReturns
             ? "완료된 미국 매도 시그널의 비용 차감 전 평균 수익률입니다."
             : "거래비용을 반영한 완료 매도 시그널의 평균 수익률입니다.";
   }
   const rows = [[7, windows["7d"], null], [15, windows["15d"], windows["7d"]], [30, windows["30d"], windows["15d"]]].map(([days, performanceWindow, shorterWindow]) => {
     const windowSummary = performanceWindow || {};
-    const windowState = aiSignalPerformanceWindowState(windowSummary, shorterWindow);
+    const windowState = aiSignalPerformanceWindowState({
+      ...windowSummary,
+      average_return: oneShare && !usMarket
+        ? windowSummary.one_share_return : windowSummary.average_return,
+    }, shorterWindow);
     const { completed, average } = windowState;
     const verifiedCount = Math.max(0, Number(windowSummary.one_share_basis_count) || 0);
     const basisIncomplete = oneShare && completed > verifiedCount;
@@ -19696,7 +19702,7 @@ function renderAiSignalPerformance() {
   elements.aiSignalPerformanceRows.replaceChildren(...rows);
   if (elements.aiSignalPerformanceNote) {
     elements.aiSignalPerformanceNote.textContent = oneShare
-      ? "완료 거래마다 1주 매수·부분매도·전량매도를 가정한 (총 매도금액 − 총 매수금액) ÷ 총 매수금액입니다. 실제 주문이 아니며 비용·세금·환율 반영 전 성과입니다."
+      ? `완료 거래마다 1주 매수·부분매도·전량매도를 가정한 (총 매도금액 − 총 매수금액) ÷ 총 매수금액입니다. 실제 주문이 아니며 ${usMarket ? "비용·세금·환율" : "비용·세금"} 반영 전 성과입니다.`
       : grossReturns
       ? "실제 주문 수익이 아닌 미국 모델의 비용·세금·환율 반영 전 성과이며, 전량 매도된 거래만 집계합니다."
       : "실제 주문 수익이 아닌 거래비용 반영 모델 체결 성과이며, 전량 매도된 거래만 집계합니다.";

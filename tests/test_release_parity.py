@@ -24,8 +24,8 @@ def test_local_release_contract_tracks_all_versioned_frontend_assets() -> None:
     contract = local_release_contract()
 
     assert contract["surface"] == "dashboard"
-    assert contract["product_version"] == "20261114v597"
-    assert contract["dashboard_version"] == "20261114v597"
+    assert contract["product_version"] == "20261114v598"
+    assert contract["dashboard_version"] == "20261114v598"
     assert len(contract["assets"]) == 8
     assert len(contract["asset_sha256"]) == 8
     assert set(contract["asset_sha256"]) == {
@@ -42,7 +42,7 @@ def test_local_us_release_contract_tracks_its_own_versioned_assets() -> None:
     contract = local_release_contract(surface="us")
 
     assert contract["surface"] == "us"
-    assert contract["product_version"] == "20261114us169"
+    assert contract["product_version"] == "20261114us170"
     assert len(contract["assets"]) == 12
     assert len(contract["asset_sha256"]) == 12
     assert set(contract["asset_sha256"]) == {
@@ -296,6 +296,7 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "Run domestic production read-only checks" in workflow
     assert "Run US production read-only checks" in workflow
     assert "Verify current US screen through the canonical gateway" in workflow
+    assert "Verify current domestic screen and one-share performance" in workflow
     assert "playwright install chromium" in workflow
     assert "playwright install --with-deps chromium" not in workflow
     verify = workflow.split("  verify_production:", 1)[1].split(
@@ -305,6 +306,7 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert verify.count("--wait-seconds 900") == 4
     assert "--surface us-gateway" in workflow
     assert "us-production-ui-e2e.json" in workflow
+    assert "dashboard-production-ui-e2e.json" in workflow
     assert "Resolve production invite code for canonical US screen verification" in workflow
     assert "CONFIGURED_INVITE_CODE" in workflow
     assert "railway variable list --json" in workflow
@@ -325,6 +327,7 @@ def test_tested_main_auto_deploys_one_digest_to_both_production_markets() -> Non
     assert "::warning::Domestic read-only live QA" in enforcement
     assert "::warning::US read-only live QA" in enforcement
     assert 'steps.us_ui_e2e.outcome }}\" = \"success\"' in enforcement
+    assert 'steps.dashboard_ui_e2e.outcome }}\" = \"success\"' in enforcement
 
     catalog = {case["id"]: case for case in load_qa_catalog()["cases"]}
     release_case = catalog["DATA-COM-009"]

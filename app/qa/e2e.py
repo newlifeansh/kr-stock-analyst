@@ -3533,6 +3533,7 @@ def run_e2e_checks(
                       const rows = [...overview.querySelectorAll('.ai-signal-performance-row')];
                       return {
                         marketTitle: overview.querySelector('#ai-signal-performance-title')?.textContent || '',
+                        aggregationBasis: summary.display_aggregation_basis || '',
                         foreignTradeCount: (summary.completed_trade_items || []).filter(item => marketScopeForItem(item) !== 'kr').length,
                         asOf: overview.querySelector('#ai-signal-performance-asof')?.textContent?.trim() || '',
                         lead: overview.querySelector('#ai-signal-performance-lead')?.textContent?.trim() || '',
@@ -3551,14 +3552,27 @@ def run_e2e_checks(
                 window_15 = windows.get("15d") or {}
                 window_30 = windows.get("30d") or {}
                 guard = contract.get("guard") or {}
+                def one_share_value(window: dict[str, Any]) -> str:
+                    completed = int(window.get("completed_trades") or 0)
+                    if (not completed or int(window.get("one_share_basis_count") or 0) != completed
+                            or window.get("one_share_return") is None):
+                        return "-"
+                    value = float(window["one_share_return"])
+                    return f"{'+' if value > 0 else ''}{value:.2f}%"
+
                 if (
-                    contract.get("marketTitle") != "최근 국내 시그널 평균 수익률"
+                    contract.get("marketTitle") != "최근 국내 시그널 1주 기준 수익률"
+                    or contract.get("aggregationBasis") != "one_share_gross_cash_return"
                     or contract.get("foreignTradeCount") != 0
                     or contract.get("labels")
                     != ["최근 7일", "최근 15일", "최근 30일"]
                     or not contract.get("asOf")
                     or len(contract.get("statuses") or []) != 3
                     or any(not value for value in contract.get("values") or [])
+                    or contract.get("values") != [
+                        one_share_value(window_7), one_share_value(window_15),
+                        one_share_value(window_30),
+                    ]
                     or any(not value for value in contract.get("evidence") or [])
                     or int(window_15.get("completed_trades") or 0)
                     < int(window_7.get("completed_trades") or 0)
@@ -3568,7 +3582,7 @@ def run_e2e_checks(
                         "승률 +" in evidence
                         for evidence in contract.get("evidence") or []
                     )
-                    or "전량 매도된 거래만 집계" not in str(contract.get("note") or "")
+                    or "완료 거래마다 1주 매수" not in str(contract.get("note") or "")
                     or (
                         guard.get("active") is True
                         and "관찰 단계" not in str(contract.get("lead") or "")

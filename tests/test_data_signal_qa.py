@@ -2255,7 +2255,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "strategy_version": "position-lifecycle-v8.1",
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261114us169",
+                "us_dashboard_version": "20261114us170",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/readyz":
@@ -2263,7 +2263,7 @@ class FakeReadOnlyApi:
                 "status": "ok",
                 "database_ok": True,
                 "us_strategy_version": "position-lifecycle-us-v3-hybrid1",
-                "us_dashboard_version": "20261114us169",
+                "us_dashboard_version": "20261114us170",
                 "us_market_enabled": True,
             }, self._meta(path)
         if path == "/meta/integrations":
@@ -2371,6 +2371,9 @@ class FakeReadOnlyApi:
                     "version": "market-signal-realized-performance-v1",
                     "as_of": "2026-08-29T10:00:00+09:00",
                     "return_basis": "completed_trade_net_of_costs",
+                    "one_share_display_version": "kr-one-share-display-v1",
+                    "display_aggregation_basis": "one_share_gross_cash_return",
+                    "display_cost_basis": "gross_before_costs_tax",
                     "benchmark_basis": "same_market_same_holding_period",
                     "completed_trade_window_days": 30,
                     "completed_trade_items": [
@@ -2409,6 +2412,8 @@ class FakeReadOnlyApi:
                             "breakeven": 0,
                             "win_rate": 50.0,
                             "average_return": -0.25,
+                            "one_share_return": -0.10,
+                            "one_share_basis_count": 4,
                             "median_return": -0.1,
                             "matched_benchmark_trades": 4,
                             "average_benchmark_return": 0.1,
@@ -2424,6 +2429,8 @@ class FakeReadOnlyApi:
                             "breakeven": 0,
                             "win_rate": 60.0,
                             "average_return": 0.6,
+                            "one_share_return": 0.75,
+                            "one_share_basis_count": 10,
                             "median_return": 0.4,
                             "matched_benchmark_trades": 10,
                             "average_benchmark_return": 0.2,
@@ -2439,6 +2446,8 @@ class FakeReadOnlyApi:
                             "breakeven": 0,
                             "win_rate": 60.0,
                             "average_return": 1.25,
+                            "one_share_return": 1.40,
+                            "one_share_basis_count": 20,
                             "median_return": 0.8,
                             "matched_benchmark_trades": 20,
                             "average_benchmark_return": 0.4,
@@ -2882,7 +2891,7 @@ class FakeReadOnlyApi:
                 "start_url": "/us?view=home",
             }, self._meta(path)
         if path == "/us-version":
-            return {"version": "20261114us169"}, self._meta(path)
+            return {"version": "20261114us170"}, self._meta(path)
         if path == "/us/stocks/search":
             return [{"code": "AAPL", "name": "Apple"}], self._meta(path)
         if path == "/us/market/trends":
@@ -2929,11 +2938,11 @@ class FakeReadOnlyApi:
                 '<html lang="ko" data-market-universe="us"><head>'
                 '<meta name="secret-note-market-universe" content="us" />'
                 '<title>비밀노트 | 미국증시</title>'
-                '<link href="/assets/dashboard/styles.css?v=20261114us169" />'
+                '<link href="/assets/dashboard/styles.css?v=20261114us170" />'
                 '</head><body><section id="home-view"></section>'
                 '<section id="home-ai-response"></section>'
                 '<nav id="bottom-nav"></nav>'
-                '<script src="/dashboard-app-v170.js?v=20261114us169"></script>'
+                '<script src="/dashboard-app-v170.js?v=20261114us170"></script>'
                 '</body></html>',
                 self._meta(path),
             )
@@ -2973,11 +2982,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261114v597" />'
+            '<link href="/assets/dashboard/styles.css?v=20261114v598" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261114v597"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261114v598"></script>'
             '</body></html>',
             self._meta(path),
         )
@@ -3528,6 +3537,8 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
         "completed_trades": 4,
         "win_rate": 50.0,
         "average_return": -0.25,
+        "one_share_return": -0.10,
+        "one_share_basis_count": 4,
         "median_return": -0.1,
         "matched_benchmark_trades": 4,
         "average_excess_return": -0.35,
@@ -3537,6 +3548,8 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
         "completed_trades": 10,
         "win_rate": 60.0,
         "average_return": 0.6,
+        "one_share_return": 0.75,
+        "one_share_basis_count": 10,
         "median_return": 0.4,
         "matched_benchmark_trades": 10,
         "average_excess_return": 0.4,
@@ -3546,6 +3559,8 @@ def test_live_report_distinguishes_allowed_caution_and_source_probe_warning(
         "completed_trades": 20,
         "win_rate": 60.0,
         "average_return": 1.25,
+        "one_share_return": 1.40,
+        "one_share_basis_count": 20,
         "median_return": 0.8,
         "matched_benchmark_trades": 20,
         "average_excess_return": 0.85,
