@@ -132,7 +132,7 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.split("  audit_runtime:", 1)[0].count('--project "$US_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project "$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 2
     assert workflow.count('--project="$US_STAGING_RAILWAY_PROJECT_ID"') == 8
-    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 14
+    assert workflow.count('--project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID"') == 15
     assert workflow.count('--project "$TARGET_PRODUCTION_RAILWAY_PROJECT_ID"') == 11
     assert 'RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}' not in workflow
     assert 'US_STAGING_RAILWAY_PROJECT_ID: ${{ vars.US_STAGING_RAILWAY_PROJECT_ID }}' in workflow
@@ -174,6 +174,7 @@ def test_deployment_workflow_promotes_one_immutable_image_after_staging() -> Non
     assert workflow.count('railway variable set "PROCESS_ROLE=collector"') == 3
     assert workflow.count('railway variable set "FUNDAMENTAL_SNAPSHOT_ENABLED=true"') == 2
     assert workflow.count('railway variable set "FUNDAMENTAL_SNAPSHOT_REFRESH_DAYS=2"') == 2
+    assert workflow.count('railway variable set "QA_CRITICAL_WARMUP_ENABLED=true"') == 1
     assert "Mirror staging web-push credentials to domestic services" in workflow
     assert "railway variable list --json" in workflow
     assert 'railway variable set "WEB_PUSH_ENABLED=true" --skip-deploys' in workflow

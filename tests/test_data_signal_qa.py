@@ -4290,6 +4290,7 @@ def test_live_us_contract_blocks_mismatched_canonical_snapshot_identity(
     FakeReadOnlyApi.quality_price_state = "ready"
     monkeypatch.setattr(runner, "ReadOnlyApi", MismatchedUsSnapshotApi)
     monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "sleep", lambda *_args, **_kwargs: None)
 
     report = run_data_signal_qa(mode="live", base_url="https://fixture-staging.test")
     by_id = {item["id"]: item for item in report["checks"]}
@@ -4299,6 +4300,46 @@ def test_live_us_contract_blocks_mismatched_canonical_snapshot_identity(
         by_id["SIG-US-CONTRACT-001"]["evidence"]
     )
     assert report["deployment_blocked"] is True
+
+
+@pytest.mark.qa_live
+def test_live_us_contract_rereads_pair_across_atomic_snapshot_publication(
+    monkeypatch,
+) -> None:
+    """A collector publication between sequential GETs is not a mixed snapshot."""
+
+    from app.qa import runner
+
+    class AtomicPublicationBoundaryApi(FakeReadOnlyApi):
+        quant_signal_calls = 0
+
+        def get(self, path: str, **params: object):
+            payload, meta = super().get(path, **params)
+            if path == "/us/market/quant-signals":
+                type(self).quant_signal_calls += 1
+                if type(self).quant_signal_calls == 1:
+                    payload = {
+                        **payload,
+                        "snapshot_id": "position-lifecycle-us-v3-hybrid1:previous",
+                        "snapshot_checksum": "previous-checksum",
+                    }
+            return payload, meta
+
+    FakeReadOnlyApi.quality_price_state = "ready"
+    AtomicPublicationBoundaryApi.quant_signal_calls = 0
+    monkeypatch.setattr(runner, "ReadOnlyApi", AtomicPublicationBoundaryApi)
+    monkeypatch.setattr(runner, "_public_websocket_check", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "sleep", lambda *_args, **_kwargs: None)
+
+    report = run_data_signal_qa(
+        mode="live", surface="us", base_url="https://fixture-staging.test"
+    )
+    by_id = {item["id"]: item for item in report["checks"]}
+
+    assert by_id["SIG-US-VERSION-001"]["status"] == "pass"
+    assert by_id["SIG-US-CONTRACT-001"]["status"] == "pass"
+    assert by_id["SIG-US-CONTRACT-001"]["evidence"]["snapshot_pair_attempts"] == 2
+    assert report["deployment_blocked"] is False
 
 
 @pytest.mark.qa_live

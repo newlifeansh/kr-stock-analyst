@@ -28,10 +28,17 @@ def test_lifespan_starts_mutating_collectors_only_for_collector_role():
 
     assert "if settings.runs_collectors():" in source
     assert "recover_interrupted_ingestions()" in source
-    assert "await briefing_runtime.start()" in source
+    assert "await briefing_runtime.start(" in source
     assert "await web_push_runtime.start()" in source
     assert "await _get_complete_snapshot_runtime().start()" in source
+    assert "if settings.qa_critical_warmup_enabled:" in source
+    assert "_run_qa_critical_warmup_task" in source
+    assert "defer_main_cycle=settings.qa_critical_warmup_enabled" in source
     assert "if settings.runs_web_services() and mcp_server is not None:" in source
+
+
+def test_qa_critical_warmup_is_disabled_by_default():
+    assert Settings().qa_critical_warmup_enabled is False
 
 
 def test_web_role_never_enqueues_us_position_lifecycle_scan(monkeypatch):

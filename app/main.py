@@ -17,7 +17,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
 from threading import Lock, RLock
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 from urllib.parse import quote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
@@ -678,6 +678,122 @@ async def _run_bootstrap_task() -> None:
         logger.exception("Background bootstrap failed")
 
 
+QA_CRITICAL_REGULAR_EVIDENCE_MAX_PASSES = 12
+QA_CRITICAL_REGULAR_EVIDENCE_RECOVERY_DELAY_SECONDS = 65
+
+
+def _qa_critical_regular_evidence_codes() -> list[str]:
+    """Return exactly the current data-quality Top100 in market-cap order."""
+    completed = latest_completed_korea_market_session_date(datetime.now(KST))
+    with SessionLocal() as db:
+        latest_rank_statement = (
+            select(func.max(DailyPrice.trade_date))
+            .join(StockMaster, StockMaster.code == DailyPrice.code)
+            .where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                DailyPrice.market_cap.is_not(None),
+                DailyPrice.market_cap > 0,
+                DailyPrice.close.is_not(None),
+            )
+        )
+        if completed is not None:
+            latest_rank_statement = latest_rank_statement.where(
+                DailyPrice.trade_date <= completed
+            )
+        latest_rank_date = db.scalar(latest_rank_statement)
+        if latest_rank_date is None:
+            return []
+        return list(
+            db.scalars(
+                select(DailyPrice.code)
+                .join(StockMaster, StockMaster.code == DailyPrice.code)
+                .where(
+                    DailyPrice.trade_date == latest_rank_date,
+                    DailyPrice.market_cap.is_not(None),
+                    DailyPrice.market_cap > 0,
+                    StockMaster.is_active.is_(True),
+                    StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                )
+                .order_by(desc(DailyPrice.market_cap), DailyPrice.code)
+                .limit(100)
+            )
+        )
+
+
+def _refresh_qa_critical_market_signal_snapshots() -> bool:
+    """Build bounded completed-session snapshots for an on-demand QA collector."""
+    now = datetime.now(KST)
+    if _quant_signal_quote_refresh_active(now):
+        return _refresh_market_quant_signal_views_snapshot() is not None
+
+    # Outside the trading/close window, publishing a completed-session view
+    # must not manufacture a current quote.  The stored, completed OHLC basis
+    # is precisely what the normal endpoint exposes over weekends/holidays.
+    # The regular-session evidence collector deliberately bounds each pass.
+    # A staging collector that was stopped for days needs several such passes
+    # in one QA session; the normal five-minute loop is inactive on a weekend.
+    regular_evidence_codes = _qa_critical_regular_evidence_codes()
+    if not regular_evidence_codes:
+        logger.warning("QA critical warmup could not resolve the current Top100")
+        return False
+    canonical = None
+    for attempt in range(1, QA_CRITICAL_REGULAR_EVIDENCE_MAX_PASSES + 1):
+        canonical = _refresh_market_quant_signal_snapshot(
+            universe_limit=MARKET_SIGNAL_UNIVERSE_LIMIT,
+            limit=0,
+            recent_days=30,
+            live_quotes={},
+            reuse_regular_preflight=False,
+            regular_evidence_codes=regular_evidence_codes,
+            regular_evidence_retry_cooldown=timedelta(minutes=1),
+        )
+        if canonical is not None:
+            break
+        # The first ten 250-pair passes cover the complete 10/13-forward
+        # history for the exact Top100. Let a provider throttle window clear
+        # before retrying only the remaining unverified pairs.
+        if attempt == 10:
+            time_module.sleep(QA_CRITICAL_REGULAR_EVIDENCE_RECOVERY_DELAY_SECONDS)
+    if canonical is None:
+        return False
+
+    scopes = (
+        (MARKET_SIGNAL_UNIVERSE_LIMIT, 0, MARKET_SIGNAL_DETAIL_RECENT_DAYS, True),
+        (100, 100, 30, True),
+    )
+    for universe_limit, limit, recent_days, reuse_regular_preflight in scopes:
+        if _refresh_market_quant_signal_snapshot(
+            universe_limit=universe_limit,
+            limit=limit,
+            recent_days=recent_days,
+            live_quotes={},
+            reuse_regular_preflight=reuse_regular_preflight,
+        ) is None:
+            return False
+    return True
+
+
+async def _run_qa_critical_warmup_task() -> None:
+    """Prepare finite staging-only release inputs before bulk collectors run."""
+    try:
+        warmed = await asyncio.to_thread(briefing_runtime.warm_qa_critical_data)
+        signals_ready = await asyncio.to_thread(
+            _refresh_qa_critical_market_signal_snapshots
+        )
+        if signals_ready:
+            logger.info("QA critical warmup completed: %s", warmed)
+        else:
+            logger.warning("QA critical warmup left a market snapshot incomplete")
+    except Exception:  # pragma: no cover - operational safeguard
+        logger.exception("QA critical warmup failed")
+    finally:
+        # Do not let full-universe backfills hold the DB while the finite QA
+        # lane establishes its release prerequisites.  A failure still starts
+        # the normal collector so the readiness probe can report real state.
+        briefing_runtime.start_main_cycle()
+
+
 async def _run_intraday_warmup_loop() -> None:
     last_attempted_date: Optional[date] = None
     while True:
@@ -1085,6 +1201,8 @@ def _refresh_market_quant_signal_snapshot(
     recent_days: int = 30,
     live_quotes: Optional[dict[str, dict[str, Any]]] = None,
     reuse_regular_preflight: bool = False,
+    regular_evidence_codes: Optional[Iterable[str]] = None,
+    regular_evidence_retry_cooldown: Optional[timedelta] = None,
 ) -> Optional[dict[str, Any]]:
     refresh_lock = (
         market_quant_signal_detail_refresh_lock
@@ -1125,7 +1243,14 @@ def _refresh_market_quant_signal_snapshot(
             if kis_rest_provider.is_configured() and not reuse_regular_preflight:
                 from app.services.regular_signal_transition import collect_forward_session
 
-                regular = collect_forward_session(db, kis_rest_provider, now=current_time, universe_limit=universe_limit)
+                regular = collect_forward_session(
+                    db,
+                    kis_rest_provider,
+                    now=current_time,
+                    universe_limit=universe_limit,
+                    codes=regular_evidence_codes,
+                    retry_cooldown=regular_evidence_retry_cooldown,
+                )
                 logger.info("Regular signal price evidence: state=%s attempted=%s ready=%s bounded=%s unverified=%s",
                             regular.get("state"), regular.get("attempted"), regular.get("ready"),
                             regular.get("bounded"), len(regular.get("unverified", [])))
@@ -2364,6 +2489,7 @@ async def lifespan(_: FastAPI):
     if settings.runs_collectors():
         recover_interrupted_ingestions()
     bootstrap_task: asyncio.Task | None = None
+    qa_critical_warmup_task: asyncio.Task | None = None
     intraday_warmup_task: asyncio.Task | None = None
     market_quant_signal_task: asyncio.Task | None = None
     market_quant_signal_detail_task: asyncio.Task | None = None
@@ -2379,7 +2505,9 @@ async def lifespan(_: FastAPI):
         if settings.runs_web_services() and mcp_server is not None:
             await stack.enter_async_context(mcp_server.session_manager.run())
         if settings.runs_collectors():
-            await briefing_runtime.start()
+            await briefing_runtime.start(
+                defer_main_cycle=settings.qa_critical_warmup_enabled
+            )
             await web_push_runtime.start()
             collectors_started = True
             await _get_complete_snapshot_runtime().start()
@@ -2414,6 +2542,10 @@ async def lifespan(_: FastAPI):
                 stock_logo_task = asyncio.create_task(_run_stock_logo_sync_loop())
             if settings.bootstrap_on_start:
                 bootstrap_task = asyncio.create_task(_run_bootstrap_task())
+            if settings.qa_critical_warmup_enabled:
+                qa_critical_warmup_task = asyncio.create_task(
+                    _run_qa_critical_warmup_task()
+                )
         if settings.runs_web_services() and not settings.us_market_enabled:
             if await asyncio.to_thread(warm_recommendation_signal_workers):
                 await asyncio.to_thread(prewarm_recommendation_signals)
@@ -2426,6 +2558,10 @@ async def lifespan(_: FastAPI):
                 bootstrap_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await bootstrap_task
+            if qa_critical_warmup_task is not None:
+                qa_critical_warmup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await qa_critical_warmup_task
             if intraday_warmup_task is not None:
                 intraday_warmup_task.cancel()
                 with suppress(asyncio.CancelledError):

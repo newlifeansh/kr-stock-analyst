@@ -470,6 +470,28 @@ def test_forward_collection_keeps_recent_members_after_rank_exit(db, monkeypatch
     assert captured["end"] == current
 
 
+def test_forward_collection_uses_explicit_qa_scope_without_retention(db, monkeypatch):
+    from app.services import regular_session_prices
+
+    captured = {}
+
+    def collect(_db, _provider, **kwargs):
+        captured.update(kwargs)
+        return {"attempted": 0, "state": "ready"}
+
+    monkeypatch.setattr(regular_session_prices, "collect_regular_session_prices", collect)
+    transition.collect_forward_session(
+        db,
+        object(),
+        now=datetime(2026, 10, 27, 8, tzinfo=qs.KST),
+        codes=["000002", "000001", "000002"],
+        retry_cooldown=timedelta(minutes=1),
+    )
+
+    assert captured["codes"] == ["000001", "000002"]
+    assert captured["retry_cooldown"] == timedelta(minutes=1)
+
+
 def test_forward_market_feed_preserves_published_returns_without_legacy_alerts(db):
     stock = StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True)
     db.add(stock)

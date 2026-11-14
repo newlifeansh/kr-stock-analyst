@@ -4,7 +4,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import time
-from typing import Optional
+from typing import Iterable, Optional
 
 import requests
 from sqlalchemy import and_, desc, func, select
@@ -274,6 +274,7 @@ def collect_stock_news_snapshots(
     db: Session,
     *,
     markets: str = "KOSPI,KOSDAQ",
+    codes: Optional[Iterable[str]] = None,
     limit: Optional[int] = None,
     max_workers: int = 8,
     refresh_hours: int = 6,
@@ -287,6 +288,11 @@ def collect_stock_news_snapshots(
     )
     if market_values:
         statement = statement.where(StockMaster.market.in_(market_values))
+    requested_codes = tuple(
+        dict.fromkeys(str(code).strip() for code in (codes or ()) if str(code).strip())
+    )
+    if codes is not None:
+        statement = statement.where(StockMaster.code.in_(requested_codes))
     if limit:
         statement = statement.limit(limit)
     codes = list(db.scalars(statement))

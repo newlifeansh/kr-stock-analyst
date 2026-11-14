@@ -644,6 +644,16 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_release_data_readiness.test_dashboard_readiness_checks_canonical_and_exact_live_scope",
         "tests.test_release_data_readiness."
         "test_us_readiness_rejects_schema_upgrade_and_empty_recommendations",
+        "tests.test_app."
+        "test_qa_critical_warmup_rebuilds_completed_session_scopes_without_quotes",
+        "tests.test_app."
+        "test_qa_critical_warmup_retries_bounded_regular_evidence_passes",
+        "tests.test_app."
+        "test_qa_critical_warmup_exhausts_exact_top100_evidence_pass_budget",
+        "tests.test_app."
+        "test_qa_critical_warmup_retries_unverified_top100_after_provider_window",
+        "tests.test_regular_signal_transition."
+        "test_forward_collection_uses_explicit_qa_scope_without_retention",
     ),
     "SIG-PERF-001": (
         "tests.test_signal_market_isolation.test_signal_market_metrics_follow_selected_market_without_cross_market_fallback",
@@ -1414,6 +1424,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_us_recommendations_use_the_same_rc1_snapshot_as_the_signal_feed",
         "tests.test_us_position_lifecycle_runtime."
         "test_canonical_snapshot_round_trip_and_stale_state_blocks_entries",
+        "tests.test_data_signal_qa."
+        "test_live_us_contract_rereads_pair_across_atomic_snapshot_publication",
+        "tests.test_data_signal_qa."
+        "test_live_us_contract_blocks_mismatched_canonical_snapshot_identity",
     ),
     "SIG-US-LIFECYCLE-001": (
         "tests.test_quant_signals."
@@ -6636,12 +6650,47 @@ def _live_us_checks(
                     "미국 시그널 공통 계약이 이미 실패해 동일한 10분 재시도를 생략합니다."
                 )
             context["us_market_contract_attempted"] = True
-            feed, feed_meta = api.get(
-                "/us/market/quant-signals", limit=50, recent_days=30
-            )
-            recommendations, recommendations_meta = api.get(
-                "/us/market/recommendations", limit=20, candidate_limit=100
-            )
+            def load_us_snapshot_pair() -> tuple[
+                dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]
+            ]:
+                feed_payload, feed_request_meta = api.get(
+                    "/us/market/quant-signals", limit=50, recent_days=30
+                )
+                recommendation_payload, recommendation_request_meta = api.get(
+                    "/us/market/recommendations", limit=20, candidate_limit=100
+                )
+                return (
+                    feed_payload,
+                    feed_request_meta,
+                    recommendation_payload,
+                    recommendation_request_meta,
+                )
+
+            (
+                feed,
+                feed_meta,
+                recommendations,
+                recommendations_meta,
+            ) = load_us_snapshot_pair()
+            # A collector can atomically publish a newer snapshot between two
+            # independent GETs. Re-read the pair briefly so QA observes one
+            # coherent published revision, while preserving a P0 failure for a
+            # persistent identity mismatch.
+            snapshot_pair_attempts = 1
+            snapshot_pair_deadline = monotonic() + 2
+            while (
+                feed.get("snapshot_id") != recommendations.get("snapshot_id")
+                or feed.get("snapshot_checksum")
+                != recommendations.get("snapshot_checksum")
+            ) and monotonic() < snapshot_pair_deadline:
+                sleep(1)
+                (
+                    feed,
+                    feed_meta,
+                    recommendations,
+                    recommendations_meta,
+                ) = load_us_snapshot_pair()
+                snapshot_pair_attempts += 1
             stock_analysis, stock_analysis_meta = api.get(
                 "/us/stocks/NVDA/ai-analysis"
             )
@@ -6664,12 +6713,12 @@ def _live_us_checks(
             evidence_deadline = monotonic() + 600
             while not member_evidence_ready() and monotonic() < evidence_deadline:
                 sleep(10)
-                feed, feed_meta = api.get(
-                    "/us/market/quant-signals", limit=50, recent_days=30
-                )
-                recommendations, recommendations_meta = api.get(
-                    "/us/market/recommendations", limit=20, candidate_limit=100
-                )
+                (
+                    feed,
+                    feed_meta,
+                    recommendations,
+                    recommendations_meta,
+                ) = load_us_snapshot_pair()
                 stock_analysis, stock_analysis_meta = api.get(
                     "/us/stocks/NVDA/ai-analysis"
                 )
@@ -6746,6 +6795,7 @@ def _live_us_checks(
                 "미국 시그널·추천 canonical identity가 다릅니다.",
                 feed_snapshot_id=feed.get("snapshot_id"),
                 recommendation_snapshot_id=recommendations.get("snapshot_id"),
+                snapshot_pair_attempts=snapshot_pair_attempts,
             )
             _assert(
                 recommendations.get("universe_as_of") == feed.get("universe_as_of")
@@ -7013,6 +7063,7 @@ def _live_us_checks(
                 "expected_universe_as_of": expected_universe_as_of,
                 "snapshot_id": feed.get("snapshot_id"),
                 "snapshot_checksum": feed.get("snapshot_checksum"),
+                "snapshot_pair_attempts": snapshot_pair_attempts,
                 "data_state": feed.get("data_state"),
                 "preliminary_count": feed.get("preliminary_count"),
                 "confirmed_count": feed.get("confirmed_count"),
