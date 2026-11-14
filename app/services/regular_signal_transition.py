@@ -463,6 +463,7 @@ def collect_forward_session(
     universe_limit: int = 150,
     codes: Optional[Iterable[str]] = None,
     retry_cooldown: Optional[timedelta] = None,
+    diagnostic_dataset: Optional[str] = None,
 ) -> dict[str, Any]:
     """Backfill the current and recently ranked signal universe."""
     from app.services import quant_signals as qs
@@ -506,6 +507,8 @@ def collect_forward_session(
     kwargs: dict[str, Any] = {}
     if retry_cooldown is not None:
         kwargs["retry_cooldown"] = retry_cooldown
+    if diagnostic_dataset is not None:
+        kwargs["diagnostic_dataset"] = diagnostic_dataset
     return collect_regular_session_prices(db, provider, codes=sorted(set(selected_codes)), start=REGULAR_FORWARD_START,
                                           end=completed, observed_at=now, persist=True, max_pairs=250, **kwargs)
 

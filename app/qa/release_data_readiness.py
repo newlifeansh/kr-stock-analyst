@@ -22,6 +22,11 @@ def dashboard_readiness(
         if isinstance(datasets.get("stock_news"), dict)
         else {}
     )
+    entry_evidence = (
+        datasets.get("entry_evidence_snapshot")
+        if isinstance(datasets.get("entry_evidence_snapshot"), dict)
+        else {}
+    )
     summary = {
         "status": payload.get("status"),
         "as_of": payload.get("as_of"),
@@ -33,6 +38,11 @@ def dashboard_readiness(
         "stock_news_last_success_at": (stock_news.get("api") or {}).get(
             "last_success_at"
         ),
+        "entry_evidence_state": entry_evidence.get("state"),
+        "entry_evidence_covered": entry_evidence.get("covered"),
+        "entry_evidence_total": entry_evidence.get("total"),
+        "entry_evidence_missing_codes": entry_evidence.get("missing_codes"),
+        "qa_regular_evidence": entry_evidence.get("qa_regular_evidence"),
         "market_signal_status": (
             market_payload.get("status") if market_payload is not None else None
         ),

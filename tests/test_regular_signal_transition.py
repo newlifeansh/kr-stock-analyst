@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalEvidenceSnapshot, QuantSignalIntradayPathSnapshot, QuantSignalObservedEntry, QuantSignalTransitionBaseline, StockMaster
+from app.models import DailyPrice, IngestionRun, MarketQuantSignalSnapshot, QuantSignalEvidenceSnapshot, QuantSignalIntradayPathSnapshot, QuantSignalObservedEntry, QuantSignalTransitionBaseline, StockMaster
 from app.services import regular_signal_transition as transition
 from app.services import quant_signals as qs
 from app.services.regular_session_prices import UnverifiedRegularSessionPrice, store_regular_session_evidence, regular_session_evidence
@@ -701,6 +701,35 @@ def test_forward_quality_counts_new_policy_without_retagging_legacy_evidence(db,
     now = datetime(2026,10,13,19,tzinfo=qs.KST)
     before = quality.signal_data_quality_status(db, Settings(_env_file=None), now=now)["datasets"]["entry_evidence_snapshot"]
     assert before["strategy_version"] == qs.STRATEGY_VERSION and before["covered"] == 0
+    assert before["missing_codes"] == ["005930"]
+    db.add(IngestionRun(
+        source="kis",
+        dataset="qa_regular_session_evidence",
+        status="partial",
+        rows_loaded=0,
+        finished_at=now.replace(tzinfo=None),
+        message=json.dumps({
+            "observed_at": now.isoformat(),
+            "attempted": 1,
+            "ready": 0,
+            "already_ready": 0,
+            "deferred": 0,
+            "unverified": [{
+                "code": "005930",
+                "trade_date": day.isoformat(),
+                "reason": "source_unavailable",
+                "error_type": "RuntimeError",
+            }],
+        }),
+    ))
+    db.commit()
+    diagnosed = quality.signal_data_quality_status(db, Settings(_env_file=None), now=now)["datasets"]["entry_evidence_snapshot"]
+    assert diagnosed["qa_regular_evidence"]["unverified"] == [{
+        "code": "005930",
+        "trade_date": day.isoformat(),
+        "reason": "source_unavailable",
+        "error_type": "RuntimeError",
+    }]
     db.add(QuantSignalEvidenceSnapshot(stock_code="005930",signal_date=day,strategy_version=qs.STRATEGY_VERSION,
         policy_version=transition.REGULAR_FORWARD_ENTRY_POLICY,quality_state="ready",payload="{}",generated_at=datetime(2026,10,13,9)))
     db.commit()

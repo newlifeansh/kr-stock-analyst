@@ -20,7 +20,7 @@ import zlib
 from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
-from app.models import DailyPrice, SignalSessionPrice
+from app.models import DailyPrice, IngestionRun, SignalSessionPrice
 from app.services.market_calendar import is_scheduled_korea_market_session_date
 
 KST = ZoneInfo("Asia/Seoul")
@@ -1485,6 +1485,7 @@ def collect_regular_session_prices(
     db: Session, provider: Any, *, codes: list[str], start: date, end: date,
     observed_at: datetime, persist: bool = False, max_pairs: int = 250,
     retry_cooldown: timedelta = timedelta(minutes=30),
+    diagnostic_dataset: str | None = None,
 ) -> dict[str, Any]:
     """Bounded, resumable sidecar backfill; never publishes signals or pushes.
 
@@ -1505,6 +1506,12 @@ def collect_regular_session_prices(
     has_table = inspect(db.connection()).has_table(SignalSessionPrice.__tablename__)
     if persist and not has_table:
         raise ValueError("create the additive evidence table before persisting")
+    if diagnostic_dataset is not None and (
+        not diagnostic_dataset
+        or len(diagnostic_dataset) > 80
+        or not diagnostic_dataset.replace("_", "").replace("-", "").isalnum()
+    ):
+        raise ValueError("invalid regular-session diagnostic dataset")
     active_codes = sorted(set(codes))
     pairs = [(code, day) for day in reversed(_session_dates(start, end)) for code in active_codes]
     # A fixed newest-first cap can indefinitely starve an older failed day
@@ -1537,6 +1544,42 @@ def collect_regular_session_prices(
     retryable_set = set(retryable)
     retry_quota = max(1, max_pairs // 4)
     pairs = retryable[:retry_quota] + [pair for pair in pairs if pair not in retryable_set] + retryable[retry_quota:]
+    source_retry_pairs: set[tuple[str, date]] = set()
+    if diagnostic_dataset:
+        previous = db.scalar(
+            select(IngestionRun)
+            .where(
+                IngestionRun.source == "kis",
+                IngestionRun.dataset == diagnostic_dataset,
+                IngestionRun.finished_at.is_not(None),
+            )
+            .order_by(IngestionRun.finished_at.desc(), IngestionRun.id.desc())
+            .limit(1)
+        )
+        try:
+            diagnostic = json.loads(previous.message or "") if previous else {}
+            previous_observed_at = datetime.fromisoformat(
+                str(diagnostic.get("observed_at") or "")
+            )
+            if previous_observed_at.tzinfo is None:
+                previous_observed_at = previous_observed_at.replace(tzinfo=timezone.utc)
+            within_cooldown = (
+                observed_at.astimezone(timezone.utc) - previous_observed_at.astimezone(timezone.utc)
+                < retry_cooldown
+            )
+            if within_cooldown:
+                for item in diagnostic.get("unverified") or []:
+                    if not isinstance(item, dict) or item.get("reason") not in {
+                        "source_unavailable", "source_retry_cooldown",
+                    }:
+                        continue
+                    code = str(item.get("code") or "")
+                    day = date.fromisoformat(str(item.get("trade_date") or ""))
+                    if code in active_codes and start <= day <= end:
+                        source_retry_pairs.add((code, day))
+        except (TypeError, ValueError, AttributeError):
+            # A malformed operational diagnostic must not suppress collection.
+            source_retry_pairs.clear()
     report: dict[str, Any] = {
         "basis_version": REGULAR_PRICE_BASIS, "start": start.isoformat(), "end": end.isoformat(),
         "persist": persist, "total_pairs": len(pairs), "attempted": 0,
@@ -1561,6 +1604,13 @@ def collect_regular_session_prices(
         if last_attempt is not None and last_attempt >= retry_cutoff:
             report["unverified"].append({
                 "code": code, "trade_date": day.isoformat(), "reason": "retry_cooldown",
+            })
+            continue
+        if (code, day) in source_retry_pairs:
+            report["unverified"].append({
+                "code": code,
+                "trade_date": day.isoformat(),
+                "reason": "source_retry_cooldown",
             })
             continue
         if report["attempted"] >= max_pairs:
@@ -1616,4 +1666,63 @@ def collect_regular_session_prices(
     report["state"] = "ready" if pairs and not report["unverified"] and not report["deferred"] else "incomplete"
     report["exact_turnover_complete"] = report["state"] == "ready" and not (report["bounded"] or report["already_bounded"])
     report["production_ready"] = False  # collection is not a strategy approval
+    if diagnostic_dataset:
+        # Persist only a compact, structured and non-secret summary for the
+        # staging readiness report. Raw provider exceptions may contain an
+        # authenticated URL, so neither their text nor arbitrary evidence
+        # rejection strings are recorded here.
+        safe_failures = []
+        for item in report["unverified"]:
+            code = str(item.get("code") or "")
+            day = str(item.get("trade_date") or "")
+            reason = str(item.get("reason") or "")
+            if not (code.isalnum() and len(code) <= 12):
+                continue
+            try:
+                date.fromisoformat(day)
+            except ValueError:
+                continue
+            safe_reason = (
+                reason
+                if reason in {
+                    "source_unavailable",
+                    "source_retry_cooldown",
+                    "retry_cooldown",
+                    "stored_evidence_conflict_or_corruption",
+                }
+                else "evidence_validation_rejected"
+            )
+            safe_item: dict[str, Any] = {
+                "code": code,
+                "trade_date": day,
+                "reason": safe_reason,
+            }
+            error_type = str(item.get("error_type") or "")
+            if safe_reason == "source_unavailable" and error_type.isidentifier():
+                safe_item["error_type"] = error_type
+            safe_failures.append(safe_item)
+        diagnostic = {
+            "version": 1,
+            "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
+            "total_pairs": report["total_pairs"],
+            "attempted": report["attempted"],
+            "ready": report["ready"],
+            "already_ready": report["already_ready"],
+            "bounded": report["bounded"],
+            "already_bounded": report["already_bounded"],
+            "deferred": report["deferred"],
+            "unverified": sorted(safe_failures, key=lambda item: (
+                item["trade_date"], item["code"], item["reason"]
+            ))[:100],
+        }
+        run = IngestionRun(
+            source="kis",
+            dataset=diagnostic_dataset,
+            status="success" if not safe_failures and not report["deferred"] else "partial",
+            rows_loaded=int(report["ready"] + report["already_ready"]),
+            message=json.dumps(diagnostic, ensure_ascii=False, sort_keys=True),
+            finished_at=observed_at.astimezone(timezone.utc).replace(tzinfo=None),
+        )
+        db.add(run)
+        db.commit()
     return report

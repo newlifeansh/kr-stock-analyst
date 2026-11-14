@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import DailyPrice, SignalSessionPrice
+from app.models import DailyPrice, IngestionRun, SignalSessionPrice
 from app.services import regular_session_prices as rsp
 
 DAY = date(2026, 10, 12)
@@ -781,10 +781,76 @@ def test_regular_backfill_redacts_source_errors_and_keeps_failures_visible(db):
     def unavailable(*_args):
         raise RuntimeError("https://provider.example?app_secret=do-not-export")
 
-    result = rsp.collect_regular_session_prices(db, SimpleNamespace(fetch_regular_session_data=unavailable), codes=["005930"], start=DAY, end=DAY, observed_at=OBSERVED, persist=True)
+    result = rsp.collect_regular_session_prices(
+        db,
+        SimpleNamespace(fetch_regular_session_data=unavailable),
+        codes=["005930"],
+        start=DAY,
+        end=DAY,
+        observed_at=OBSERVED,
+        persist=True,
+        diagnostic_dataset="qa_regular_session_evidence",
+    )
     assert result["state"] == "incomplete"
     assert result["unverified"][0]["reason"] == "source_unavailable"
     assert "do-not-export" not in json.dumps(result)
+    diagnostic = db.scalar(
+        select(IngestionRun).where(
+            IngestionRun.source == "kis",
+            IngestionRun.dataset == "qa_regular_session_evidence",
+        )
+    )
+    assert diagnostic is not None
+    assert "do-not-export" not in str(diagnostic.message)
+    assert json.loads(diagnostic.message)["unverified"] == [{
+        "code": "005930",
+        "error_type": "RuntimeError",
+        "reason": "source_unavailable",
+        "trade_date": DAY.isoformat(),
+    }]
+
+
+def test_qa_regular_backfill_cools_source_failures_without_revealing_error_text(db):
+    from types import SimpleNamespace
+
+    calls = []
+
+    def unavailable(code, day):
+        calls.append((code, day))
+        raise RuntimeError("https://provider.example?app_secret=never-export")
+
+    kwargs = {
+        "codes": ["005930"],
+        "start": DAY,
+        "end": DAY,
+        "persist": True,
+        "retry_cooldown": timedelta(minutes=1),
+        "diagnostic_dataset": "qa_regular_session_evidence",
+    }
+    first = rsp.collect_regular_session_prices(
+        db,
+        SimpleNamespace(fetch_regular_session_data=unavailable),
+        observed_at=OBSERVED,
+        **kwargs,
+    )
+    second = rsp.collect_regular_session_prices(
+        db,
+        SimpleNamespace(fetch_regular_session_data=unavailable),
+        observed_at=OBSERVED + timedelta(seconds=10),
+        **kwargs,
+    )
+
+    assert first["unverified"][0]["reason"] == "source_unavailable"
+    assert second["unverified"][0]["reason"] == "source_retry_cooldown"
+    assert calls == [("005930", DAY)]
+    diagnostic = db.scalar(
+        select(IngestionRun)
+        .where(IngestionRun.dataset == "qa_regular_session_evidence")
+        .order_by(IngestionRun.id.desc())
+        .limit(1)
+    )
+    assert diagnostic is not None
+    assert "never-export" not in str(diagnostic.message)
 
 
 def test_regular_backfill_prioritizes_old_unverified_session_under_pair_cap(db):

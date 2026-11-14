@@ -680,6 +680,7 @@ async def _run_bootstrap_task() -> None:
 
 QA_CRITICAL_REGULAR_EVIDENCE_MAX_PASSES = 12
 QA_CRITICAL_REGULAR_EVIDENCE_RECOVERY_DELAY_SECONDS = 65
+QA_CRITICAL_REGULAR_EVIDENCE_DIAGNOSTIC_DATASET = "qa_regular_session_evidence"
 
 
 def _qa_critical_regular_evidence_codes() -> list[str]:
@@ -747,6 +748,9 @@ def _refresh_qa_critical_market_signal_snapshots() -> bool:
             reuse_regular_preflight=False,
             regular_evidence_codes=regular_evidence_codes,
             regular_evidence_retry_cooldown=timedelta(minutes=1),
+            regular_evidence_diagnostic_dataset=(
+                QA_CRITICAL_REGULAR_EVIDENCE_DIAGNOSTIC_DATASET
+            ),
         )
         if canonical is not None:
             break
@@ -1203,6 +1207,7 @@ def _refresh_market_quant_signal_snapshot(
     reuse_regular_preflight: bool = False,
     regular_evidence_codes: Optional[Iterable[str]] = None,
     regular_evidence_retry_cooldown: Optional[timedelta] = None,
+    regular_evidence_diagnostic_dataset: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     refresh_lock = (
         market_quant_signal_detail_refresh_lock
@@ -1250,6 +1255,7 @@ def _refresh_market_quant_signal_snapshot(
                     universe_limit=universe_limit,
                     codes=regular_evidence_codes,
                     retry_cooldown=regular_evidence_retry_cooldown,
+                    diagnostic_dataset=regular_evidence_diagnostic_dataset,
                 )
                 logger.info("Regular signal price evidence: state=%s attempted=%s ready=%s bounded=%s unverified=%s",
                             regular.get("state"), regular.get("attempted"), regular.get("ready"),

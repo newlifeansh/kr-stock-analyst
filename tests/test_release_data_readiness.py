@@ -32,12 +32,29 @@ def test_dashboard_readiness_requires_current_general_and_complete_stock_news():
                     "total": 100,
                     "api": {"last_success_at": "2026-10-03T00:47:44Z"},
                 },
+                "entry_evidence_snapshot": {
+                    "state": "caution",
+                    "covered": 91,
+                    "total": 100,
+                    "missing_codes": ["005930"],
+                    "qa_regular_evidence": {
+                        "state": "incomplete",
+                        "unverified": [{
+                            "code": "005930",
+                            "trade_date": "2026-10-13",
+                            "reason": "source_unavailable",
+                            "error_type": "RuntimeError",
+                        }],
+                    },
+                },
             },
         }
     )
 
     assert ready is True
     assert evidence["stock_news_covered"] == 100
+    assert evidence["entry_evidence_missing_codes"] == ["005930"]
+    assert evidence["qa_regular_evidence"]["unverified"][0]["reason"] == "source_unavailable"
 
     stale, _ = dashboard_readiness(
         {

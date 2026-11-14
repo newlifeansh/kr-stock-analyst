@@ -1463,6 +1463,9 @@ def test_qa_critical_warmup_rebuilds_completed_session_scopes_without_quotes(mon
             "reuse_regular_preflight": False,
             "regular_evidence_codes": ["000001", "000002"],
             "regular_evidence_retry_cooldown": timedelta(minutes=1),
+            "regular_evidence_diagnostic_dataset": (
+                main_module.QA_CRITICAL_REGULAR_EVIDENCE_DIAGNOSTIC_DATASET
+            ),
         },
         {
             "universe_limit": main_module.MARKET_SIGNAL_UNIVERSE_LIMIT,
@@ -1519,6 +1522,11 @@ def test_qa_critical_warmup_retries_bounded_regular_evidence_passes(monkeypatch)
         call["regular_evidence_retry_cooldown"] == timedelta(minutes=1)
         for call in canonical_attempts
     )
+    assert all(
+        call["regular_evidence_diagnostic_dataset"]
+        == main_module.QA_CRITICAL_REGULAR_EVIDENCE_DIAGNOSTIC_DATASET
+        for call in canonical_attempts
+    )
 
 
 @pytest.mark.qa_gate
@@ -1546,6 +1554,11 @@ def test_qa_critical_warmup_exhausts_exact_top100_evidence_pass_budget(monkeypat
     assert main_module._refresh_qa_critical_market_signal_snapshots() is False
     assert len(attempts) == main_module.QA_CRITICAL_REGULAR_EVIDENCE_MAX_PASSES
     assert all(call["regular_evidence_codes"] == ["000001", "000002"] for call in attempts)
+    assert all(
+        call["regular_evidence_diagnostic_dataset"]
+        == main_module.QA_CRITICAL_REGULAR_EVIDENCE_DIAGNOSTIC_DATASET
+        for call in attempts
+    )
 
 
 @pytest.mark.qa_gate
@@ -1590,6 +1603,13 @@ def test_qa_critical_warmup_retries_unverified_top100_after_provider_window(monk
         if call["universe_limit"] == main_module.MARKET_SIGNAL_UNIVERSE_LIMIT
         and call["recent_days"] == 30
     ][-1] == timedelta(minutes=1)
+    assert all(
+        call["regular_evidence_diagnostic_dataset"]
+        == main_module.QA_CRITICAL_REGULAR_EVIDENCE_DIAGNOSTIC_DATASET
+        for call in attempts
+        if call["universe_limit"] == main_module.MARKET_SIGNAL_UNIVERSE_LIMIT
+        and call["recent_days"] == 30
+    )
 
 
 @pytest.mark.qa_gate

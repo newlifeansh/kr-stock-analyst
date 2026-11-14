@@ -204,6 +204,75 @@ def _top_codes(db: Session, market_date: date) -> list[str]:
     )
 
 
+def _qa_regular_evidence_diagnostic(
+    db: Session,
+    *,
+    top_codes: list[str],
+) -> dict[str, Any]:
+    """Expose the bounded staging collector outcome without provider secrets."""
+    run = db.scalar(
+        select(IngestionRun)
+        .where(
+            IngestionRun.source == "kis",
+            IngestionRun.dataset == "qa_regular_session_evidence",
+            IngestionRun.finished_at.is_not(None),
+        )
+        .order_by(desc(IngestionRun.finished_at), desc(IngestionRun.id))
+        .limit(1)
+    )
+    if run is None:
+        return {"state": "not_recorded"}
+    try:
+        payload = json.loads(run.message or "")
+    except (TypeError, ValueError):
+        return {
+            "state": "invalid",
+            "last_attempt_at": run.finished_at,
+        }
+    if not isinstance(payload, dict):
+        return {
+            "state": "invalid",
+            "last_attempt_at": run.finished_at,
+        }
+    allowed_reasons = {
+        "source_unavailable",
+        "source_retry_cooldown",
+        "retry_cooldown",
+        "stored_evidence_conflict_or_corruption",
+        "evidence_validation_rejected",
+    }
+    allowed_codes = set(top_codes)
+    failures: list[dict[str, str]] = []
+    for item in payload.get("unverified") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "")
+        trade_date = str(item.get("trade_date") or "")
+        reason = str(item.get("reason") or "")
+        try:
+            date.fromisoformat(trade_date)
+        except ValueError:
+            continue
+        if code not in allowed_codes or reason not in allowed_reasons:
+            continue
+        result = {"code": code, "trade_date": trade_date, "reason": reason}
+        error_type = str(item.get("error_type") or "")
+        if reason == "source_unavailable" and error_type.isidentifier():
+            result["error_type"] = error_type
+        failures.append(result)
+    return {
+        "state": "ready" if not failures and not int(payload.get("deferred") or 0) else "incomplete",
+        "last_attempt_at": run.finished_at,
+        "attempted": int(payload.get("attempted") or 0),
+        "ready": int(payload.get("ready") or 0),
+        "already_ready": int(payload.get("already_ready") or 0),
+        "deferred": int(payload.get("deferred") or 0),
+        "unverified": sorted(failures, key=lambda item: (
+            item["trade_date"], item["code"], item["reason"]
+        )),
+    }
+
+
 def signal_data_quality_status(
     db: Session,
     settings: Settings,
@@ -446,6 +515,7 @@ def signal_data_quality_status(
     evidence_ready = 0
     evidence_rate: Optional[float] = None
     evidence_state = "not_applicable"
+    evidence_codes: set[str] = set()
     evidence_target = (
         calendar_target
         if latest_price_date and calendar_target and latest_price_date >= calendar_target
@@ -457,18 +527,24 @@ def signal_data_quality_status(
         else ENTRY_EVIDENCE_STRATEGY_VERSION
     )
     if evidence_target and evidence_target >= ENTRY_EVIDENCE_EFFECTIVE_DATE and top_codes:
-        evidence_ready = int(
-            db.scalar(
-                select(func.count(distinct(QuantSignalEvidenceSnapshot.stock_code))).where(
+        evidence_codes = set(
+            db.scalars(
+                select(QuantSignalEvidenceSnapshot.stock_code).where(
                     QuantSignalEvidenceSnapshot.stock_code.in_(tuple(top_codes)),
                     QuantSignalEvidenceSnapshot.signal_date == evidence_target,
                     QuantSignalEvidenceSnapshot.strategy_version == evidence_strategy_version,
                 )
             )
-            or 0
         )
+        evidence_ready = len(evidence_codes)
         evidence_rate = _ratio(evidence_ready, top_total)
         evidence_state = _state_for_coverage(evidence_rate)
+    evidence_missing_codes = (
+        sorted(set(top_codes) - evidence_codes)
+        if evidence_rate is not None
+        else []
+    )
+    qa_regular_evidence = _qa_regular_evidence_diagnostic(db, top_codes=top_codes)
 
     master_codes = select(StockMaster.code)
     orphan_counts = {
@@ -660,6 +736,8 @@ def signal_data_quality_status(
             "covered": evidence_ready,
             "total": top_total if evidence_rate is not None else 0,
             "coverage_rate": evidence_rate,
+            "missing_codes": evidence_missing_codes,
+            "qa_regular_evidence": qa_regular_evidence,
         },
     }
     critical_states = [
