@@ -77,6 +77,36 @@ class UnverifiedRegularSessionPrice(RuntimeError):
     pass
 
 
+def _safe_regular_evidence_rejection_code(reason: object) -> str:
+    """Return a stable, non-secret diagnostic class for a rejected path.
+
+    The original validation text may disclose provider-specific implementation
+    details and must not be written to the staging readiness artifact. These
+    short categories retain enough information to distinguish a source outage
+    from a reproducible KIS/Naver evidence mismatch without exporting a raw
+    exception or request URL.
+    """
+    text = str(reason or "")
+    if text == "closing source conflicts with KIS pre-auction OHLC":
+        return "krx_cross_source_ohlc_conflict"
+    if text == "closing source conflicts with KIS pre-auction volume":
+        return "krx_cross_source_volume_conflict"
+    if text == "cumulative turnover does not reconcile with actual trades":
+        return "kis_cumulative_turnover_conflict"
+    if text in {
+        "missing regular opening or closing trade",
+        "missing regular minute",
+        "unverified zero-volume regular minute",
+    }:
+        return "kis_regular_minute_path_incomplete"
+    if text in {
+        "unverified auction-window trade",
+        "unverified positive-volume closing auction interval",
+    }:
+        return "krx_closing_auction_unverified"
+    return "evidence_validation_rejected"
+
+
 def verified_revised_dated_kis_rows(
     trade_date: date,
     original_rows: list[dict[str, Any]],
@@ -1700,9 +1730,13 @@ def collect_regular_session_prices(
             error_type = str(item.get("error_type") or "")
             if safe_reason == "source_unavailable" and error_type.isidentifier():
                 safe_item["error_type"] = error_type
+            elif safe_reason == "evidence_validation_rejected":
+                safe_item["rejection_code"] = _safe_regular_evidence_rejection_code(
+                    reason
+                )
             safe_failures.append(safe_item)
         diagnostic = {
-            "version": 1,
+            "version": 2,
             "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
             "total_pairs": report["total_pairs"],
             "attempted": report["attempted"],

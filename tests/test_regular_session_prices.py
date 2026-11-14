@@ -853,6 +853,60 @@ def test_qa_regular_backfill_cools_source_failures_without_revealing_error_text(
     assert "never-export" not in str(diagnostic.message)
 
 
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        ("closing source conflicts with KIS pre-auction OHLC", "krx_cross_source_ohlc_conflict"),
+        ("closing source conflicts with KIS pre-auction volume", "krx_cross_source_volume_conflict"),
+        ("cumulative turnover does not reconcile with actual trades", "kis_cumulative_turnover_conflict"),
+        ("missing regular minute", "kis_regular_minute_path_incomplete"),
+        ("unverified positive-volume closing auction interval", "krx_closing_auction_unverified"),
+        ("https://provider.example?token=never-export", "evidence_validation_rejected"),
+    ],
+)
+def test_qa_regular_evidence_rejection_diagnostic_uses_only_safe_categories(reason, expected):
+    assert rsp._safe_regular_evidence_rejection_code(reason) == expected
+
+
+def test_qa_regular_backfill_records_safe_evidence_rejection_code(db):
+    from types import SimpleNamespace
+
+    rows = minute_rows()
+    for row in rows:
+        if row["trade_time"] >= "091000":
+            row["trading_value"] += 1
+
+    result = rsp.collect_regular_session_prices(
+        db,
+        SimpleNamespace(fetch_regular_session_data=lambda *_args: {"rows": rows}),
+        codes=["005930"],
+        start=DAY,
+        end=DAY,
+        observed_at=OBSERVED,
+        persist=True,
+        diagnostic_dataset="qa_regular_session_evidence",
+    )
+
+    assert result["unverified"] == [{
+        "code": "005930",
+        "trade_date": DAY.isoformat(),
+        "reason": "cumulative turnover does not reconcile with actual trades",
+    }]
+    diagnostic = db.scalar(
+        select(IngestionRun)
+        .where(IngestionRun.dataset == "qa_regular_session_evidence")
+        .order_by(IngestionRun.id.desc())
+        .limit(1)
+    )
+    assert diagnostic is not None
+    assert json.loads(diagnostic.message)["unverified"] == [{
+        "code": "005930",
+        "rejection_code": "kis_cumulative_turnover_conflict",
+        "reason": "evidence_validation_rejected",
+        "trade_date": DAY.isoformat(),
+    }]
+
+
 def test_regular_backfill_prioritizes_old_unverified_session_under_pair_cap(db):
     from types import SimpleNamespace
 
