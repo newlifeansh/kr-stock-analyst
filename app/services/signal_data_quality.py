@@ -241,6 +241,14 @@ def _qa_regular_evidence_diagnostic(
         "stored_evidence_conflict_or_corruption",
         "evidence_validation_rejected",
     }
+    allowed_rejection_codes = {
+        "krx_cross_source_ohlc_conflict",
+        "krx_cross_source_volume_conflict",
+        "kis_cumulative_turnover_conflict",
+        "kis_regular_minute_path_incomplete",
+        "krx_closing_auction_unverified",
+        "evidence_validation_rejected",
+    }
     allowed_codes = set(top_codes)
     failures: list[dict[str, str]] = []
     for item in payload.get("unverified") or []:
@@ -259,6 +267,10 @@ def _qa_regular_evidence_diagnostic(
         error_type = str(item.get("error_type") or "")
         if reason == "source_unavailable" and error_type.isidentifier():
             result["error_type"] = error_type
+        if reason == "evidence_validation_rejected":
+            rejection_code = str(item.get("rejection_code") or "")
+            if rejection_code in allowed_rejection_codes:
+                result["rejection_code"] = rejection_code
         failures.append(result)
     return {
         "state": "ready" if not failures and not int(payload.get("deferred") or 0) else "incomplete",

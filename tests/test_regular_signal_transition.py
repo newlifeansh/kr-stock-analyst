@@ -717,8 +717,8 @@ def test_forward_quality_counts_new_policy_without_retagging_legacy_evidence(db,
             "unverified": [{
                 "code": "005930",
                 "trade_date": day.isoformat(),
-                "reason": "source_unavailable",
-                "error_type": "RuntimeError",
+                "reason": "evidence_validation_rejected",
+                "rejection_code": "krx_cross_source_volume_conflict",
             }],
         }),
     ))
@@ -727,8 +727,8 @@ def test_forward_quality_counts_new_policy_without_retagging_legacy_evidence(db,
     assert diagnosed["qa_regular_evidence"]["unverified"] == [{
         "code": "005930",
         "trade_date": day.isoformat(),
-        "reason": "source_unavailable",
-        "error_type": "RuntimeError",
+        "reason": "evidence_validation_rejected",
+        "rejection_code": "krx_cross_source_volume_conflict",
     }]
     db.add(QuantSignalEvidenceSnapshot(stock_code="005930",signal_date=day,strategy_version=qs.STRATEGY_VERSION,
         policy_version=transition.REGULAR_FORWARD_ENTRY_POLICY,quality_state="ready",payload="{}",generated_at=datetime(2026,10,13,9)))
@@ -736,3 +736,45 @@ def test_forward_quality_counts_new_policy_without_retagging_legacy_evidence(db,
     after = quality.signal_data_quality_status(db, Settings(_env_file=None), now=now)["datasets"]["entry_evidence_snapshot"]
     assert after["covered"] == 1 and after["state"] == "ready"
     assert legacy.strategy_version == "position-lifecycle-v7.0"
+
+
+def test_forward_quality_drops_unapproved_regular_evidence_rejection_code(db, monkeypatch):
+    from app.config import Settings
+    from app.services import signal_data_quality as quality
+
+    day = date(2026, 10, 13)
+    now = datetime(2026, 10, 13, 19, tzinfo=qs.KST)
+    monkeypatch.setattr(quality, "latest_completed_korea_market_session_date", lambda *_: day)
+    db.add(StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True))
+    db.add(DailyPrice(code="005930", trade_date=day, open=100, high=101, low=99,
+                      close=100, volume=10, trading_value=1000, market_cap=100_000))
+    db.add(IngestionRun(
+        source="kis",
+        dataset="qa_regular_session_evidence",
+        status="partial",
+        rows_loaded=0,
+        finished_at=now.replace(tzinfo=None),
+        message=json.dumps({
+            "observed_at": now.isoformat(),
+            "attempted": 1,
+            "ready": 0,
+            "already_ready": 0,
+            "deferred": 0,
+            "unverified": [{
+                "code": "005930",
+                "trade_date": day.isoformat(),
+                "reason": "evidence_validation_rejected",
+                "rejection_code": "https://provider.example?token=never-export",
+            }],
+        }),
+    ))
+    db.commit()
+
+    report = quality.signal_data_quality_status(
+        db, Settings(_env_file=None), now=now
+    )
+    assert report["datasets"]["entry_evidence_snapshot"]["qa_regular_evidence"]["unverified"] == [{
+        "code": "005930",
+        "trade_date": day.isoformat(),
+        "reason": "evidence_validation_rejected",
+    }]
