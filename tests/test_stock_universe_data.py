@@ -929,6 +929,37 @@ def test_full_universe_news_snapshot_persists_empty_result_and_skips_inactive(mo
         assert db.get(StockNewsSnapshot, "999999") is None
 
 
+def test_stock_news_snapshot_can_scope_to_explicit_signal_codes(monkeypatch):
+    fetched_codes = []
+
+    def fetch(code, strict=False):
+        fetched_codes.append(code)
+        return []
+
+    monkeypatch.setattr(stock_snapshots, "_fetch_naver_item_news", fetch)
+    with _session() as db:
+        db.add_all(
+            [
+                StockMaster(code="005930", name="삼성전자", market="KOSPI", is_active=True),
+                StockMaster(code="000660", name="SK하이닉스", market="KOSPI", is_active=True),
+                StockMaster(code="999999", name="상장종료", market="KOSPI", is_active=False),
+            ]
+        )
+        db.commit()
+
+        result = stock_snapshots.collect_stock_news_snapshots(
+            db,
+            codes=["000660", "999999", "없는코드"],
+            refresh_hours=0,
+            max_workers=1,
+        )
+
+        assert result["target"] == 1
+        assert fetched_codes == ["000660"]
+        assert db.get(StockNewsSnapshot, "000660") is not None
+        assert db.get(StockNewsSnapshot, "005930") is None
+
+
 def test_full_universe_news_snapshot_records_total_failure_as_failed(monkeypatch):
     def fail_news(_code, strict=False):
         raise RuntimeError("retired source")

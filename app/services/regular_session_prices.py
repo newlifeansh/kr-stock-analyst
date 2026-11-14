@@ -1484,6 +1484,7 @@ def _session_dates(start: date, end: date) -> list[date]:
 def collect_regular_session_prices(
     db: Session, provider: Any, *, codes: list[str], start: date, end: date,
     observed_at: datetime, persist: bool = False, max_pairs: int = 250,
+    retry_cooldown: timedelta = timedelta(minutes=30),
 ) -> dict[str, Any]:
     """Bounded, resumable sidecar backfill; never publishes signals or pushes.
 
@@ -1491,7 +1492,12 @@ def collect_regular_session_prices(
     Each persisted evidence item commits independently so a provider outage
     cannot discard earlier completed work. Unverified evidence remains visible.
     """
-    if start < REGULAR_PRICE_EFFECTIVE_DATE or end < start or max_pairs < 1:
+    if (
+        start < REGULAR_PRICE_EFFECTIVE_DATE
+        or end < start
+        or max_pairs < 1
+        or retry_cooldown < timedelta(0)
+    ):
         raise ValueError("invalid regular-session backfill range")
     local = observed_at.astimezone(KST) if observed_at.tzinfo is not None else None
     if local is None or end > local.date() or (end == local.date() and local.time() < time(15, 31)):
@@ -1505,7 +1511,9 @@ def collect_regular_session_prices(
     # when the current cohort grows. Retry recorded failures first, while
     # spacing provider attempts so an unchanged bad session cannot monopolize
     # the next pass or exhaust the dated-chart API.
-    retry_cutoff = observed_at.astimezone(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
+    retry_cutoff = (
+        observed_at.astimezone(timezone.utc).replace(tzinfo=None) - retry_cooldown
+    )
     last_unverified = {
         (code, day): latest
         for code, day, latest in db.execute(

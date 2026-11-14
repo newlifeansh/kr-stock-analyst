@@ -10,7 +10,7 @@ from copy import deepcopy
 from datetime import date, datetime, time, timezone, timedelta
 from hashlib import sha256
 import json
-from typing import Any
+from typing import Any, Iterable, Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -455,7 +455,15 @@ def publish_forward_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def collect_forward_session(db: Session, provider, *, now: datetime, universe_limit: int = 150) -> dict[str, Any]:
+def collect_forward_session(
+    db: Session,
+    provider,
+    *,
+    now: datetime,
+    universe_limit: int = 150,
+    codes: Optional[Iterable[str]] = None,
+    retry_cooldown: Optional[timedelta] = None,
+) -> dict[str, Any]:
     """Backfill the current and recently ranked signal universe."""
     from app.services import quant_signals as qs
     from app.services.regular_session_prices import collect_regular_session_prices
@@ -466,32 +474,40 @@ def collect_forward_session(db: Session, provider, *, now: datetime, universe_li
         completed = now.date()
     if completed is None or completed < REGULAR_FORWARD_START:
         return {"state":"awaiting_first_regular_close", "attempted":0}
-    latest_rank_date = db.scalar(select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap > 0))
-    codes = list(db.scalars(select(DailyPrice.code).where(DailyPrice.trade_date == latest_rank_date,
-                      DailyPrice.market_cap > 0).order_by(DailyPrice.market_cap.desc()).limit(universe_limit)))
-    # The feed also replays recent members after they leave today's Top N.
-    # Collect their dated evidence as well or their replay can never recover.
-    ranked_history = select(
-        DailyPrice.code.label("code"),
-        func.row_number().over(
-            partition_by=DailyPrice.trade_date,
-            order_by=(DailyPrice.market_cap.desc(), DailyPrice.code),
-        ).label("market_cap_rank"),
-    ).where(
-        DailyPrice.trade_date >= max(REGULAR_FORWARD_START, completed - timedelta(days=90)),
-        DailyPrice.trade_date <= completed,
-        DailyPrice.market_cap > 0,
-    ).subquery()
-    codes.extend(db.scalars(select(ranked_history.c.code).where(
-        ranked_history.c.market_cap_rank <= universe_limit,
-    ).distinct()))
-    for days in (30, 90):
-        codes.extend(qs._market_signal_retention_state(db, universe_limit=universe_limit, limit=0, recent_days=days))
-    cohort = _load(db, f"{REGULAR_FORWARD_VERSION}:shadow-cohort:100")
-    if cohort:
-        codes.extend(cohort["codes"])
-    return collect_regular_session_prices(db, provider, codes=sorted(set(codes)), start=REGULAR_FORWARD_START,
-                                          end=completed, observed_at=now, persist=True, max_pairs=250)
+    if codes is None:
+        latest_rank_date = db.scalar(select(func.max(DailyPrice.trade_date)).where(DailyPrice.market_cap > 0))
+        selected_codes = list(db.scalars(select(DailyPrice.code).where(DailyPrice.trade_date == latest_rank_date,
+                          DailyPrice.market_cap > 0).order_by(DailyPrice.market_cap.desc()).limit(universe_limit)))
+        # The feed also replays recent members after they leave today's Top N.
+        # Collect their dated evidence as well or their replay can never recover.
+        ranked_history = select(
+            DailyPrice.code.label("code"),
+            func.row_number().over(
+                partition_by=DailyPrice.trade_date,
+                order_by=(DailyPrice.market_cap.desc(), DailyPrice.code),
+            ).label("market_cap_rank"),
+        ).where(
+            DailyPrice.trade_date >= max(REGULAR_FORWARD_START, completed - timedelta(days=90)),
+            DailyPrice.trade_date <= completed,
+            DailyPrice.market_cap > 0,
+        ).subquery()
+        selected_codes.extend(db.scalars(select(ranked_history.c.code).where(
+            ranked_history.c.market_cap_rank <= universe_limit,
+        ).distinct()))
+        for days in (30, 90):
+            selected_codes.extend(qs._market_signal_retention_state(db, universe_limit=universe_limit, limit=0, recent_days=days))
+        cohort = _load(db, f"{REGULAR_FORWARD_VERSION}:shadow-cohort:100")
+        if cohort:
+            selected_codes.extend(cohort["codes"])
+    else:
+        # QA warmup may prioritize its release-readiness cohort. The normal
+        # collector retains its broader historical and open-position scope.
+        selected_codes = [str(code) for code in codes if str(code).strip()]
+    kwargs: dict[str, Any] = {}
+    if retry_cooldown is not None:
+        kwargs["retry_cooldown"] = retry_cooldown
+    return collect_regular_session_prices(db, provider, codes=sorted(set(selected_codes)), start=REGULAR_FORWARD_START,
+                                          end=completed, observed_at=now, persist=True, max_pairs=250, **kwargs)
 
 
 def frozen_shadow_cohort(db: Session, *, limit: int, day: date, codes: list[str]) -> dict[str, Any]:

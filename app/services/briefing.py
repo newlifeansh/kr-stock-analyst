@@ -165,7 +165,7 @@ class BriefingRuntime:
             sources.append("yahoo_macro")
         return sources
 
-    async def start(self) -> None:
+    async def start(self, *, defer_main_cycle: bool = False) -> None:
         if self.running:
             return
         if not any(
@@ -188,7 +188,8 @@ class BriefingRuntime:
         if not self.configured_sources():
             return
         self.running = True
-        self.task = asyncio.create_task(self._loop())
+        if not defer_main_cycle:
+            self.start_main_cycle()
         if any(
             (
                 self.settings.research_enabled,
@@ -198,6 +199,11 @@ class BriefingRuntime:
             )
         ):
             self.freshness_task = asyncio.create_task(self._freshness_loop())
+
+    def start_main_cycle(self) -> None:
+        """Start optional bulk collectors after a bounded critical warmup."""
+        if self.running and self.task is None:
+            self.task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
         self.running = False
@@ -211,6 +217,68 @@ class BriefingRuntime:
                 pass
         self.task = None
         self.freshness_task = None
+
+    def _qa_critical_stock_news_codes(self, db) -> list[str]:
+        """Return the same completed-session Top100 basis used by data quality."""
+        current = datetime.now(KST)
+        completed_session = latest_completed_korea_market_session_date(current)
+        latest_price_statement = (
+            select(func.max(DailyPrice.trade_date))
+            .join(StockMaster, StockMaster.code == DailyPrice.code)
+            .where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                DailyPrice.close.is_not(None),
+            )
+        )
+        if completed_session is not None:
+            latest_price_statement = latest_price_statement.where(
+                DailyPrice.trade_date <= completed_session
+            )
+        market_date = db.scalar(latest_price_statement)
+        if market_date is None:
+            return []
+        return list(
+            db.scalars(
+                select(DailyPrice.code)
+                .join(StockMaster, StockMaster.code == DailyPrice.code)
+                .where(
+                    DailyPrice.trade_date == market_date,
+                    DailyPrice.market_cap.is_not(None),
+                    DailyPrice.market_cap > 0,
+                    StockMaster.is_active.is_(True),
+                    StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                )
+                .order_by(DailyPrice.market_cap.desc(), DailyPrice.code)
+                .limit(FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT)
+            )
+        )
+
+    def warm_qa_critical_data(self) -> dict[str, object]:
+        """Warm short-lived staging QA prerequisites before any bulk backfill.
+
+        The domestic staging collector is intentionally stopped outside QA.
+        On a cold restart its normal full-universe cycle can spend the entire
+        release-readiness window on optional backfills.  This bounded lane
+        refreshes only the same completed-session Top100 news basis and the
+        two market indexes required to evaluate published signals.
+        """
+        result: dict[str, object] = {
+            "macro": {"source": "disabled", "rows_loaded": 0},
+            "stock_news": {"target": 0, "rows_loaded": 0, "failed": 0},
+        }
+        with SessionLocal() as db:
+            if self.settings.macro_enabled:
+                result["macro"] = self._collect_macro(db)
+            codes = self._qa_critical_stock_news_codes(db)
+            if self.settings.stock_news_snapshot_enabled and codes:
+                result["stock_news"] = collect_stock_news_snapshots(
+                    db,
+                    codes=codes,
+                    max_workers=self.settings.stock_news_snapshot_max_workers,
+                    refresh_hours=self.settings.stock_news_snapshot_refresh_hours,
+                )
+        return result
 
     async def _loop(self) -> None:
         while self.running:

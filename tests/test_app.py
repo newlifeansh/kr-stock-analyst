@@ -1433,6 +1433,166 @@ def test_us_collector_backfills_legacy_member_evidence_during_regular_session(
 
 
 @pytest.mark.qa_gate
+def test_qa_critical_warmup_rebuilds_completed_session_scopes_without_quotes(monkeypatch):
+    from app import main as main_module
+
+    calls = []
+    monkeypatch.setattr(
+        main_module,
+        "_quant_signal_quote_refresh_active",
+        lambda _now: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_qa_critical_regular_evidence_codes",
+        lambda: ["000001", "000002"],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: calls.append(kwargs) or {"status": "ready"},
+    )
+
+    assert main_module._refresh_qa_critical_market_signal_snapshots() is True
+    assert calls == [
+        {
+            "universe_limit": main_module.MARKET_SIGNAL_UNIVERSE_LIMIT,
+            "limit": 0,
+            "recent_days": 30,
+            "live_quotes": {},
+            "reuse_regular_preflight": False,
+            "regular_evidence_codes": ["000001", "000002"],
+            "regular_evidence_retry_cooldown": timedelta(minutes=1),
+        },
+        {
+            "universe_limit": main_module.MARKET_SIGNAL_UNIVERSE_LIMIT,
+            "limit": 0,
+            "recent_days": main_module.MARKET_SIGNAL_DETAIL_RECENT_DAYS,
+            "live_quotes": {},
+            "reuse_regular_preflight": True,
+        },
+        {
+            "universe_limit": 100,
+            "limit": 100,
+            "recent_days": 30,
+            "live_quotes": {},
+            "reuse_regular_preflight": True,
+        },
+    ]
+
+
+@pytest.mark.qa_gate
+def test_qa_critical_warmup_retries_bounded_regular_evidence_passes(monkeypatch):
+    from app import main as main_module
+
+    attempts = []
+
+    monkeypatch.setattr(
+        main_module,
+        "_quant_signal_quote_refresh_active",
+        lambda _now: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_qa_critical_regular_evidence_codes",
+        lambda: ["000001", "000002"],
+    )
+
+    def refresh(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) < 3:
+            return None
+        return {"status": "ready"}
+
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
+
+    assert main_module._refresh_qa_critical_market_signal_snapshots() is True
+    canonical_attempts = [
+        call for call in attempts
+        if call["universe_limit"] == main_module.MARKET_SIGNAL_UNIVERSE_LIMIT
+        and call["recent_days"] == 30
+    ]
+    assert len(canonical_attempts) == 3
+    assert all(call["reuse_regular_preflight"] is False for call in canonical_attempts)
+    assert all(call["regular_evidence_codes"] == ["000001", "000002"] for call in canonical_attempts)
+    assert all(
+        call["regular_evidence_retry_cooldown"] == timedelta(minutes=1)
+        for call in canonical_attempts
+    )
+
+
+@pytest.mark.qa_gate
+def test_qa_critical_warmup_exhausts_exact_top100_evidence_pass_budget(monkeypatch):
+    from app import main as main_module
+
+    attempts = []
+    monkeypatch.setattr(main_module.time_module, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        main_module,
+        "_quant_signal_quote_refresh_active",
+        lambda _now: False,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_qa_critical_regular_evidence_codes",
+        lambda: ["000001", "000002"],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_market_quant_signal_snapshot",
+        lambda **kwargs: attempts.append(kwargs) or None,
+    )
+
+    assert main_module._refresh_qa_critical_market_signal_snapshots() is False
+    assert len(attempts) == main_module.QA_CRITICAL_REGULAR_EVIDENCE_MAX_PASSES
+    assert all(call["regular_evidence_codes"] == ["000001", "000002"] for call in attempts)
+
+
+@pytest.mark.qa_gate
+def test_qa_critical_warmup_retries_unverified_top100_after_provider_window(monkeypatch):
+    from app import main as main_module
+
+    attempts = []
+    delays = []
+    monkeypatch.setattr(main_module, "_quant_signal_quote_refresh_active", lambda _now: False)
+    monkeypatch.setattr(main_module, "_qa_critical_regular_evidence_codes", lambda: ["000001"])
+    monkeypatch.setattr(main_module.time_module, "sleep", lambda seconds: delays.append(seconds))
+
+    def refresh(**kwargs):
+        attempts.append(kwargs)
+        canonical_attempts = sum(
+            1
+            for call in attempts
+            if call["universe_limit"] == main_module.MARKET_SIGNAL_UNIVERSE_LIMIT
+            and call["recent_days"] == 30
+        )
+        if (
+            kwargs["universe_limit"] == main_module.MARKET_SIGNAL_UNIVERSE_LIMIT
+            and kwargs["recent_days"] == 30
+            and canonical_attempts < 11
+        ):
+            return None
+        return {"status": "ready"}
+
+    monkeypatch.setattr(main_module, "_refresh_market_quant_signal_snapshot", refresh)
+
+    assert main_module._refresh_qa_critical_market_signal_snapshots() is True
+    assert sum(
+        1
+        for call in attempts
+        if call["universe_limit"] == main_module.MARKET_SIGNAL_UNIVERSE_LIMIT
+        and call["recent_days"] == 30
+    ) == 11
+    assert delays == [main_module.QA_CRITICAL_REGULAR_EVIDENCE_RECOVERY_DELAY_SECONDS]
+    assert [
+        call["regular_evidence_retry_cooldown"]
+        for call in attempts
+        if call["universe_limit"] == main_module.MARKET_SIGNAL_UNIVERSE_LIMIT
+        and call["recent_days"] == 30
+    ][-1] == timedelta(minutes=1)
+
+
+@pytest.mark.qa_gate
 @pytest.mark.parametrize("first_result", ["exception", "unavailable"])
 def test_market_quant_signal_refresh_loop_retries_without_dying(
     monkeypatch, caplog, first_result

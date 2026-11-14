@@ -84,6 +84,84 @@ def test_short_cadence_lane_does_not_overlap_itself():
         runtime._freshness_lock.release()
 
 
+def test_qa_warmup_can_defer_full_collector_cycle_until_critical_lane_finishes(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=True,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+    monkeypatch.setattr(runtime, "run_once", lambda: None)
+    monkeypatch.setattr(runtime, "run_freshness_once", lambda **_kwargs: False)
+
+    async def exercise():
+        await runtime.start(defer_main_cycle=True)
+        assert runtime.running is True
+        assert runtime.task is None
+        runtime.start_main_cycle()
+        assert runtime.task is not None
+        await runtime.stop()
+
+    asyncio.run(exercise())
+
+
+def test_qa_critical_warmup_prioritizes_completed_top100_news_and_indexes(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            macro_enabled=True,
+            stock_news_snapshot_enabled=True,
+            stock_news_snapshot_max_workers=6,
+            stock_news_snapshot_refresh_hours=12,
+        )
+    )
+    calls = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        runtime,
+        "_collect_macro",
+        lambda _db: calls.append("macro") or {"source": "yahoo_macro", "rows_loaded": 2},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_qa_critical_stock_news_codes",
+        lambda _db: ["005930", "000660"],
+    )
+
+    def collect(_db, **kwargs):
+        calls.append(kwargs)
+        return {"target": 2, "rows_loaded": 2, "failed": 0}
+
+    monkeypatch.setattr(briefing, "collect_stock_news_snapshots", collect)
+
+    result = runtime.warm_qa_critical_data()
+
+    assert calls[0] == "macro"
+    assert calls[1] == {
+        "codes": ["005930", "000660"],
+        "max_workers": 6,
+        "refresh_hours": 12,
+    }
+    assert result["stock_news"] == {"target": 2, "rows_loaded": 2, "failed": 0}
+
+
 @pytest.mark.parametrize("isolated", [False, True])
 def test_main_collector_prioritizes_signal_data_before_long_backfills(
     monkeypatch, isolated,

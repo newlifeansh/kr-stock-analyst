@@ -359,6 +359,12 @@ jobs:
           railway variable set "MAINTENANCE_SUBPROCESS_ENABLED=true" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
+          # Domestic staging is intentionally stopped outside QA.  Warm only
+          # its bounded, completed-session release inputs before optional
+          # full-universe backfills so weekend/holiday QA can become ready.
+          railway variable set "QA_CRITICAL_WARMUP_ENABLED=true" --skip-deploys --json \
+            --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
+            --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
           railway variable set "US_MARKET_ENABLED=false" --skip-deploys --json \
             --project="$DASHBOARD_STAGING_RAILWAY_PROJECT_ID" --environment staging \
             --service "$DASHBOARD_STAGING_RAILWAY_COLLECTOR_SERVICE"
