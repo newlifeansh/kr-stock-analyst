@@ -1990,7 +1990,7 @@
       "inputs": {
         "codes": "005930,069500",
         "verified_price_only_gap_date": "2026-11-06",
-        "stock_replay_503": "재검증 중 안내를 표시하고 확정 시그널 및 검증 날짜 패널을 모두 숨긴다.",
+        "stock_replay_503": "장중 기록 재검증 또는 미검증 거래일의 API 보류 사유를 그대로 표시하고 확정 시그널 및 검증 날짜 패널을 모두 숨긴다. 다른 503은 실패한다.",
         "news_surface": "domestic company-only list without visible inner tabs; US-only source tabs may remain hidden",
         "excluded_news_category": "breaking",
         "exited_display_label": "매도 완료",

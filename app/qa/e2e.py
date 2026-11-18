@@ -330,7 +330,17 @@ def _stock_contract(
     signal_replay_pending = bool(
         allow_verified_replay_pending
         and signal_response.status_code == 503
-        and "재검증 중" in signal_detail
+        and (
+            signal_detail in {
+                "이전 장중 매매 기록을 재검증 중입니다.",
+                "이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다.",
+            }
+            or re.fullmatch(
+                r"\d{4}-\d{2}-\d{2} 정규장 체결 자료가 검증되지 않아 AI 시그널을 보류합니다\. "
+                r"해당 날짜의 매매 순서를 확인하기 전에는 확정 신호를 표시하지 않습니다\.",
+                signal_detail,
+            )
+        )
     )
     if (
         stock_response.status_code >= 400
@@ -4063,15 +4073,16 @@ def run_e2e_checks(
                     if stock.get("signal_replay_pending"):
                         _wait_for_ui_contract(
                             page,
-                            """() => {
+                            """detail => {
                               const status = document.querySelector('#quant-signal-status');
                               return !state.stockQuantSignals
                                 && status
                                 && !status.hidden
-                                && status.textContent.includes('재검증 중')
+                                && status.textContent.trim() === detail
                                 && document.querySelector('#quant-signal-content')?.hidden === true
                                 && document.querySelector('#quant-verified-sessions')?.hidden === true;
                             }""",
+                            arg=stock["signal_failure_detail"],
                             stage=f"{stock['code']} 검증 전 시그널 fail-close",
                             timeout_ms=int(timeout * 1000),
                         )
@@ -4418,11 +4429,10 @@ def run_e2e_checks(
                 callback=stock_case,
                 storage_state=storage_state,
                 share_id=share_id,
-                allowed_http_failures=(
-                    {(503, "/stocks/069500/quant-signals")}
-                    if etf.get("signal_replay_pending")
-                    else set()
-                ),
+                allowed_http_failures={
+                    (503, f"/stocks/{stock['code']}/quant-signals")
+                    for stock in (samsung, etf) if stock.get("signal_replay_pending")
+                },
             )
             results.append(stock_result)
 

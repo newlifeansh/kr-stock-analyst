@@ -1630,6 +1630,8 @@ def test_us_standalone_e2e_checks_archived_actions_and_visible_live_news() -> No
 def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_representative_stocks(
     monkeypatch,
 ) -> None:
+    detail = "이전 장중 매매 기록을 재검증 중입니다."
+
     class FakeClient:
         def __enter__(self):
             return self
@@ -1641,9 +1643,7 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_represen
             if url.endswith("/quant-signals"):
                 return httpx.Response(
                     503,
-                    json={
-                        "detail": "이전 장중 매매 기록을 재검증 중입니다."
-                    },
+                    json={"detail": detail},
                 )
             if url.endswith("/quote"):
                 return httpx.Response(
@@ -1670,6 +1670,15 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_represen
     assert payload["signal_replay_pending"] is True
     assert "재검증 중" in payload["signal_failure_detail"]
     assert payload["signal_action"] is None
+    detail = (
+        "2026-11-18 정규장 체결 자료가 검증되지 않아 AI 시그널을 보류합니다. "
+        "해당 날짜의 매매 순서를 확인하기 전에는 확정 신호를 표시하지 않습니다."
+    )
+    dated = _stock_contract("https://staging.test", 5, "005930", allow_verified_replay_pending=True)
+    assert dated["signal_replay_pending"] and dated["signal_failure_detail"] == detail
+    detail = "데이터 공급자 연결 실패"
+    with pytest.raises(QaFailure):
+        _stock_contract("https://staging.test", 5, "005930", allow_verified_replay_pending=True)
 
     source = (Path(__file__).parents[1] / "app" / "qa" / "e2e.py").read_text()
     readiness_source = source[
@@ -1680,9 +1689,10 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_represen
     ]
     assert readiness_source.count("allow_verified_replay_pending=True") == 2
     pending_ui = source.split('if stock.get("signal_replay_pending"):', 1)[1].split("elif (", 1)[0]
-    assert "status.textContent.includes('재검증 중')" in pending_ui
+    assert "status.textContent.trim() === detail" in pending_ui
     assert "#quant-signal-content')?.hidden === true" in pending_ui
     assert "#quant-verified-sessions')?.hidden === true" in pending_ui
+    assert 'for stock in (samsung, etf) if stock.get("signal_replay_pending")' in source
 
 
 def test_domestic_e2e_tracks_verified_prices_without_claiming_a_signal(monkeypatch) -> None:
