@@ -43,6 +43,7 @@ E2E_CASE_IDS = (
     "SIG-UI-021",
     "SIG-UI-030",
     "SIG-UI-035",
+    "SIG-UI-038",
     "SIG-PUSH-COMMUNITY-002",
 )
 US_E2E_CASE_IDS = (
@@ -329,7 +330,17 @@ def _stock_contract(
     signal_replay_pending = bool(
         allow_verified_replay_pending
         and signal_response.status_code == 503
-        and "재검증 중" in signal_detail
+        and (
+            signal_detail in {
+                "이전 장중 매매 기록을 재검증 중입니다.",
+                "이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다.",
+            }
+            or re.fullmatch(
+                r"\d{4}-\d{2}-\d{2} 정규장 체결 자료가 검증되지 않아 AI 시그널을 보류합니다\. "
+                r"해당 날짜의 매매 순서를 확인하기 전에는 확정 신호를 표시하지 않습니다\.",
+                signal_detail,
+            )
+        )
     )
     if (
         stock_response.status_code >= 400
@@ -2189,6 +2200,78 @@ def _run_us_standalone_e2e_checks(
             browser.close()
 
 
+def _signal_ranking_case(page: Any, theme: str, *, base_url: str, timeout: float) -> dict[str, Any]:
+    page.set_viewport_size({"width": 390, "height": 844})
+    snapshot_time = "2026-11-18T09:30:00+09:00"
+    ranked = [
+        {"rank": 2, "code": "005930", "name": "삼성전자", "score": "86.48"},
+        {"rank": 1, "code": "000660", "name": "SK하이닉스", "score": "78.25"},
+    ]
+    for item in ranked:
+        item.update(market="KOSPI", chart_analysis={}, reasons=["최근 20일 가격 흐름이 우호적입니다."], risks=[], component_scores={})
+    requests = []
+    outcome = "error"
+
+    def recommendation_response(route: Any) -> None:
+        params = parse_qs(urlsplit(route.request.url).query)
+        requests.append(params)
+        if outcome == "error":
+            route.fulfill(status=503, json={"detail": "fixture unavailable"})
+            return
+        route.fulfill(json={"selection_state": "ready", "as_of": snapshot_time, "items": ranked if outcome == "ready" else []})
+
+    page.route("**/market/recommendations?*", recommendation_response)
+    page.route("**/market/quant-signals?*", lambda route: route.fulfill(json={
+        "status": "ready", "as_of": snapshot_time, "signal_revision": 1, "universe_count": 150, "items": [],
+    }))
+    page.route("**/stocks/005930/quant-signals*", lambda route: route.fulfill(json={"current": {}, "events": []}))
+    page.route("**/stocks/005930/ai-analysis*", lambda route: route.fulfill(json={"generation_mode": "rules"}))
+    _navigate_page(page, _page_url(base_url, "/dashboard", view="ai-signals", theme=theme),
+                   wait_until="commit", ready_selector="body[data-view='ai-signals']")
+    page.locator("#ai-signal-mode-history").click()
+    page.get_by_role("button", name="추천 순위").click()
+    retry = page.locator("#signal-ranking-retry")
+    retry.wait_for(state="visible")
+    outcome = "empty"
+    retry.click()
+    page.get_by_text("현재 순위에 오른 종목이 없어요.", exact=True).wait_for()
+    outcome = "ready"
+    page.evaluate("loadSignalRecommendationRanking({ force: true })")
+    rows = page.locator("#signal-ranking-list a")
+    rows.nth(1).wait_for()
+    evidence = rows.evaluate_all("""rows => ({
+      rows: rows.map(row => Array.from(row.children, cell => cell.textContent)),
+      logos: rows.every(row => !!row.querySelector('.stock-list-logo img')),
+      minHeight: Math.min(...rows.map(row => row.getBoundingClientRect().height)),
+      overflow: document.documentElement.scrollWidth > innerWidth,
+      counts: [...document.querySelectorAll('#ai-signal-mode-tabs button span')].map(n => n.textContent),
+      asOf: document.querySelector('#signal-ranking-asof').dateTime,
+    })""")
+    expected_rows = [["1", "", "SK하이닉스", "78.25점"], ["2", "", "삼성전자", "86.48점"]]
+    if (evidence["rows"] != expected_rows or not evidence["logos"] or evidence["minHeight"] < 44
+            or evidence["overflow"] or evidence["counts"] != ["0", "0"] or evidence["asOf"] != snapshot_time):
+        raise QaFailure("추천 순위의 행·시그널 건수·접근성 계약이 다릅니다.", evidence)
+    rows.nth(1).click()
+    page.wait_for_url("**/dashboard?view=recommend-detail&code=005930&from=signal-ranking")
+    detail_url = page.url
+    page.get_by_role("heading", name="삼성전자 추천 판단 근거").wait_for()
+    detail = page.locator("#recommend-detail-content")
+    has_published_evidence = detail.locator(".recommend-detail-hero + .staging-recommend-detail-evidence-section").get_by_text("최근 20일 가격 흐름이 우호적입니다.", exact=True).is_visible()
+    if (page.locator("#recommend-detail-name").text_content() != "삼성전자" or not has_published_evidence
+            or detail.locator('[role=progressbar]').get_attribute("aria-valuenow") != "86.48"):
+        raise QaFailure("선택한 종목과 점수의 판단 근거가 다릅니다.", evidence)
+    page.locator("[data-staging-contextual-back]:visible, #recommend-detail-back:visible").first.click()
+    page.wait_for_selector("body[data-view='ai-signals']")
+    if page.locator("#ai-signal-mode-history").get_attribute("aria-selected") != "true":
+        raise QaFailure("판단 근거에서 돌아온 뒤 기존 해제 이력 탭이 바뀌었습니다.", evidence)
+    _navigate_page(page, detail_url, wait_until="commit", ready_selector=".staging-recommend-detail-evidence-section")
+    if not page.get_by_role("heading", name="삼성전자 추천 판단 근거").is_visible():
+        raise QaFailure("직접 주소에서 다른 추천 종목이 열렸습니다.", evidence)
+    if any(p.get("candidate_limit") != ["45"] or p.get("limit") != ["10"] or "refresh" in p for p in requests):
+        raise QaFailure("추천 순위와 상세의 후보 모집단이 다릅니다.", {"queries": requests})
+    return {**evidence, "theme": theme, "direct_detail": urlsplit(detail_url).query, "requests": requests}
+
+
 def _home_signal_loading_case(page: Any, theme: str, *, base_url: str, timeout: float) -> dict[str, Any]:
     """Exercise failed/stalled reads in the browser without changing server data."""
     _navigate_page(page, _page_url(base_url, "/dashboard", view="home", theme=theme))
@@ -2378,6 +2461,13 @@ def run_e2e_checks(
                 base_url=base_url, timeout=timeout, artifact_dir=output_dir,
                 callback=lambda page, theme: _home_signal_loading_case(page, theme, base_url=base_url, timeout=timeout),
                 storage_state=storage_state, share_id=share_id,
+            ))
+            results.append(_run_page_case(
+                browser=browser, catalog_by_id=catalog_by_id, case_id="SIG-UI-038",
+                base_url=base_url, timeout=timeout, artifact_dir=output_dir,
+                callback=lambda page, theme: _signal_ranking_case(page, theme, base_url=base_url, timeout=timeout),
+                storage_state=storage_state, share_id=share_id,
+                allowed_http_failures={(503, "/market/recommendations")},
             ))
 
             def search_stock_case(page: Any, theme: str) -> dict[str, Any]:
@@ -3983,13 +4073,16 @@ def run_e2e_checks(
                     if stock.get("signal_replay_pending"):
                         _wait_for_ui_contract(
                             page,
-                            """() => {
+                            """detail => {
                               const status = document.querySelector('#quant-signal-status');
                               return !state.stockQuantSignals
                                 && status
                                 && !status.hidden
-                                && status.textContent.includes('불러오지 못했습니다');
+                                && status.textContent.trim() === detail
+                                && document.querySelector('#quant-signal-content')?.hidden === true
+                                && document.querySelector('#quant-verified-sessions')?.hidden === true;
                             }""",
+                            arg=stock["signal_failure_detail"],
                             stage=f"{stock['code']} 검증 전 시그널 fail-close",
                             timeout_ms=int(timeout * 1000),
                         )
@@ -4336,11 +4429,10 @@ def run_e2e_checks(
                 callback=stock_case,
                 storage_state=storage_state,
                 share_id=share_id,
-                allowed_http_failures=(
-                    {(503, "/stocks/069500/quant-signals")}
-                    if etf.get("signal_replay_pending")
-                    else set()
-                ),
+                allowed_http_failures={
+                    (503, f"/stocks/{stock['code']}/quant-signals")
+                    for stock in (samsung, etf) if stock.get("signal_replay_pending")
+                },
             )
             results.append(stock_result)
 

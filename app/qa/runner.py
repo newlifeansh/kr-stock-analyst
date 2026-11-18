@@ -341,6 +341,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_market_recommendations_do_not_serve_non_empty_in_process_cache",
         "tests.test_app.test_market_recommendations_do_not_keep_empty_payload_for_full_cache_window",
     ),
+    "SIG-UI-038": (
+        "tests.test_signal_rankings.test_domestic_rankings_use_published_rows_and_isolate_request_states",
+    ),
     "SIG-UI-037": (
         "tests.test_dashboard_login_lifecycle.test_first_service_worker_install_preserves_login_and_updates_stale_builds",
     ),

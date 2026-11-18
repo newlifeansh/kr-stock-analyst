@@ -3978,7 +3978,7 @@
       image.addEventListener("load", () => frame.classList.add("has-stock-logo"), { once: true });
       image.addEventListener("error", () => image.remove(), { once: true });
       const logoOrigin = window.__US_PUBLIC_GATEWAY__ || "";
-      image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20261010-ai-response-visual-v118`;
+      image.src = `${logoOrigin}/stock-logos/${encodeURIComponent(normalizedCode)}.png?v=20261118-signal-ranking-navigation-v119`;
       frame.appendChild(image);
       if (image.complete && image.naturalWidth > 0) frame.classList.add("has-stock-logo");
     }
@@ -4909,6 +4909,7 @@
       item.recommendation_entry_date || currentSignal.entry_date || "",
     ).slice(0, 10);
     const recommendationStillActive = /매수 대기|매수 조건 (?:충족|확정)|예비 매수|예비 포착/.test(currentStageText);
+    const fromSignalRanking = typeof isSignalRankingDetail === "function" && isSignalRankingDetail();
     const enteredToday = Boolean(
       item.recommendation_state === "entered_today"
       && recommendationEntryDate === kstTodayToken()
@@ -4919,7 +4920,7 @@
       && currentSignal.position_open === true
       && /보유|진입 완료|확정 매수/.test(currentStageText),
     );
-    const recommendationStillVisible = recommendationStillActive || enteredToday || currentHolding;
+    const recommendationStillVisible = fromSignalRanking || recommendationStillActive || enteredToday || currentHolding;
     content.dataset.recommendationState = recommendationStillActive
       ? "active"
       : enteredToday
@@ -5161,6 +5162,20 @@
     `;
     content.replaceChildren(loader, ...[hero, action, levels, evidence, decision, source].filter(Boolean));
     renderRecommendationDetailLiveQuote();
+    if (fromSignalRanking) {
+      if (eyebrow) eyebrow.textContent = `종목 추천 순위 · ${item.rank}위`;
+      if (title) title.textContent = `${item.name} 추천 판단 근거`;
+      if (verdict) verdict.textContent = item.score_decision_reason || item.decision_reason || "";
+      const scoreLabel = scoreWrap?.querySelector("em");
+      if (scoreLabel) scoreLabel.textContent = "추천 점수";
+      quickMetrics.remove();
+      action?.querySelector(".staging-recommend-detail-reason")?.remove();
+      if (evidence) hero.after(evidence);
+      stagingRecommendationDetailSummaryToken += 1;
+      content.dataset.summaryMode = "rules";
+      setRecommendationDetailSummaryDisplay(content, "ready");
+      return;
+    }
     if (recommendationDataPending) {
       stagingRecommendationDetailSummaryToken += 1;
       content.dataset.summaryMode = "loading";
@@ -6424,6 +6439,10 @@
       return;
     }
     const sourceBack = config ? document.querySelector(config.back) : null;
+    if (activeContextualView === "recommend-detail" && typeof isSignalRankingDetail === "function" && isSignalRankingDetail() && sourceBack instanceof HTMLButtonElement) {
+      sourceBack.click();
+      return;
+    }
     if (["chart-study", "chart-history"].includes(activeContextualView) && sourceBack instanceof HTMLButtonElement) {
       sourceBack.click();
       return;

@@ -42773,7 +42773,7 @@ body:not([data-view="stock"]) .home-market-carousel [data-market-carousel-clone=
   border-radius: 0;
 }
 
-body[data-view="ai-signals"] #ai-signals-view.app-ai-signals > .ai-signals-live-status {
+body[data-view="ai-signals"] #ai-signals-view.app-ai-signals > .signal-trading-panel > .ai-signals-live-status {
   background-color: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
@@ -46614,4 +46614,117 @@ html[data-market-universe="kr"] :is(
   [data-market-filter="SP500"]
 ) {
   display: none !important;
+}
+
+#ai-signals-view .signal-trading-panel { display: contents; }
+html[data-market-universe="kr"] #ai-signals-view .signal-trading-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: inherit;
+  align-content: start;
+}
+
+#ai-signals-view .signal-hub-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+
+.signal-hub-intro > :is(span, h2) { grid-column: 1; }
+
+#ai-signals-view .signal-ranking-jump,
+#signal-ranking-retry {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--tc-line, var(--line));
+  border-radius: 12px;
+  background: var(--tc-surface, var(--panel));
+  color: var(--tc-text, var(--text));
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+#ai-signals-view .signal-ranking-jump {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+#ai-signals-view .signal-ranking {
+  min-width: 0;
+  margin: 16px 0 0;
+  padding: 26px var(--tc-gutter, 20px) 28px;
+  border-top: 6px solid var(--tc-surface, var(--line-soft));
+  color: var(--tc-text, var(--text));
+}
+
+#ai-signals-view .signal-ranking [hidden], #ai-signals-view .signal-ranking[hidden] { display: none !important; }
+
+.signal-ranking-header h2 {
+  margin: 0;
+  scroll-margin-top: calc(var(--tc-safe-area-top, 0px) + 84px);
+  font-size: 23px;
+  font-weight: 750;
+  line-height: 1.3;
+  letter-spacing: -.035em;
+}
+
+.signal-ranking-header p, .signal-ranking-status p {
+  margin: 6px 0 0;
+  color: var(--tc-sub, var(--text));
+  font-size: 14px;
+  line-height: 1.55;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.signal-ranking-header time {
+  display: block;
+  margin-top: 8px;
+  color: var(--tc-muted, var(--muted));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.signal-ranking-status p:empty { display: none; }
+.signal-ranking-status p:not(:empty) { margin: 16px 0 8px; }
+
+.signal-ranking-columns, .signal-ranking-row {
+  display: grid;
+  grid-template-columns: 30px 36px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px;
+}
+
+.signal-ranking-columns {
+  margin-top: 22px;
+  padding: 0 0 9px;
+  border-bottom: 1px solid var(--tc-line, var(--line));
+  color: var(--tc-muted, var(--muted));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.signal-ranking-columns > :nth-child(2) { grid-column: 2 / 4; }
+#signal-ranking-list { margin: 0; padding: 0; list-style: none; }
+#signal-ranking-list li + li { border-top: 1px solid var(--tc-line, var(--line-soft)); }
+
+#signal-ranking-list .signal-ranking-row {
+  min-height: 52px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.signal-ranking-row:is(:hover, :active) { background: var(--tc-surface, var(--line-soft)); }
+.signal-ranking-row .stock-list-logo { width: 34px; height: 34px; }
+.signal-ranking-rank, .signal-ranking-score { font-variant-numeric: tabular-nums; }
+.signal-ranking-rank { color: var(--tc-sub, var(--text)); font-weight: 600; }
+.signal-ranking-score { font-weight: 700; white-space: nowrap; }
+.signal-ranking-name { font-size: 16px; font-weight: 650; word-break: keep-all; overflow-wrap: anywhere; }
+
+#ai-signals-view :is(.signal-ranking-row, .signal-ranking-jump, #signal-ranking-retry, #signal-ranking-title):focus-visible {
+  outline: 2px solid var(--tc-blue, #2878e5);
+  outline-offset: 2px;
 }
