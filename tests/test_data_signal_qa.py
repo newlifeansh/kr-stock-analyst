@@ -377,7 +377,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.1"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert len(ids) == 181
+    assert len(ids) == 182
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -502,7 +502,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.1`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v3-hybrid1`" in first
-    assert "QA 항목: 181개" in first
+    assert "QA 항목: 182개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1542,6 +1542,7 @@ def test_portfolio_production_screens_are_registered_for_e2e() -> None:
     assert "SIG-UI-028" not in E2E_CASE_IDS
     assert "SIG-UI-030" in E2E_CASE_IDS
     assert "SIG-UI-035" in E2E_CASE_IDS
+    assert "SIG-UI-038" in E2E_CASE_IDS
     from app.qa.e2e import US_E2E_CASE_IDS
     assert "REC-US-INDEPENDENT-001" in US_E2E_CASE_IDS
     assert "SIG-UI-032" in US_E2E_CASE_IDS
@@ -1678,6 +1679,10 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_represen
         )
     ]
     assert readiness_source.count("allow_verified_replay_pending=True") == 2
+    pending_ui = source.split('if stock.get("signal_replay_pending"):', 1)[1].split("elif (", 1)[0]
+    assert "status.textContent.includes('재검증 중')" in pending_ui
+    assert "#quant-signal-content')?.hidden === true" in pending_ui
+    assert "#quant-verified-sessions')?.hidden === true" in pending_ui
 
 
 def test_domestic_e2e_tracks_verified_prices_without_claiming_a_signal(monkeypatch) -> None:
@@ -2009,7 +2014,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.1"
     assert report["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert report["catalog_case_count"] == 181
+    assert report["catalog_case_count"] == 182
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -2088,6 +2093,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-UI-035",
         "SIG-UI-036",
         "SIG-UI-037",
+        "SIG-UI-038",
         "SIG-PERF-001",
         "SIG-PERF-US-001",
         "SIG-ENTRY-008",
@@ -2992,11 +2998,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261118v599" />'
+            '<link href="/assets/dashboard/styles.css?v=20261118v600" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261118v599"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261118v600"></script>'
             '</body></html>',
             self._meta(path),
         )

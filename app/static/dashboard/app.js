@@ -1318,6 +1318,8 @@ const state = {
   aiSignalStage: "all",
   aiSignalHistorySide: "all",
   aiSignalItems: [],
+  signalRankingRequest: 0,
+  signalRankingSnapshot: null,
   aiSignalPerformanceSummary: null,
   aiSignalMarketMetricsByScope: null,
   aiSignalFilterForwardComparison: null,
@@ -1528,6 +1530,7 @@ const state = {
   recommendTrackRequestId: 0,
   recommendationLoading: false,
   currentRecommendationDetailItem: null,
+  recommendationDetailRequest: 0,
   currentRecommendationDetailItemSavedAt: 0,
   morningMoneyBriefing: null,
   morningMoneyBriefingSelection: null,
@@ -10554,7 +10557,10 @@ async function refreshCurrentView() {
       await loadPushNotificationHistory({ silent: true });
       return;
     case "ai-signals":
-      await loadAiSignalsPage({ force: true, ttlMs: 0 });
+      await Promise.all([
+        loadAiSignalsPage({ force: true, ttlMs: 0 }),
+        loadSignalRecommendationRanking({ force: true }),
+      ]);
       return;
     case "morning-briefing":
       await loadMorningMoneyBriefing({ force: true });
@@ -10566,7 +10572,7 @@ async function refreshCurrentView() {
       await loadRecommendations({ auto: true, force: true, recompute: false });
       return;
     case "recommend-detail": {
-      const code = state.currentRecommendationDetailItem?.code || new URLSearchParams(window.location.search).get("code") || "";
+      const code = new URLSearchParams(window.location.search).get("code") || state.currentRecommendationDetailItem?.code || "";
       await loadRecommendationDetail(code);
       return;
     }
@@ -15184,9 +15190,17 @@ function setView(requestedViewName, options = {}) {
     }
     connectUsSectorStream();
   } else if (view === "recommend-detail") {
-    const code = state.currentRecommendationDetailItem?.code || new URLSearchParams(window.location.search).get("code") || "";
+    const code = new URLSearchParams(window.location.search).get("code") || state.currentRecommendationDetailItem?.code || "";
+    const fromRanking = isSignalRankingDetail();
+    elements.recommendDetailBack?.setAttribute("aria-label", fromRanking ? "시그널의 종목 추천 순위로 돌아가기" : "추천 종목 목록으로 돌아가기");
     window.scrollTo(0, 0);
-    launchBriefPageLoading("AI 추천 설명을 불러오는 중", () => loadRecommendationDetail(code));
+    if (fromRanking) {
+      elements.recommendDetailName.textContent = "추천 판단 근거";
+      elements.recommendDetailContent.replaceChildren(el("p", "muted", "추천 판단 근거를 불러오고 있어요."));
+      void loadRecommendationDetail(code);
+    } else {
+      launchBriefPageLoading("AI 추천 설명을 불러오는 중", () => loadRecommendationDetail(code));
+    }
   } else if (view === "movers") {
     syncMarketRankingSnapshotUrl();
     const market = currentMarketFilter();
@@ -15199,6 +15213,7 @@ function setView(requestedViewName, options = {}) {
       limit: 50,
     }));
   } else if (view === "ai-signals") {
+    void loadSignalRecommendationRanking();
     resetAiSignalLandingViewport();
     void loadAiSignalsPage(pageEntryRefreshOptions("watchlist", "ai-signals"));
   } else if (view === "portfolio") {
@@ -16741,7 +16756,7 @@ function commitAiSignalSnapshot(items, payload = {}, options = {}) {
   state.aiSignalSnapshotReceivedAt = Number.isFinite(receivedAt) && receivedAt > 0 ? receivedAt : Date.now();
   state.aiSignalSnapshotAsOf = payload.snapshot_generated_at || payload.as_of || payload.updated_at || "";
   if (typeof document !== "undefined") {
-    const marketEyebrow = document.querySelector("#ai-signals-view [data-staging-ai-market-eyebrow]");
+    const marketEyebrow = document.querySelector("#ai-signals-view :is([data-signal-universe], [data-staging-ai-market-eyebrow])");
     if (marketEyebrow && !isUsHubContext && state.aiSignalUniverseCount > 0) {
       marketEyebrow.textContent = `시총 상위 ${formatNumber(state.aiSignalUniverseCount)}개에서`;
     }
@@ -19706,6 +19721,99 @@ function renderAiSignalPerformance() {
       : grossReturns
       ? "실제 주문 수익이 아닌 미국 모델의 비용·세금·환율 반영 전 성과이며, 전량 매도된 거래만 집계합니다."
       : "실제 주문 수익이 아닌 거래비용 반영 모델 체결 성과이며, 전량 매도된 거래만 집계합니다.";
+  }
+}
+
+function isSignalRankingDetail() {
+  return PRODUCT_MARKET_UNIVERSE === "kr" && new URLSearchParams(window.location.search).get("from") === "signal-ranking";
+}
+
+function signalRankingDetailUrl(code) {
+  return `/dashboard?view=recommend-detail&code=${encodeURIComponent(code)}&from=signal-ranking`;
+}
+
+function fetchSignalRanking(options = {}) {
+  return fetchRecommendationsForScope({ limit: RECOMMENDATION_LIMIT, candidateLimit: 45, timeoutMs: AI_SIGNAL_REQUEST_TIMEOUT_MS, ...options });
+}
+
+function createSignalRankingRow(item) {
+  const row = el("li");
+  const link = el("a", "signal-ranking-row");
+  link.href = signalRankingDetailUrl(item.code);
+  const score = toNumber(item.score);
+  const scoreText = score === null ? "—" : `${formatNumber(score)}점`;
+  link.setAttribute("aria-label", `${item.rank}위 ${item.name}, ${score === null ? "점수 미제공" : scoreText}, 판단 근거 보기`);
+  link.append(
+    el("span", "signal-ranking-rank", String(item.rank)),
+    createStockListLogo(item.code),
+    el("strong", "signal-ranking-name", item.name),
+    el("span", "signal-ranking-score", scoreText),
+  );
+  link.addEventListener("click", (event) => {
+    if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    saveRecommendationDetailItem(item);
+    setView("recommend-detail", { historyUrl: link.getAttribute("href"), historyState: { returnView: "ai-signals" } });
+  });
+  row.append(link);
+  return row;
+}
+
+async function loadSignalRecommendationRanking(options = {}) {
+  const section = $("signal-recommendation-ranking");
+  if (PRODUCT_MARKET_UNIVERSE !== "kr" || !section) return;
+  section.hidden = false;
+  const template = $("domestic-signal-intro");
+  if (template && !elements.aiSignalsView.querySelector(".signal-hub-intro")) {
+    const intro = template.content.firstElementChild.cloneNode(true);
+    if (state.aiSignalUniverseCount > 0) intro.querySelector("[data-signal-universe]").textContent = `시총 상위 ${formatNumber(state.aiSignalUniverseCount)}개에서`;
+    const oldIntro = elements.aiSignalsView.querySelector(".staging-ai-signals-intro");
+    if (oldIntro) oldIntro.replaceWith(intro);
+    else $("ai-signal-mode-tabs").before(intro);
+    intro.querySelector("button").addEventListener("click", () => {
+      const title = $("signal-ranking-title");
+      title.focus({ preventScroll: true });
+      title.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+  }
+  const request = ++state.signalRankingRequest;
+  const message = $("signal-ranking-message");
+  const retry = $("signal-ranking-retry");
+  const list = $("signal-ranking-list");
+  const asOf = $("signal-ranking-asof");
+  if (!state.signalRankingSnapshot) message.textContent = "추천 순위를 불러오고 있어요.";
+  list.setAttribute("aria-busy", "true");
+  retry.hidden = true;
+  try {
+    const snapshot = await fetchSignalRanking(options);
+    if (request !== state.signalRankingRequest) return;
+    if (snapshot.selection_state !== "ready" && !snapshot.items.length) {
+      message.textContent = state.signalRankingSnapshot?.items.length
+        ? "새 순위를 집계하고 있어요. 이전 순위를 표시합니다."
+        : "추천 순위를 집계하고 있어요.";
+      retry.hidden = false;
+      return;
+    }
+    const items = snapshot.items.filter((item) => item.code && item.name && Number.isInteger(toNumber(item.rank)) && Number(item.rank) > 0)
+      .sort((left, right) => left.rank - right.rank);
+    const focusedHref = list.contains(document.activeElement) ? document.activeElement.getAttribute("href") : null;
+    list.replaceChildren(...items.map(createSignalRankingRow));
+    if (focusedHref) Array.from(list.querySelectorAll("a")).find((link) => link.getAttribute("href") === focusedHref)?.focus({ preventScroll: true });
+    state.signalRankingSnapshot = { items, as_of: snapshot.as_of };
+    $("signal-ranking-columns").hidden = !items.length;
+    asOf.hidden = !snapshot.as_of;
+    asOf.dateTime = snapshot.as_of || "";
+    asOf.textContent = snapshot.as_of ? formatDataBasis(snapshot.as_of) : "";
+    message.textContent = !items.length ? "현재 순위에 오른 종목이 없어요."
+      : snapshot.selection_state === "ready" ? "" : "집계가 끝난 종목부터 표시합니다.";
+  } catch {
+    if (request !== state.signalRankingRequest) return;
+    message.textContent = state.signalRankingSnapshot?.items.length
+      ? "새 순위를 불러오지 못했어요. 이전 순위를 표시합니다."
+      : "종목 추천 순위를 불러오지 못했어요.";
+    retry.hidden = false;
+  } finally {
+    if (request === state.signalRankingRequest) list.setAttribute("aria-busy", "false");
   }
 }
 
@@ -28847,23 +28955,35 @@ function composeUsRecommendationDetail(item = {}, aiAnalysis = null, signal = nu
 
 async function loadRecommendationDetail(code = "") {
   window.scrollTo(0, 0);
-  let item = null;
-  if (code) {
+  const request = ++state.recommendationDetailRequest;
+  const fromRanking = isSignalRankingDetail();
+  let item = fromRanking
+    ? state.signalRankingSnapshot?.items.find((candidate) => candidate.code === code)
+    : null;
+  if (!item && code) {
     try {
-      const payload = await fetchRecommendationsForScope({ limit: 20, candidateLimit: 100, force: true, ttlMs: 0 });
+      const payload = fromRanking
+        ? await fetchSignalRanking()
+        : await fetchRecommendationsForScope({ limit: 20, candidateLimit: 100, force: true, ttlMs: 0 });
       item = (payload.items || []).find((candidate) => candidate.code === code) || null;
     } catch {
       item = null;
     }
   }
+  const routeCode = new URLSearchParams(window.location.search).get("code");
+  if (request !== state.recommendationDetailRequest || state.view !== "recommend-detail" || (routeCode && routeCode !== code)) return;
   if (!item) {
     clearRecommendationDetailItem();
-    elements.recommendDetailContent.replaceChildren(el("p", "muted", "추천 정보를 찾지 못했습니다. 추천 목록에서 다시 선택해주세요."));
+    elements.recommendDetailName.textContent = "추천 판단 근거";
+    elements.recommendDetailCode.textContent = "";
+    elements.recommendDetailContent.replaceChildren(el("p", "muted", fromRanking
+      ? "이 종목의 최신 판단 근거를 확인할 수 없어요. 종목 추천 순위에서 다시 확인해 주세요."
+      : "추천 정보를 찾지 못했습니다. 추천 목록에서 다시 선택해주세요."));
     return;
   }
   saveRecommendationDetailItem(item);
   renderRecommendationDetail(item, null, true, item.ai_trade_signal, "loading");
-  window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo(0, 0)));
+  if (!fromRanking) window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo(0, 0)));
   const itemIsUs = marketScopeForItem(item) === "us";
   const aiUrl = itemIsUs
     ? `/us/stocks/${encodeURIComponent(item.code)}/ai-analysis`
@@ -28880,7 +29000,8 @@ async function loadRecommendationDetail(code = "") {
       .catch(() => ({ status: "rejected", value: null })),
   ]);
   if (
-    state.view !== "recommend-detail"
+    request !== state.recommendationDetailRequest
+    || state.view !== "recommend-detail"
     || state.currentRecommendationDetailItem?.code !== item.code
   ) {
     return;
@@ -31374,6 +31495,7 @@ async function fetchRecommendationsForScope(options = {}) {
     const payload = await fetchJsonCached(options.recompute ? liveUrl(url) : url, {
       force: options.force === true || options.recompute === true,
       ttlMs: options.ttlMs ?? pageEntryTtlMs("recommend"),
+      timeoutMs: options.timeoutMs,
     });
     return {
       ...payload,
@@ -33166,7 +33288,8 @@ elements.recommendList.addEventListener("click", (event) => {
   }
 });
 
-elements.recommendDetailBack?.addEventListener("click", () => navigateBackOrFallback("search"));
+$("signal-ranking-retry")?.addEventListener("click", () => void loadSignalRecommendationRanking({ force: true }));
+elements.recommendDetailBack?.addEventListener("click", () => navigateBackOrFallback(isSignalRankingDetail() ? "ai-signals" : "search"));
 elements.recommendDetailContent?.addEventListener("click", (event) => {
   const retry = event.target.closest(".recommend-signal-retry");
   if (!retry) {
