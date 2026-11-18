@@ -42,7 +42,7 @@ def test_health():
     assert response.json()["strategy_version"] == "position-lifecycle-v8.1"
     assert response.json()["execution_model"] == "close-confirmed-intraday-trigger-v1"
     assert response.json()["intraday_execution_effective_date"] == "2026-10-03"
-    assert response.json()["dashboard_version"] == "20261114v598"
+    assert response.json()["dashboard_version"] == "20261118v599"
     assert response.json()["canonical_base_url"] == "https://secretnote.cloud"
 
     healthz = client.get("/healthz")
@@ -2282,7 +2282,7 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
 
     version = client.get("/dashboard-version")
     assert version.status_code == 200
-    assert version.json() == {"version": "20261114v598"}
+    assert version.json() == {"version": "20261118v599"}
     assert version.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
     refresh = client.get("/dashboard-refresh?view=search&market_scope=us")
@@ -2292,9 +2292,9 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
     assert 'pathname === "/us-sw.js"' not in refresh.text
     assert 'key.startsWith("secret-note-static-")' in refresh.text
     assert '["kr", "us"].includes(params.get("market_scope"))' not in refresh.text
-    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261114v598" in refresh.text
+    assert "/dashboard?view=${encodeURIComponent(view)}&market_scope=kr&app_build=20261118v599" in refresh.text
     assert 'params.get("market") === "us"' not in refresh.text
-    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261114v598" not in refresh.text
+    assert "/us/stock/${encodeURIComponent(code)}?app_build=20261118v599" not in refresh.text
     assert "localStorage.clear" not in refresh.text
     assert "sessionStorage.clear" not in refresh.text
 
@@ -2302,12 +2302,12 @@ def test_dashboard_refresh_removes_only_dashboard_cache_and_normalizes_to_domest
 def test_next_open_release_changes_immutable_dashboard_asset_urls():
     client = TestClient(app)
     shell = client.get("/dashboard?view=home").text
-    assert 'src="/dashboard-app-v170.js?v=20261114v598"' in shell
-    assert "20261114v598" in client.get("/dashboard-sw.js").text
+    assert 'src="/dashboard-app-v170.js?v=20261118v599"' in shell
+    assert "20261118v599" in client.get("/dashboard-sw.js").text
     assert client.get("/us-version").json() == {"version": "20261114us170"}
     assert "20261114us170" in client.get("/us-sw.js").text
 
-    current = client.get("/dashboard-app-v170.js?v=20261114v598")
+    current = client.get("/dashboard-app-v170.js?v=20261118v599")
     previous = client.get("/dashboard-app-v170.js?v=20261111v594")
     us_current = client.get("/dashboard-app-v170.js?v=20261114us170")
     us_previous = client.get("/dashboard-app-v170.js?v=20261111us166")
@@ -2772,6 +2772,7 @@ def test_market_signal_feed_includes_delivered_preliminary_history(monkeypatch):
     client = TestClient(app)
     kst = ZoneInfo("Asia/Seoul")
     signal_date = datetime.now(kst).date()
+    previous_signal_date = signal_date - timedelta(days=1)
     delivered_at = datetime(
         signal_date.year,
         signal_date.month,
@@ -2805,7 +2806,31 @@ def test_market_signal_feed_includes_delivered_preliminary_history(monkeypatch):
                 "first_seen_at": signal_as_of,
                 "last_seen_at": signal_as_of,
                 "active": True,
-            }
+            },
+            {
+                "code": "035420",
+                "name": "NAVER",
+                "side": "buy",
+                "signal": "예비 매수",
+                "signal_date": previous_signal_date,
+                "first_seen_at": datetime(
+                    previous_signal_date.year,
+                    previous_signal_date.month,
+                    previous_signal_date.day,
+                    10,
+                    15,
+                    tzinfo=kst,
+                ),
+                "last_seen_at": datetime(
+                    previous_signal_date.year,
+                    previous_signal_date.month,
+                    previous_signal_date.day,
+                    10,
+                    20,
+                    tzinfo=kst,
+                ),
+                "active": False,
+            },
         ],
         "items": [
             {
@@ -2877,6 +2902,8 @@ def test_market_signal_feed_includes_delivered_preliminary_history(monkeypatch):
         assert history["078930"]["active"] is False
         assert history["078930"]["name"] == "GS"
         assert history["078930"]["signal"] == "예비 매도"
+        assert history["035420"]["signal_date"] == previous_signal_date.isoformat()
+        assert history["035420"]["active"] is False
         assert "005930" not in history
     finally:
         main_module.market_quant_signal_cache.clear()
@@ -4541,7 +4568,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert "시총 상위 종목의 최근 신호" not in home_shell
     assert 'class="home-flat-section-head"' in shell
     assert 'Home market briefing 7.2: reference-matched market strip and briefing rows.' in styles
-    assert 'styles.css?v=20261114v598' in shell
+    assert 'styles.css?v=20261118v599' in shell
     home_ai_styles = styles[styles.index("/* Home market briefing 7.2"):]
     for expected in (
         "padding: 0 20px 20px;",
@@ -4628,7 +4655,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'return `${elapsedMinutes}분 전 업데이트`;' in source
     assert 'return `${elapsedHours}시간 전 업데이트`;' in source
     assert '"market-thread-updated"' in source
-    assert 'src="/dashboard-app-v170.js?v=20261114v598"' in shell
+    assert 'src="/dashboard-app-v170.js?v=20261118v599"' in shell
     render_trends_source = source[source.index("function renderTrends"):source.index("async function loadTrends")]
     assert "const timeline = payload.timeline || [];" in render_trends_source
     assert ".filter(isFocusedTrendTimelineItem)" not in render_trends_source
@@ -4666,7 +4693,7 @@ def test_dashboard_v3_uses_stacked_news_and_event_cards():
     assert 'border-radius: 50%;' in styles
     assert '0 0 12px rgba(32, 205, 105, 0.72)' in styles
     service_worker = client.get("/dashboard-sw.js").text
-    assert 'DASHBOARD_SW_VERSION = "20261114v598"' in service_worker
+    assert 'DASHBOARD_SW_VERSION = "20261118v599"' in service_worker
     assert 'const currentBuild = url.searchParams.get("app_build");' in service_worker
     assert "if (!currentBuild || currentBuild === DASHBOARD_BUILD_VERSION)" in service_worker
     assert 'return [-timestamp, view?.preliminary ? 0 : 1' in source
@@ -5255,6 +5282,8 @@ def test_ai_signal_preliminary_history_is_separated_from_active_signal_tabs():
     assert "aiSignalToday" not in source
     assert "renderAiSignalPreliminaryHistory" not in source
     assert ".ai-signal-today" not in styles
+    assert "최근 30일 해제 신호 이력을 준비하고 있습니다." in source
+    assert "최근 30일 ${sideLabel}조건 해제 이력이 없습니다." in source
 
     history_adapter = source[
         source.index("function preliminaryHistoryAiSignalItems"):

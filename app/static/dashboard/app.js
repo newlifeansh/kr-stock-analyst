@@ -19748,8 +19748,8 @@ function renderAiSignalsPage() {
     if (!visibleHistory.length) {
       const sideLabel = { all: "", buy: "매수 ", sell: "매도 " }[state.aiSignalHistorySide] || "";
       const message = isAiSignalMarketUpdating()
-        ? "오늘 해제된 예비 신호 이력을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
-        : `오늘 ${sideLabel}조건 해제 이력이 없습니다.`;
+        ? "최근 30일 해제 신호 이력을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
+        : `최근 30일 ${sideLabel}조건 해제 이력이 없습니다.`;
       const emptyState = el("p", "muted", message);
       emptyState.setAttribute("role", "status");
       nextRows.push(emptyState);

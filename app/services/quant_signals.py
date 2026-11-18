@@ -7631,10 +7631,30 @@ def merge_market_preliminary_history(
     payload: dict[str, Any],
     previous_payload: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Keep every preliminary signal seen today and mark its current state."""
+    """Keep recent preliminary signals and mark only current rows active."""
 
     result = deepcopy(payload)
     event_date = _market_signal_date_token(result.get("as_of"))
+    reference_date = date.fromisoformat(event_date) if event_date else None
+    try:
+        recent_days = max(
+            1,
+            min(
+                90,
+                int(
+                    result.get("recent_days")
+                    or (previous_payload or {}).get("recent_days")
+                    or MARKET_SIGNAL_RECENT_DAYS
+                ),
+            ),
+        )
+    except (TypeError, ValueError):
+        recent_days = MARKET_SIGNAL_RECENT_DAYS
+    history_cutoff = (
+        reference_date - timedelta(days=recent_days)
+        if reference_date is not None
+        else None
+    )
     records: dict[tuple[str, str, str], dict[str, Any]] = {}
     history_sources = []
     if isinstance(previous_payload, dict):
@@ -7648,8 +7668,10 @@ def merge_market_preliminary_history(
         signal_date = _market_signal_date_token(item.get("signal_date"))
         if not code or side not in {"buy", "sell"} or not signal_date:
             continue
-        if event_date and signal_date != event_date:
-            continue
+        if reference_date is not None:
+            parsed_signal_date = date.fromisoformat(signal_date)
+            if parsed_signal_date < history_cutoff or parsed_signal_date > reference_date:
+                continue
         records[(code, side, signal_date)] = deepcopy(item)
 
     active_keys: set[tuple[str, str, str]] = set()
@@ -7668,7 +7690,10 @@ def merge_market_preliminary_history(
             not code
             or side not in {"buy", "sell"}
             or not signal_date
-            or (event_date and signal_date != event_date)
+            or (
+                reference_date is not None
+                and not history_cutoff <= date.fromisoformat(signal_date) <= reference_date
+            )
         ):
             continue
         key = (code, side, signal_date)

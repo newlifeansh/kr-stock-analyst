@@ -316,7 +316,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261114v598"
+DASHBOARD_CLIENT_VERSION = "20261118v599"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -4487,10 +4487,16 @@ def _merge_market_preliminary_notification_history(
     db: Session,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Supplement the shared snapshot with today's actually delivered signals."""
+    """Supplement the recent shared history with actually delivered signals."""
 
     result = deepcopy(payload)
     event_date = datetime.now(KST).date().isoformat()
+    try:
+        recent_days = max(1, min(90, int(result.get("recent_days") or 30)))
+    except (TypeError, ValueError):
+        recent_days = 30
+    reference_date = date.fromisoformat(event_date)
+    history_cutoff = reference_date - timedelta(days=recent_days)
     records: dict[tuple[str, str, str], dict[str, Any]] = {}
     active_keys: set[tuple[str, str, str]] = set()
     for item in result.get("items") or []:
@@ -4508,7 +4514,15 @@ def _merge_market_preliminary_notification_history(
         code = str(item.get("code") or "").strip()
         side = str(item.get("side") or "").strip().lower()
         signal_date = str(item.get("signal_date") or "")[:10]
-        if code and side in {"buy", "sell"} and signal_date == event_date:
+        try:
+            parsed_signal_date = date.fromisoformat(signal_date)
+        except ValueError:
+            continue
+        if (
+            code
+            and side in {"buy", "sell"}
+            and history_cutoff <= parsed_signal_date <= reference_date
+        ):
             records[(code, side, signal_date)] = deepcopy(item)
 
     rows = list(
@@ -4519,7 +4533,7 @@ def _merge_market_preliminary_notification_history(
                 # (``ai_signal``) must never leak an account-only stock into it.
                 PushNotificationHistory.notification_kind == "market_ai_signal",
                 PushNotificationHistory.created_at >= datetime.combine(
-                    date.fromisoformat(event_date) - timedelta(days=1),
+                    history_cutoff - timedelta(days=1),
                     time.min,
                 ),
             )
@@ -4533,7 +4547,8 @@ def _merge_market_preliminary_notification_history(
         if context.get("market_scope") == "us":
             continue
         signal_date = context["event_date"]
-        if signal_date != event_date:
+        parsed_signal_date = date.fromisoformat(signal_date)
+        if not history_cutoff <= parsed_signal_date <= reference_date:
             continue
         code = context["code"]
         side = context["side"]

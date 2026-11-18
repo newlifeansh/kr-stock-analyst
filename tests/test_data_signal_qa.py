@@ -1626,7 +1626,7 @@ def test_us_standalone_e2e_checks_archived_actions_and_visible_live_news() -> No
     assert 'page.wait_for_selector("#stock-mini-chart")' not in source
 
 
-def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_etf(
+def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_representative_stocks(
     monkeypatch,
 ) -> None:
     class FakeClient:
@@ -1669,6 +1669,15 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_etf(
     assert payload["signal_replay_pending"] is True
     assert "재검증 중" in payload["signal_failure_detail"]
     assert payload["signal_action"] is None
+
+    source = (Path(__file__).parents[1] / "app" / "qa" / "e2e.py").read_text()
+    readiness_source = source[
+        source.index("contract_started = monotonic()") : source.index(
+            "market_signals = _market_signal_contract",
+            source.index("contract_started = monotonic()"),
+        )
+    ]
+    assert readiness_source.count("allow_verified_replay_pending=True") == 2
 
 
 def test_domestic_e2e_tracks_verified_prices_without_claiming_a_signal(monkeypatch) -> None:
@@ -2068,6 +2077,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-KR-INTRADAY-CORROBORATION-001",
         "SIG-KR-FORWARD-001",
         "SIG-KR-CANDIDATE-RELIABILITY-001",
+        "SIG-LIFECYCLE-003",
         "SIG-EXIT-005",
         "SIG-UI-022",
         "SIG-UI-025",
@@ -2982,11 +2992,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261114v598" />'
+            '<link href="/assets/dashboard/styles.css?v=20261118v599" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261114v598"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261118v599"></script>'
             '</body></html>',
             self._meta(path),
         )

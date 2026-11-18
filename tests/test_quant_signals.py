@@ -5866,7 +5866,7 @@ def test_negative_expectancy_guard_prevents_only_new_simulated_entry(monkeypatch
     assert guarded["performance"]["rejected_performance_guard_entries"] == 1
 
 
-def test_market_preliminary_history_keeps_cleared_signals_for_same_day():
+def test_market_preliminary_history_keeps_cleared_signals_for_recent_window():
     first_payload = {
         "as_of": datetime(2026, 8, 13, 9, 12),
         "items": [
@@ -5921,10 +5921,18 @@ def test_market_preliminary_history_keeps_cleared_signals_for_same_day():
     assert by_code["078930"]["active"] is False
 
     tomorrow = quant_signals.merge_market_preliminary_history(
-        {"as_of": datetime(2026, 8, 14, 9, 5), "items": []},
+        {"as_of": datetime(2026, 8, 14, 9, 5), "recent_days": 30, "items": []},
         merged,
     )
-    assert tomorrow["preliminary_history"] == []
+    tomorrow_by_code = {item["code"]: item for item in tomorrow["preliminary_history"]}
+    assert tomorrow_by_code["003550"]["active"] is False
+    assert tomorrow_by_code["078930"]["active"] is False
+
+    expired = quant_signals.merge_market_preliminary_history(
+        {"as_of": datetime(2026, 9, 13, 9, 5), "recent_days": 30, "items": []},
+        tomorrow,
+    )
+    assert expired["preliminary_history"] == []
 
 
 def test_market_quant_signal_endpoint_is_no_store(monkeypatch):

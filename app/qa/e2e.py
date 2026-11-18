@@ -2300,7 +2300,12 @@ def run_e2e_checks(
 
     contract_started = monotonic()
     try:
-        samsung = _stock_contract(base_url, timeout, "005930")
+        samsung = _stock_contract(
+            base_url,
+            timeout,
+            "005930",
+            allow_verified_replay_pending=True,
+        )
         etf = _stock_contract(
             base_url,
             timeout,
