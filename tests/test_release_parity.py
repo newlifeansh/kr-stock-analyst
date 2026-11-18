@@ -547,7 +547,7 @@ def test_staging_candidate_keeps_live_and_e2e_evidence_when_data_readiness_times
     assert staging_qa.index("Wait for current staging data") < staging_qa.index(
         "Run read-only staging integrations"
     )
-    assert "if: ${{ always() && inputs.action == 'stage' }}" in gateway_qa
+    assert "if: ${{ always() && !cancelled() && inputs.action == 'stage' }}" in gateway_qa
     assert 'id: gateway_data_readiness\n        continue-on-error: true' in gateway_qa
     assert 'test "${{ steps.gateway_data_readiness.outcome }}" = "success"' in gateway_qa
 

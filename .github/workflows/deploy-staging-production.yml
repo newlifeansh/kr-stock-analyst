@@ -491,7 +491,9 @@ jobs:
           retention-days: 90
 
   staging_us_gateway_qa:
-    if: ${{ always() && inputs.action == 'stage' }}
+    # Preserve gateway evidence after a failed staging QA, but never launch it
+    # after an operator has cancelled the candidate.
+    if: ${{ always() && !cancelled() && inputs.action == 'stage' }}
     # The dedicated US live QA uses the same upstream rate-limit bucket.
     # Run the gateway probe only after both market jobs finish.
     needs: [validate_request, deploy_staging, staging_qa]
