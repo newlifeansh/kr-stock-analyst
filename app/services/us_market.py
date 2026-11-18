@@ -1727,17 +1727,26 @@ def _filter_us_news_for_stock(
         title = " ".join(str(item.get("title") or "").split()).strip()
         url = str(item.get("url") or item.get("link") or "").strip()
         published_at = _us_news_published_at_utc(item.get("published_at"))
+        title_matches = _us_news_title_matches_stock(
+            title,
+            stock,
+            allow_ticker_only=allow_ticker_only,
+        )
+        # Yahoo's relatedTickers association is the provider's explicit
+        # per-symbol binding.  It is stronger than inferring a short ticker
+        # from an arbitrary headline, so it may retain a generic headline
+        # only when the parser recorded that trusted Yahoo association.
+        trusted_provider_identity = bool(
+            item.get("_trusted_provider_identity") is True
+            and str(item.get("source") or "") == "Yahoo Finance"
+        )
         if (
             not title
             or not url
             or published_at is None
             or published_at < cutoff
             or published_at > current + US_STOCK_NEWS_FUTURE_TOLERANCE
-            or not _us_news_title_matches_stock(
-                title,
-                stock,
-                allow_ticker_only=allow_ticker_only,
-            )
+            or not (title_matches or trusted_provider_identity)
         ):
             continue
         candidates.append((published_at, {**item, "title": title, "url": url}))
@@ -1752,7 +1761,11 @@ def _filter_us_news_for_stock(
             continue
         seen_urls.add(url)
         seen_titles.add(title_key)
-        filtered.append(item)
+        # The Yahoo-only trust marker is ingestion metadata, not part of the
+        # public article contract.
+        filtered.append(
+            {key: value for key, value in item.items() if key != "_trusted_provider_identity"}
+        )
         if len(filtered) >= limit:
             break
     return filtered
@@ -2002,15 +2015,16 @@ def _parse_yahoo_news_payload(
             for value in (item.get("relatedTickers") or [])
             if str(value).strip()
         }
-        # Yahoo's result list can contain related market stories. Require the
-        # title to mention the requested company so broad Europe/semiconductor
-        # stories do not leak into a per-stock news tab.
-        if related and normalized_symbol not in related:
+        # Yahoo's result list can contain related market stories. A generic
+        # headline is acceptable only when Yahoo explicitly binds it to this
+        # symbol; otherwise the title itself must identify the company.
+        related_to_symbol = normalized_symbol in related
+        if related and not related_to_symbol:
             continue
-        if not _us_news_title_matches_stock(
+        if not related_to_symbol and not _us_news_title_matches_stock(
             title,
             resolved_stock,
-            allow_ticker_only=normalized_symbol in related,
+            allow_ticker_only=False,
         ):
             continue
         key = str(item.get("uuid") or url)
@@ -2025,6 +2039,7 @@ def _parse_yahoo_news_payload(
                 "external_id": str(item.get("uuid") or key),
                 "published_at": _parse_epoch_datetime(item.get("providerPublishTime")),
                 "image_url": _yahoo_news_thumbnail(item),
+                "_trusted_provider_identity": related_to_symbol,
             }
         )
     return _filter_us_news_for_stock(

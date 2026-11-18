@@ -55,7 +55,7 @@ jobs:
   live_staging:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 65
     strategy:
       fail-fast: false
       matrix:
@@ -90,6 +90,15 @@ jobs:
           export RAILWAY_RESUME_IMAGE_REF
           test -n "$RAILWAY_RESUME_IMAGE_REF"
           ./scripts/railway_staging_runtime.sh up
+      - name: Wait for current collector data before live QA
+        id: collector_readiness
+        continue-on-error: true
+        run: >-
+          python -m app.qa.release_data_readiness
+          --surface "${{ matrix.surface }}"
+          --base-url "$QA_BASE_URL"
+          --wait-seconds 1800
+          --output artifacts/qa-data-signal/staging-data-readiness.json
       - name: Run read-only staging and source checks
         shell: bash
         run: |
@@ -104,12 +113,17 @@ jobs:
             --base-url "$QA_BASE_URL" \
             --output artifacts/qa-data-signal/live.json \
             $kis_flag
+      - name: Enforce collector readiness evidence
+        if: always()
+        run: |
+          test -f artifacts/qa-data-signal/staging-data-readiness.json
+          test "${{ steps.collector_readiness.outcome }}" = "success"
       - name: Upload live evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qa-data-signal-live-${{ matrix.surface }}-${{ github.run_id }}
-          path: artifacts/qa-data-signal/live.json
+          path: artifacts/qa-data-signal
           if-no-files-found: error
           retention-days: 30
 

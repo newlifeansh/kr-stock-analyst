@@ -13,7 +13,7 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 65
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +48,15 @@ jobs:
           export RAILWAY_RESUME_IMAGE_REF
           test -n "$RAILWAY_RESUME_IMAGE_REF"
           ./scripts/railway_staging_runtime.sh up
+      - name: Wait for current collector data before browser QA
+        id: collector_readiness
+        continue-on-error: true
+        run: >-
+          python -m app.qa.release_data_readiness
+          --surface "${{ matrix.surface }}"
+          --base-url "$QA_BASE_URL"
+          --wait-seconds 1800
+          --output artifacts/qa-data-signal/staging-data-readiness.json
       - name: Run mobile dark and light E2E
         run: |
           test -n "$QA_BASE_URL"
@@ -69,6 +78,11 @@ jobs:
               raise SystemExit("E2E failures: " + ", ".join(failures))
           PY
           exit "$qa_exit"
+      - name: Enforce collector readiness evidence
+        if: always()
+        run: |
+          test -f artifacts/qa-data-signal/staging-data-readiness.json
+          test "${{ steps.collector_readiness.outcome }}" = "success"
       - name: Upload E2E report and screenshots
         if: always()
         uses: actions/upload-artifact@v4

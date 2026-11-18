@@ -518,7 +518,7 @@
         "gate",
         "live"
       ],
-      "automation": "pytest 국내 운영·국내 스테이징·미국 프로젝트의 staging/production 4개 환경 대상 및 web/collector/URL/PROCESS_ROLE 분리, 국내 스테이징 DB→collector→web 온디맨드 기동·항상 종료, web의 미국 전체 스캔 차단, 선택한 운영 surface 매핑·기존 /us 호환 경로 보존 계약 + apt 미러에 의존하지 않는 staging 브라우저 설치 + 중복 deployment_status E2E 자동 트리거 차단 + 보조 빌드 캐시 읽기 60초 제한·캐시 업로드 제외(테스트/이미지 push 실패 무시 금지) + GHCR SHA-256 다이제스트 + 양쪽 staging release-parity/live/e2e 및 선택한 production parity/live",
+      "automation": "pytest 국내 운영·국내 스테이징·미국 프로젝트의 staging/production 4개 환경 대상 및 web/collector/URL/PROCESS_ROLE 분리, 국내 스테이징 DB→collector→web 온디맨드 기동·항상 종료, web의 미국 전체 스캔 차단, 선택한 운영 surface 매핑·기존 /us 호환 경로 보존 계약 + 수동·후보 QA의 bounded collector data-readiness 대기와 timeout에도 live/e2e 증거 보존 + apt 미러에 의존하지 않는 staging 브라우저 설치 + 중복 deployment_status E2E 자동 트리거 차단 + 보조 빌드 캐시 읽기 60초 제한·캐시 업로드 제외(테스트/이미지 push 실패 무시 금지) + GHCR SHA-256 다이제스트 + 양쪽 staging release-parity/live/e2e 및 선택한 production parity/live",
       "preconditions": [
         "승인된 RC 단일 커밋과 국내 운영·국내 스테이징·미국 Railway 프로젝트의 staging/production 격리 환경을 준비한다.",
         "두 스테이징 프로젝트에 독립 web·collector·DB와 각기 다른 URL을 준비하고 web은 PROCESS_ROLE=web, collector는 PROCESS_ROLE=collector로 지정한다.",
@@ -607,7 +607,7 @@
         },
         "scheduled_live_qa": {
           "schedule": "read-only production dashboard and US surfaces",
-          "manual": "resume isolated staging, run live QA, then stop staging",
+        "manual": "resume isolated staging, wait up to 1800 seconds for collector data readiness, run live/e2e even when readiness times out, retain all evidence, then stop staging",
           "production_mutation": false
         },
         "production_market_flags": {
@@ -620,7 +620,7 @@
         "RC 커밋의 gate 뒤 GHCR 이미지를 한 번 빌드하고 source SHA·candidate version·OCI SHA-256 다이제스트를 기록한다.",
         "국내 스테이징은 중지된 DB를 구성된 소스 이미지로 재배포하고 실행 상태를 확인한 뒤 collector와 web replica를 1로 기동한다. 이전 이미지의 public readiness는 prepare 단계에서 판정하지 않으며, 기동 중 일부가 실패하면 web·collector 활성 배포를 직접 중지하고 실제 running=0 확인 후 DB 배포를 중지한다.",
         "두 스테이징의 web 서비스에 PROCESS_ROLE=web, collector 서비스에 PROCESS_ROLE=collector를 강제하고, 먼저 미국 web·collector에 US_MARKET_ENABLED=true, 이어 국내 web·collector에 US_MARKET_ENABLED=false를 설정한 뒤 같은 image@sha256을 연결한다.",
-        "후보 이미지 연결 뒤 두 스테이징에서 각자의 /us 또는 /dashboard 버전·자산 해시와 /healthz·/readyz가 현재 커밋과 일치할 때까지 기다린 뒤 각각 live와 모바일 다크·라이트 e2e를 수행한다. live가 실패해도 e2e 증거를 수집한 다음 두 결과를 함께 판정한다.",
+        "후보 이미지 연결 뒤 두 스테이징에서 각자의 /us 또는 /dashboard 버전·자산 해시와 /healthz·/readyz, collector data-readiness가 현재 커밋과 일치할 때까지 최대 1800초 기다린 뒤 각각 live와 모바일 다크·라이트 e2e를 수행한다. readiness가 timeout이어도 live/e2e와 readiness JSON을 모두 수집한 다음 함께 실패로 판정한다.",
         "web 역할의 미국 API 요청은 Top100 전체 갱신을 직접 enqueue하지 않고 collector 역할만 완료 세션 스냅샷을 갱신하는지 확인한다.",
         "QA 성공·실패·취소와 관계없이 증거 수집 후 국내 web·collector 활성 배포를 직접 중지하고 DB는 현재 배포 상태를 확인한 뒤 활성 배포만 한 번 중지하며, 종료 실패를 워크플로 성공으로 숨기지 않는다.",
         "두 스테이징 QA 통과 후 운영자가 정확한 후보·해시를 승인하면 product_surface로 선택한 운영 프로젝트의 web·collector에만 재빌드 없이 같은 image@sha256을 승격한다. 국내 운영의 기존 /us 호환 경로는 공식 URL 전환 전까지 변경하지 않는다.",
@@ -643,7 +643,7 @@
         "미국 스테이징과 운영은 같은 Railway 프로젝트여도 서로 다른 환경·web·collector·DB·URL로 격리된다.",
         "기존 후보 기동 성공은 단순 scale 성공이 아니라 DB 연결 준비를 뜻하며 종료 확인 실패 시 DB를 유지한다.",
         "지역 설정 변경은 해당 스테이징 앱에만 한정되며 이전 지역 replica가 중복 실행되지 않는다. 600초의 제한된 대기 안에 실제 프로세스와 DB readiness를 확인한다.",
-        "정기 live QA는 두 운영 URL의 현재 버전·데이터 상태를 검사하고, 수동 스테이징 QA는 사용한 스테이징을 종료한다."
+        "정기 live QA는 두 운영 URL의 현재 버전·데이터 상태를 검사하고, 수동 스테이징 QA는 bounded readiness·live/e2e JSON을 모두 남긴 뒤 사용한 스테이징을 종료한다."
       ],
       "failure_criteria": [
         "국내·미국 스테이징이 같은 프로젝트·서비스·DB·URL을 공유하거나 국내 QA가 오래된 preview 프록시를 대상으로 실행된다.",
@@ -652,7 +652,7 @@
         "국내 스테이징에서 US_MARKET_ENABLED=true 또는 미국 스테이징에서 false로 실행한다.",
         "국내 전용 live가 비활성 미국 수집의 ready 상태를 P0로 요구하거나 미국 surface의 미국 계약 검증 없이 SKIP만 기록한다.",
         "스테이징·운영 중 하나라도 다른 이미지 다이제스트를 사용하거나 운영에서 새 이미지를 빌드한다.",
-        "surface와 URL이 엇갈리거나 한 스테이징의 live/e2e를 누락한 채 운영 승격을 허용한다.",
+        "surface와 URL이 엇갈리거나 readiness timeout 때문에 한 스테이징의 live/e2e를 누락한 채 운영 승격을 허용한다.",
         "스테이징 QA 실패 후보가 승인·승격되거나 두 제품 중 하나의 버전·자산 해시가 일치하지 않는다.",
         "미국 승격이 국내 운영 프로젝트를 덮거나 국내 승격이 미국 운영 프로젝트를 덮고, 선택하지 않은 운영 surface를 해당 후보로 검증했다고 기록한다.",
         "공식 URL 이전 승인 없이 국내 운영의 /us 경로를 끊거나 US_MARKET_ENABLED를 강제로 false로 바꾼다.",
@@ -2604,10 +2604,10 @@
       "domain": "미국 종목뉴스 출처·종목 일치 QA",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest Yahoo/Naver parser·짧은 티커 충돌·120일 최신성·거래소 코드·중복·탭 초기 선택 fixture + live WMB 국내 오염 차단·Yahoo 해외기사 probe + 320/390px 탭 전환 E2E",
+      "automation": "pytest Yahoo/Naver parser·짧은 티커 충돌·Yahoo relatedTickers의 명시적 종목 연결이 있는 일반 제목·120일 최신성·거래소 코드·중복·탭 초기 선택 fixture + live WMB 국내 오염 차단·Yahoo 해외기사 probe + 320/390px 탭 전환 E2E",
       "preconditions": ["/us/stock/WMB 상세 화면과 WMB가 보이스3 OST·웨이퍼·모니터 약어로 등장하는 오염 기사, 오래된 2007·2019년 기사 픽스처를 준비한다.", "WMB의 Yahoo 메타 exchangeName=NYQ와 Yahoo Finance relatedTickers=WMB 최신 기사 응답을 준비한다.", "Naver 국내뉴스가 0건이고 Yahoo 해외뉴스가 1건 이상인 초기 화면 상태를 준비한다."],
       "inputs": {"stocks": ["WMB", "ASML"], "domestic_source": "Naver News 한국어 기사", "overseas_source": "Yahoo Finance", "max_article_age_days": 120, "future_tolerance_minutes": 15, "short_ticker_policy": "3자 이하 티커와 WMB의 Williams·윌리엄스 단독 표기는 Naver 제목 식별 근거로 사용 금지", "wmb_identity_terms": ["Williams Companies", "Williams Cos", "윌리엄스컴퍼니즈", "윌리엄스 컴퍼니즈"], "forbidden_wmb_collisions": ["보이스3", "언오피셜보이", "윤병호", "HBM4", "웨이퍼", "모니터", "윌리엄스 타운"], "verified_exchange_code": "WMB.N", "tabs": ["국내뉴스", "해외뉴스"], "empty_domestic_initial_tab": "overseas", "endpoint": "/us/stocks/{ticker}/dashboard", "viewports": [320, 390, 1440], "themes": ["dark", "light"]},
-      "steps": ["WMB dashboard의 국내뉴스를 조회해 회사명·한글 별칭 없이 WMB 약어만 포함한 연예·반도체 공정·모니터 기사가 모두 제거되는지 확인한다.", "게시 시각이 없거나 현재보다 120일 넘게 오래됐거나 미래 15분을 초과한 기사를 제거하고 유효 기사를 최신순으로 정렬하며 URL 또는 정규화 제목 중복을 한 건으로 합치는지 확인한다.", "Yahoo 메타 NYQ를 네이버 worldStock 코드 WMB.N 하나로 매핑하고 NASDAQ·NYSE·AMEX 접미사를 무차별 조회하지 않는지 확인한다.", "Naver 검색은 회사명·한글 별칭·티커 후보를 모두 수집한 뒤 중앙 검증하여 첫 검색의 무관한 결과 수 때문에 다음 후보를 생략하지 않는지 확인한다.", "Yahoo Finance는 relatedTickers=WMB 연결이 확인된 최신 기사에서 짧은 티커 제목을 허용하고 source·publisher·published_at·detail_url을 보존하는지 확인한다.", "검증된 국내뉴스가 없고 해외뉴스가 있으면 첫 진입에서 해외뉴스 탭을 자동 선택하되 사용자가 국내뉴스를 선택한 뒤에는 빈 상태 선택을 유지하는지 확인한다.", "두 탭을 반복 전환해 선택 상태·기사 목록·출처 안내가 서로 섞이지 않고, 한 원천 장애 시 해당 탭만 빈 상태 안내를 표시하는지 확인한다.", "320px·390px 모바일과 1440px 화면의 다크·라이트 테마에서 탭과 긴 제목이 잘리지 않고 키보드 포커스가 보이는지 확인한다."],
+      "steps": ["WMB dashboard의 국내뉴스를 조회해 회사명·한글 별칭 없이 WMB 약어만 포함한 연예·반도체 공정·모니터 기사가 모두 제거되는지 확인한다.", "게시 시각이 없거나 현재보다 120일 넘게 오래됐거나 미래 15분을 초과한 기사를 제거하고 유효 기사를 최신순으로 정렬하며 URL 또는 정규화 제목 중복을 한 건으로 합치는지 확인한다.", "Yahoo 메타 NYQ를 네이버 worldStock 코드 WMB.N 하나로 매핑하고 NASDAQ·NYSE·AMEX 접미사를 무차별 조회하지 않는지 확인한다.", "Naver 검색은 회사명·한글 별칭·티커 후보를 모두 수집한 뒤 중앙 검증하여 첫 검색의 무관한 결과 수 때문에 다음 후보를 생략하지 않는지 확인한다.", "Yahoo Finance는 relatedTickers=WMB 연결이 확인된 최신 기사에서 짧은 티커 또는 일반 제목을 수용하고 source·publisher·published_at·detail_url을 보존하는지 확인한다. 제목만으로 추정하지 않고 Yahoo의 명시적 연결에 한정한다.", "검증된 국내뉴스가 없고 해외뉴스가 있으면 첫 진입에서 해외뉴스 탭을 자동 선택하되 사용자가 국내뉴스를 선택한 뒤에는 빈 상태 선택을 유지하는지 확인한다.", "두 탭을 반복 전환해 선택 상태·기사 목록·출처 안내가 서로 섞이지 않고, 한 원천 장애 시 해당 탭만 빈 상태 안내를 표시하는지 확인한다.", "320px·390px 모바일과 1440px 화면의 다크·라이트 테마에서 탭과 긴 제목이 잘리지 않고 키보드 포커스가 보이는지 확인한다."],
       "expected": ["국내뉴스는 120일 이내의 선택 종목 회사명·검증 별칭과 일치하는 한국어 기사만 최신순으로 표시한다.", "WMB 같은 3자 이하 티커는 네이버 제목의 약어만으로 종목을 식별하지 않아 보이스3 OST·HBM4 웨이퍼·모니터 기사가 누출되지 않는다.", "Yahoo 관련 티커 연결과 Yahoo 거래소 메타는 각각 해외기사 식별과 정확한 Naver 접미사 선택에만 신뢰 신호로 사용된다.", "동일 URL·정규화 제목 중복은 제거되고 게시 시각 누락·오래된 기사·과도한 미래 기사는 fail-close한다.", "국내뉴스가 0건이고 해외뉴스가 있으면 첫 화면은 해외뉴스를 보여주며 사용자의 이후 수동 탭 선택은 덮어쓰지 않는다.", "Yahoo Finance 장애가 발생해도 국내뉴스 탭과 종목 상세 전체는 유지되며 해외뉴스에 빈 상태와 원천 안내를 표시한다.", "좁은 화면에서도 탭은 터치 가능한 높이를 유지하고 기사 제목·출처·시각이 가로 넘침 없이 읽힌다."],
       "failure_criteria": ["WMB 국내뉴스에 보이스3 OST·언오피셜보이·윤병호·HBM4 웨이퍼·모니터 등 동일 약어의 무관 기사가 표시된다.", "2007·2019년 기사, 게시 시각 없는 기사, 미래 기사 또는 중복 제목이 최근 기사처럼 표시된다.", "NYQ 종목에서 WMB.O·WMB.A를 먼저 조회하거나 검증된 WMB.N 대신 잘못된 거래소 결과를 사용한다.", "첫 Naver 검색의 무관한 상위 결과가 수집 한도를 채웠다는 이유로 실제 회사명·별칭 검색을 생략한다.", "해외뉴스 탭이 네이버·Google·임의의 검색 결과를 표시하거나 Yahoo Finance 원문 링크가 없다.", "국내뉴스 0건인데도 첫 화면이 빈 국내 탭에 머물거나, 사용자가 국내 탭을 선택한 뒤 렌더링이 다시 해외 탭으로 강제 전환된다.", "Yahoo 장애 때문에 미국 종목 상세가 실패하거나 국내뉴스까지 빈 상태가 된다.", "320px·390px 화면에서 탭·제목이 잘리거나 가로 스크롤·키보드 포커스 누락이 발생한다."]
     },

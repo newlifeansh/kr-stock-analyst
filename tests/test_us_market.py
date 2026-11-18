@@ -2162,6 +2162,31 @@ def test_wmb_yahoo_news_accepts_trusted_related_ticker_for_short_symbol():
     ]
 
 
+def test_wmb_yahoo_related_ticker_keeps_a_generic_provider_headline():
+    timestamp = int(datetime(2026, 9, 23, 15, tzinfo=UTC).timestamp())
+
+    rows = us_market._parse_yahoo_news_payload(
+        {
+            "news": [{
+                "uuid": "wmb-yahoo-generic",
+                "title": "Three energy dividend stocks for a long-term portfolio",
+                "publisher": "Trusted Wire",
+                "link": "https://finance.yahoo.com/news/energy-dividends",
+                "providerPublishTime": timestamp,
+                "relatedTickers": ["KMI", "WMB", "ET"],
+            }],
+        },
+        "WMB",
+        stock={"code": "WMB", "name": "Williams Companies Inc. (The)"},
+        now=datetime(2026, 9, 24, 12, tzinfo=UTC),
+    )
+
+    assert [row["title"] for row in rows] == [
+        "Three energy dividend stocks for a long-term portfolio",
+    ]
+    assert "_trusted_provider_identity" not in rows[0]
+
+
 def test_naver_world_news_uses_verified_yahoo_exchange_code_only():
     stock = {
         "code": "WMB",

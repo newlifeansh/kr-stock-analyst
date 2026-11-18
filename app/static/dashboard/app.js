@@ -17353,15 +17353,39 @@ function aiSignalPageFreshnessView(now = Date.now()) {
   const usOnly = isUsHubContext && state.marketScope === "us";
   const usMetrics = usOnly ? state.aiSignalMarketMetricsByScope?.us || {} : {};
   if (usOnly && usMetrics.new_entries_allowed === false) {
+    // A blocked new entry must not erase the quote basis for positions that
+    // remain visible. In particular, a completed-session hybrid snapshot is
+    // still a "장 마감" reference, not a delayed live quote.
+    const holdingStates = heldItems.map((item) => {
+      const currentState = String(item.live_freshness_state || "");
+      if (["closed", "reference"].includes(currentState)) return currentState;
+      if (item.rollout_mode === "hybrid_forward" && item.quote_state === "reference") {
+        return "closed";
+      }
+      if (item.quote_state === "reference") return "reference";
+      return "delayed";
+    });
+    const holdingState = holdingStates.length > 0 && holdingStates.every((stateName) => stateName === "closed")
+      ? "closed"
+      : holdingStates.length > 0 && holdingStates.every((stateName) => stateName === "reference")
+        ? "reference"
+        : "delayed";
+    const holdingBasis = holdingState === "closed"
+      ? "장 마감"
+      : holdingState === "reference"
+        ? "최근 미국장 종가"
+        : "";
     const asOf = /^\d{4}-\d{2}-\d{2}/.test(String(usMetrics.universe_as_of || ""))
       ? `${String(usMetrics.universe_as_of).slice(0, 10)} 자료 기준 · `
       : "";
     return {
-      state: "delayed",
+      state: holdingState,
       counts: {},
       heldCount: heldItems.length,
-      mixed: false,
-      label: heldItems.length ? "보유 신호 유지 · 미국 신규 진입 보류" : "미국 신규 진입 보류",
+      mixed: new Set(holdingStates).size > 1,
+      label: heldItems.length
+        ? `${holdingBasis ? `${holdingBasis} · ` : ""}보유 신호 유지 · 미국 신규 진입 보류`
+        : "미국 신규 진입 보류",
       detail: `${asOf}${usMetrics.state_reason || "최근 완료된 미국 정규장 시그널 근거를 다시 확인하고 있어요."}`,
       time: "",
     };

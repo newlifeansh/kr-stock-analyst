@@ -742,6 +742,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_scheduled_qa_never_reuses_the_preview_proxy",
         "tests.test_release_parity."
         "test_staging_e2e_does_not_retrigger_itself_from_deployment_status",
+        "tests.test_release_parity."
+        "test_manual_staging_qa_starts_domestic_runtime_only_while_collecting_evidence",
+        "tests.test_release_parity."
+        "test_staging_candidate_keeps_live_and_e2e_evidence_when_data_readiness_times_out",
         "tests.test_process_role."
         "test_web_role_never_enqueues_us_position_lifecycle_scan",
     ),
@@ -809,6 +813,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_wmb_naver_news_rejects_short_ticker_collisions_stale_and_duplicates",
         "tests.test_us_market."
         "test_wmb_yahoo_news_accepts_trusted_related_ticker_for_short_symbol",
+        "tests.test_us_market."
+        "test_wmb_yahoo_related_ticker_keeps_a_generic_provider_headline",
         "tests.test_us_market."
         "test_naver_world_news_uses_verified_yahoo_exchange_code_only",
         "tests.test_us_market."
@@ -1136,6 +1142,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_data_signal_qa.test_us_ui_e2e_version_check_honors_only_the_expected_gateway_prefix",
         "tests.test_data_signal_qa.test_us_ui_asset_version_requires_exact_unambiguous_value",
         "tests.test_data_signal_qa.test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display",
+        "tests.test_data_signal_qa.test_us_entry_hold_status_keeps_the_completed_quote_basis",
         "tests.test_data_signal_qa.test_live_us_surface_rejects_a_stale_uiux_build_even_when_its_endpoints_agree",
         "tests.test_domestic_market_scope.test_us_spinout_shell_is_separate_from_the_domestic_product",
         "tests.test_app.test_us_and_dashboard_paths_serve_independently_versioned_products",

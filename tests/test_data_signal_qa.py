@@ -4746,3 +4746,45 @@ def test_us_hybrid_signal_quote_checks_observed_minute_and_pending_display():
     closed = {**row, "snapshotAgeMs": 3600000, "quoteState": "reference", "freshness": "closed"}
     assert ready(closed, "장 마감 1")
     assert not ready(closed, "최근 시세 1")
+
+
+def test_us_entry_hold_status_keeps_the_completed_quote_basis() -> None:
+    """The no-entry guard must not hide a completed-session holding basis."""
+
+    source = Path("app/static/dashboard/app.js").read_text(encoding="utf-8")
+
+    def extract_function(name: str) -> str:
+        start = source.index(f"function {name}(")
+        opening = source.index("{", start)
+        depth = 0
+        for index in range(opening, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[start : index + 1]
+        raise AssertionError(f"could not extract {name}")
+
+    script = "\n".join(
+        (
+            "const navigator = { onLine: true };",
+            "const isUsHubContext = true;",
+            "const state = { marketScope: 'us', aiSignalMarketMetricsByScope: { us: { new_entries_allowed: false, universe_as_of: '2026-11-18', state_reason: '다음 정규장 전까지 신규 진입을 보류합니다.' } } };",
+            "function visibleAiSignalSnapshotItems() { return [{ rollout_mode: 'hybrid_forward', quote_state: 'reference' }]; }",
+            "function isCurrentAiSignalHolding() { return true; }",
+            extract_function("aiSignalPageFreshnessView"),
+            "process.stdout.write(JSON.stringify(aiSignalPageFreshnessView()));",
+        )
+    )
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    view = json.loads(completed.stdout)
+
+    assert view["state"] == "closed"
+    assert view["label"] == "장 마감 · 보유 신호 유지 · 미국 신규 진입 보류"
+    assert "2026-11-18 자료 기준" in view["detail"]

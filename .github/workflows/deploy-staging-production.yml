@@ -391,7 +391,7 @@ jobs:
     if: inputs.action == 'stage'
     needs: [validate_request, build_image, deploy_staging]
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -431,11 +431,13 @@ jobs:
           --wait-seconds 600
           --output artifacts/qa-data-signal/staging-parity.json
       - name: Wait for current staging data
+        id: data_readiness
+        continue-on-error: true
         run: >-
           python -m app.qa.release_data_readiness
           --surface "$PRODUCT_SURFACE"
           --base-url "$QA_BASE_URL"
-          --wait-seconds 900
+          --wait-seconds 1800
           --output artifacts/qa-data-signal/staging-data-readiness.json
       - name: Allow staged KIS token issuance window to reset before direct probe
         if: matrix.surface == 'dashboard'
@@ -473,8 +475,10 @@ jobs:
         run: |
           set -euo pipefail
           test -f artifacts/qa-data-signal/staging-parity.json
+          test -f artifacts/qa-data-signal/staging-data-readiness.json
           test -f artifacts/qa-data-signal/live.json
           test -f artifacts/qa-data-signal/e2e.json
+          test "${{ steps.data_readiness.outcome }}" = "success"
           test "${{ steps.live_qa.outcome }}" = "success"
           test "${{ steps.browser_qa.outcome }}" = "success"
       - name: Upload staging QA evidence
@@ -487,12 +491,12 @@ jobs:
           retention-days: 90
 
   staging_us_gateway_qa:
-    if: inputs.action == 'stage'
+    if: ${{ always() && inputs.action == 'stage' }}
     # The dedicated US live QA uses the same upstream rate-limit bucket.
     # Run the gateway probe only after both market jobs finish.
     needs: [validate_request, deploy_staging, staging_qa]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 65
     environment:
       name: staging
       url: ${{ vars.DASHBOARD_STAGING_BASE_URL }}/us
@@ -514,11 +518,13 @@ jobs:
           # Keep gateway QA independent of intermittent apt mirror stalls.
           playwright install chromium
       - name: Wait for current US gateway data
+        id: gateway_data_readiness
+        continue-on-error: true
         run: >-
           python -m app.qa.release_data_readiness
           --surface us-gateway
           --base-url "$QA_BASE_URL"
-          --wait-seconds 900
+          --wait-seconds 1800
           --output artifacts/qa-data-signal/us-gateway-data-readiness.json
       - name: Let shared US API rate limits reset before gateway live QA
         run: sleep 65
@@ -545,8 +551,10 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          test -f artifacts/qa-data-signal/us-gateway-data-readiness.json
           test -f artifacts/qa-data-signal/us-gateway-live.json
           test -f artifacts/qa-data-signal/us-gateway-e2e.json
+          test "${{ steps.gateway_data_readiness.outcome }}" = "success"
           test "${{ steps.live_gateway.outcome }}" = "success"
           test "${{ steps.e2e_gateway.outcome }}" = "success"
       - name: Upload US gateway QA evidence

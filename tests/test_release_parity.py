@@ -444,7 +444,7 @@ def test_staging_targets_and_qa_evidence_are_separate_for_both_products() -> Non
     }
     assert release_case["inputs"]["scheduled_live_qa"] == {
         "schedule": "read-only production dashboard and US surfaces",
-        "manual": "resume isolated staging, run live QA, then stop staging",
+        "manual": "resume isolated staging, wait up to 1800 seconds for collector data readiness, run live/e2e even when readiness times out, retain all evidence, then stop staging",
         "production_mutation": False,
     }
 
@@ -527,7 +527,29 @@ def test_manual_staging_qa_starts_domestic_runtime_only_while_collecting_evidenc
         assert stop in workflow
         assert 'RAILWAY_RESUME_IMAGE_REF="$(./scripts/railway_staging_runtime.sh pin)"' in workflow
         assert 'test -n "$RAILWAY_RESUME_IMAGE_REF"' in workflow
+        assert "Wait for current collector data before" in workflow
+        assert "python -m app.qa.release_data_readiness" in workflow
+        assert "--wait-seconds 1800" in workflow
+        assert 'test "${{ steps.collector_readiness.outcome }}" = "success"' in workflow
         assert workflow.index(start) < workflow.index("Upload") < workflow.index(stop)
+
+
+def test_staging_candidate_keeps_live_and_e2e_evidence_when_data_readiness_times_out() -> None:
+    workflow = Path(".github/workflows/deploy-staging-production.yml").read_text(
+        encoding="utf-8"
+    )
+    staging_qa = workflow.split("  staging_qa:", 1)[1].split("  staging_us_gateway_qa:", 1)[0]
+    gateway_qa = workflow.split("  staging_us_gateway_qa:", 1)[1].split("  shutdown_domestic_staging:", 1)[0]
+
+    assert 'id: data_readiness\n        continue-on-error: true' in staging_qa
+    assert "--wait-seconds 1800" in staging_qa
+    assert 'test "${{ steps.data_readiness.outcome }}" = "success"' in staging_qa
+    assert staging_qa.index("Wait for current staging data") < staging_qa.index(
+        "Run read-only staging integrations"
+    )
+    assert "if: ${{ always() && inputs.action == 'stage' }}" in gateway_qa
+    assert 'id: gateway_data_readiness\n        continue-on-error: true' in gateway_qa
+    assert 'test "${{ steps.gateway_data_readiness.outcome }}" = "success"' in gateway_qa
 
 
 def test_scheduled_live_qa_reads_production_without_resuming_staging() -> None:
