@@ -1378,6 +1378,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_bx_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed."
+        "test_reviewed_cvna_top100_boundary_restores_complete_coverage",
+        "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_wmb_sony_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_now_isrg_top100_boundary_restores_complete_coverage",
@@ -1644,9 +1646,11 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-US-MIGRATION-001": (
         "tests.test_us_position_lifecycle_runtime."
-        "test_sector_v11_v12_snapshots_are_preserved_until_v13_rebuild[v11]",
+        "test_older_sector_snapshots_are_preserved_until_current_rebuild[v11]",
         "tests.test_us_position_lifecycle_runtime."
-        "test_sector_v11_v12_snapshots_are_preserved_until_v13_rebuild[v12]",
+        "test_older_sector_snapshots_are_preserved_until_current_rebuild[v12]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_older_sector_snapshots_are_preserved_until_current_rebuild[v13]",
         "tests.test_us_position_lifecycle_runtime.test_sector_v10_snapshot_is_preserved_until_v11_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v9_snapshot_is_preserved_until_v10_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v8_snapshot_is_preserved_until_v9_rebuild",
