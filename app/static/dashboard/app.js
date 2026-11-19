@@ -16232,6 +16232,7 @@ function preliminaryHistoryAiSignalItems(historyItems = [], referenceItems = [])
         status: "preliminary",
         is_preliminary: true,
         preliminary_active: active,
+        entry_outcome: item.entry_outcome || null,
         first_seen_at: firstSeenAt,
         last_seen_at: lastSeenAt,
         updated_at: lastSeenAt,
@@ -16239,7 +16240,7 @@ function preliminaryHistoryAiSignalItems(historyItems = [], referenceItems = [])
         as_of: lastSeenAt,
         is_current_holding: false,
         current: {
-          action: isBuy ? "entry_pending" : "full_exit_pending",
+          action: isBuy ? (item.action === "entry_watch" ? "entry_watch" : "entry_pending") : "full_exit_pending",
           position_open: false,
           live_observation: true,
           score: item.score ?? null,
@@ -16498,10 +16499,27 @@ function aiSignalReleasedSide(item = {}, view = homeAiSignalView(item) || {}) {
   return view.key === "recent-sell" ? "sell" : "buy";
 }
 
+const AI_SIGNAL_BUY_OUTCOMES = {
+  confirmed: "매수 확정",
+  close_conditions_not_met: "종가 조건 미충족",
+  independent_evidence_not_met: "독립 근거 미충족",
+  risk_blocked: "위험 기준으로 매수 보류",
+  market_regime_blocked: "시장 급락·고변동으로 매수 보류",
+  opening_gap_exceeded: "시가 갭 초과",
+  awaiting_close: "종가 확인 대기",
+  awaiting_next_open: "다음 시가 확인 대기",
+  data_pending: "데이터 확인 대기",
+  unknown: "사유 기록 없음",
+};
+
 function aiSignalReleasedDateLine(item = {}, view = {}) {
   const signalDate = compactSignalDate(item.signal_date || view.signalDate || view.signalAt);
   const firstSeen = formatAiSignalHistoryTime(item.first_seen_at || item.signal_at || view.signalAt);
   const lastSeen = formatAiSignalHistoryTime(item.last_seen_at || item.updated_at);
+  if (aiSignalReleasedSide(item, view) === "buy") {
+    return [signalDate, firstSeen ? `${firstSeen} 포착` : "", firstSeen && lastSeen && firstSeen !== lastSeen ? `${lastSeen} 마지막 관측` : ""]
+      .filter(Boolean).join(" · ");
+  }
   if (firstSeen && lastSeen && firstSeen !== lastSeen) {
     return `${signalDate} · ${firstSeen} 발생 · ${lastSeen} 해제`;
   }
@@ -16526,7 +16544,7 @@ function aiSignalReleasedMetrics(item = {}, view = {}) {
   metrics.push({
     key: "release-result",
     label: "전환 결과",
-    value: side === "buy" ? "확정 매수 미전환" : "확정 매도 미전환",
+    value: side === "buy" ? (AI_SIGNAL_BUY_OUTCOMES[item.entry_outcome] || "사유 기록 없음") : "확정 매도 미전환",
   });
   return metrics;
 }
@@ -19132,7 +19150,9 @@ function createHomeAiSignalRow(item, options = {}) {
   const view = released
     ? {
       ...baseView,
-      label: releasedSide === "buy" ? "매수 조건 해제" : "매도 조건 해제",
+      label: releasedSide === "buy"
+        ? (AI_SIGNAL_BUY_OUTCOMES[item.entry_outcome] || "예비 매수 이력")
+        : "매도 조건 해제",
       tone: "neutral",
     }
     : baseView;
@@ -19155,7 +19175,7 @@ function createHomeAiSignalRow(item, options = {}) {
     if (released) {
       row.setAttribute(
         "aria-label",
-        `${item.name || item.code || "종목"} ${view.label}, 해제된 예비 신호, ${aiSignalReleasedOutcomeLine(item, view)}, 상세 분석 보기`,
+        `${item.name || item.code || "종목"} ${view.label}, 예비 신호 이력, ${aiSignalReleasedOutcomeLine(item, view)}, 상세 분석 보기`,
       );
     } else {
       row.setAttribute("aria-label", aiSignalDetailAriaLabel(item, view));
@@ -19748,8 +19768,8 @@ function renderAiSignalsPage() {
     if (!visibleHistory.length) {
       const sideLabel = { all: "", buy: "매수 ", sell: "매도 " }[state.aiSignalHistorySide] || "";
       const message = isAiSignalMarketUpdating()
-        ? "최근 30일 해제 신호 이력을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
-        : `최근 30일 ${sideLabel}조건 해제 이력이 없습니다.`;
+        ? "최근 30일 예비 신호 이력을 준비하고 있습니다. 잠시 후 자동으로 다시 확인합니다."
+        : `최근 30일 ${sideLabel}예비 신호 이력이 없습니다.`;
       const emptyState = el("p", "muted", message);
       emptyState.setAttribute("role", "status");
       nextRows.push(emptyState);

@@ -48,6 +48,7 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0000107263", "Utilities", "XLE"),  # Williams Companies
         ("0000313838", "Consumer Staples", "XLY"),  # Sony Group ADR
         ("0001393818", "Technology", "XLF"),  # Blackstone
+        ("0001690820", "Technology", "XLY"),  # Carvana
     ]
     for cik, misleading_display_sector, expected in cases:
         assert (
@@ -316,7 +317,7 @@ def test_reviewed_wmb_sony_top100_boundary_restores_complete_coverage():
     assert payload["data_coverage_count"] == 100
     assert payload["sector_classification_errors"] == {}
     assert payload["new_entries_allowed"] is True
-    assert payload["sector_classification_version"] == "us-sector-etf-cik-v13"
+    assert payload["sector_classification_version"] == US_SECTOR_ETF_CLASSIFICATION_VERSION
 
 
 def test_reviewed_bx_top100_boundary_restores_complete_coverage():
@@ -341,7 +342,29 @@ def test_reviewed_bx_top100_boundary_restores_complete_coverage():
     assert payload["status"] == "ready"
     assert payload["data_coverage_count"] == 100
     assert payload["sector_classification_errors"] == {}
-    assert payload["sector_classification_version"] == "us-sector-etf-cik-v13"
+    assert payload["sector_classification_version"] == US_SECTOR_ETF_CLASSIFICATION_VERSION
+
+
+def test_reviewed_cvna_top100_boundary_restores_complete_coverage():
+    completed = date(2026, 11, 18)
+    universe = _universe(as_of=completed)
+    universe["items"][-1].update(code="CVNA", cik="0001690820", sector="Technology")
+    histories = {
+        "SPY": _bars(0.0007, through=completed),
+        "QQQ": _bars(0.0009, through=completed),
+        "XLK": _bars(0.0010, through=completed),
+        "XLY": _bars(0.0010, through=completed),
+        **{str(item["code"]): _bars(0.0017, through=completed) for item in universe["items"]},
+    }
+    payload = build_us_position_lifecycle_feed(
+        limit=100, now=datetime(2026, 11, 19, 3, 0, tzinfo=UTC),
+        universe_payload=universe,
+        history_loader=lambda symbol: histories.get(symbol, []),
+    )
+    assert payload["status"] == "ready"
+    assert payload["data_coverage_count"] == 100
+    assert payload["sector_classification_errors"] == {}
+    assert payload["sector_classification_version"] == US_SECTOR_ETF_CLASSIFICATION_VERSION
 
 
 def test_one_unreviewed_issuer_sector_blocks_every_new_entry():

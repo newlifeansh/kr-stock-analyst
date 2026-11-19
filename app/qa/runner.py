@@ -129,7 +129,12 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "SIG-ENTRY-010": (
+        "tests.test_quant_signals.test_initial_comparison_uses_same_next_open_and_keeps_production_gate",
+    ),
     "SIG-LIFECYCLE-003": (
+        "tests.test_quant_signals.test_kr_preliminary_outcome_follows_completed_close_and_next_open",
+        "tests.test_quant_signals.test_kr_preliminary_outcome_counts_only_resolved_candidates",
         "tests.test_quant_signals.test_market_preliminary_history_keeps_cleared_signals_for_recent_window",
         "tests.test_app.test_market_signal_feed_includes_delivered_preliminary_history",
         "tests.test_app.test_ai_signal_preliminary_history_is_separated_from_active_signal_tabs",
@@ -177,6 +182,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_confirmed_path_repair.test_confirmed_placeholder_rejects_unproven_or_pre_entry_revision[decision_time]",
     ),
     "SIG-KR-NEXT-OPEN-001": (
+        "tests.test_quant_signals.test_initial_quant_operational_cutover_keeps_earlier_decisions_and_open_guards",
         "tests.test_quant_signals.test_kr_next_open_entry_is_signal_date_scoped_and_keeps_old_breakout",
         "tests.test_quant_signals.test_kr_next_open_entry_waits_for_completed_regular_bar_and_rejects_gap",
         "tests.test_quant_signals.test_next_open_policy_metadata_follows_last_completed_signal_date",
@@ -1372,6 +1378,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_bx_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed."
+        "test_reviewed_cvna_top100_boundary_restores_complete_coverage",
+        "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_wmb_sony_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_now_isrg_top100_boundary_restores_complete_coverage",
@@ -1638,9 +1646,11 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "SIG-US-MIGRATION-001": (
         "tests.test_us_position_lifecycle_runtime."
-        "test_sector_v11_v12_snapshots_are_preserved_until_v13_rebuild[v11]",
+        "test_older_sector_snapshots_are_preserved_until_current_rebuild[v11]",
         "tests.test_us_position_lifecycle_runtime."
-        "test_sector_v11_v12_snapshots_are_preserved_until_v13_rebuild[v12]",
+        "test_older_sector_snapshots_are_preserved_until_current_rebuild[v12]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_older_sector_snapshots_are_preserved_until_current_rebuild[v13]",
         "tests.test_us_position_lifecycle_runtime.test_sector_v10_snapshot_is_preserved_until_v11_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v9_snapshot_is_preserved_until_v10_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v8_snapshot_is_preserved_until_v9_rebuild",

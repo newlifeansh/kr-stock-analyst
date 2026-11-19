@@ -4,6 +4,18 @@ from copy import deepcopy
 from typing import Any, Mapping, Optional
 
 
+from app.services.position_lifecycle_core import KR_INITIAL_QUANT_ENTRY_RULE
+
+KR_INITIAL_QUANT_PUBLIC_REASON = "정규장 가격 흐름을 사용하는 초기 퀀트 진입 기준입니다."
+
+
+def _kr_public_signal_reason(item: Mapping[str, Any]) -> str:
+    return (
+        KR_INITIAL_QUANT_PUBLIC_REASON if item.get("entry_rule_version") == KR_INITIAL_QUANT_ENTRY_RULE
+        else PUBLIC_SIGNAL_DECISION_REASON
+    )
+
+
 PUBLIC_SIGNAL_REASON_KEYS = ("trend_20d", "trend_60d", "flow")
 PUBLIC_SIGNAL_DECISION_REASON = "20일·60일·수급 흐름을 함께 확인한 AI 판단입니다."
 PUBLIC_SIGNAL_NEXT_CHECK = "20일·60일 가격 흐름과 수급 변화를 다시 확인하세요."
@@ -420,16 +432,23 @@ def _redact_current_signal(
     current["entry_setup"] = None
     current["entry_confirmation"] = None
     current["reasons"] = [item["summary"] for item in public_reasons]
+    initial_quant = current.get("entry_rule_version") == KR_INITIAL_QUANT_ENTRY_RULE
+    if initial_quant:
+        current["reasons"].insert(0, KR_INITIAL_QUANT_PUBLIC_REASON)
     observed = _mapping(current.get("observed_entry"))
     current["next_confirmation"] = (
         "예비 포착 이후 완료된 정규장 1분봉에서 매수 조건을 확인합니다. 미충족 후보는 당일 만료됩니다."
-        if observed.get("status") == "watching" else PUBLIC_SIGNAL_NEXT_CHECK
+        if observed.get("status") == "watching"
+        else "다음 정규장 시가의 갭을 완료 일봉으로 확인합니다."
+        if initial_quant and current.get("action") == "entry_pending"
+        else "정규장 완료 종가에서 초기 퀀트 조건을 확인합니다."
+        if initial_quant else PUBLIC_SIGNAL_NEXT_CHECK
     )
     levels = []
     for level in _items(current.get("levels")):
         public_level = deepcopy(dict(level))
         if "condition" in public_level:
-            public_level["condition"] = PUBLIC_SIGNAL_DECISION_REASON
+            public_level["condition"] = _kr_public_signal_reason(current)
         levels.append(public_level)
     if isinstance(current.get("levels"), list):
         current["levels"] = levels
@@ -441,7 +460,7 @@ def _redact_preliminary_signal(value: object) -> object:
         return value
     preliminary = deepcopy(dict(value))
     if "reason" in preliminary:
-        preliminary["reason"] = PUBLIC_SIGNAL_DECISION_REASON
+        preliminary["reason"] = _kr_public_signal_reason(preliminary)
     return preliminary
 
 
@@ -589,7 +608,7 @@ def public_quant_signal_payload(
         events = []
         for event in _items(result["events"]):
             public_event = deepcopy(dict(event))
-            public_event["reason"] = PUBLIC_SIGNAL_DECISION_REASON
+            public_event["reason"] = _kr_public_signal_reason(public_event)
             public_event["entry_setup"] = None
             public_event["entry_confirmation"] = None
             events.append(public_event)
@@ -625,6 +644,8 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
     """Redact current and historical reasons in a market/watchlist signal feed."""
 
     result = deepcopy(dict(_mapping(payload)))
+    result.pop("_entry_outcomes_by_code", None)
+    result.pop("entry_outcomes_completed_through", None)
     is_us_candidate = str(result.get("strategy_version") or "").startswith(
         "position-lifecycle-us-"
     )
@@ -686,7 +707,7 @@ def public_market_signal_payload(payload: Mapping[str, Any] | None) -> dict[str,
                 and action in {"entered", "holding", "full_exit_pending", "exited"}
                 else US_PUBLIC_SIGNAL_DECISION_REASON
                 if is_us_candidate
-                else PUBLIC_SIGNAL_DECISION_REASON
+                else _kr_public_signal_reason(public_item)
             )
         if "entry_confirmation" in public_item:
             public_item["entry_confirmation"] = None

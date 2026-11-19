@@ -1071,6 +1071,7 @@ class QuantSignalEventOut(BaseModel):
     reconciliation_id: Optional[str] = None
     execution_model: Optional[str] = None
     entry_execution_policy_version: Optional[str] = None
+    entry_rule_version: Optional[str] = None
     entry_policy_version: Optional[str] = None
     candidate_id: Optional[str] = None
     first_observed_at: Optional[datetime] = None
@@ -1157,6 +1158,7 @@ class QuantLifecycleTransitionOut(BaseModel):
     reconciliation_id: Optional[str] = None
     execution_model: Optional[str] = None
     entry_execution_policy_version: Optional[str] = None
+    entry_rule_version: Optional[str] = None
     entry_policy_version: Optional[str] = None
     confirmed_at: Optional[datetime] = None
     decision_minute_at: Optional[datetime] = None
@@ -1239,6 +1241,7 @@ class QuantCurrentSignalOut(BaseModel):
     expected_remaining_percent: Optional[Decimal] = None
     profit_steps_total: int = 3
     entry_setup: Optional[str] = None
+    entry_rule_version: Optional[str] = None
     entry_confirmation: Optional[dict[str, object]] = None
     holding_days: Optional[int] = None
     unrealized_return: Optional[Decimal] = None
@@ -1282,6 +1285,8 @@ class StockQuantSignalsOut(BaseModel):
     execution_model: Optional[str] = None
     entry_execution_policy_version: Optional[str] = None
     next_open_entry_effective_date: Optional[date] = None
+    entry_rule_version: Optional[str] = None
+    initial_quant_entry_effective_date: Optional[date] = None
     intraday_execution_effective_date: Optional[date] = None
     entry_filter_version: Optional[str] = None
     entry_filter_effective_date: Optional[date] = None

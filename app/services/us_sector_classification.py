@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v13"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v14"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -57,6 +57,10 @@ def _cik_map(etf: str, values: str) -> dict[str, str]:
 # SPDR annual report lists Blackstone Inc. among its financial holdings.
 # https://www.sec.gov/Archives/edgar/data/1393818/000119312526432790/0001193125-26-432790-index.htm
 # https://www.ssga.com/ch/en_gb/institutional/library-content/products/fund-docs/etfs/emea/us-etf/select-sector-annual-report-emea-ch.pdf
+# v14 adds the November 18 Top100 entrant CVNA. The SEC identifies
+# Carvana as an auto dealer (SIC 5500), and State Street lists it in XLY.
+# https://data.sec.gov/submissions/CIK0001690820.json
+# https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-xly.xlsx
 US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
     **_cik_map(
         "XLK",
@@ -80,7 +84,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         "XLY",
         """
         0001018724 0001318605 0000354950 0001577552 0001094517 0000063908
-        0000109198 0000313838
+        0000109198 0000313838 0001690820
         """,
     ),
     **_cik_map(

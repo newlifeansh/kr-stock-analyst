@@ -33,6 +33,7 @@ ENTRY_EVIDENCE_POLICY_VERSION = "independent-entry-confirmation-v1"
 ENTRY_EVIDENCE_EFFECTIVE_DATE = date(2026, 8, 21)
 INTRADAY_PANIC_EXCEPTION_EFFECTIVE_DATE = date(2026, 10, 30)
 INTRADAY_PANIC_MIN_EXCESS_RETURN = 0.10
+MARKET_PANIC_VETO = "시장 급락·고변동 국면"
 
 FLOW_LOOKBACK_BARS = 20
 FLOW_SHORT_BARS = 5
@@ -819,7 +820,7 @@ def _relative_strength_evidence(
         score=max(-100.0, min(100.0, (excess or 0.0) * 1000.0)) if available else None,
         available=available,
     )
-    vetoes = ["시장 급락·고변동 국면"] if index_context.get("panic") else []
+    vetoes = [MARKET_PANIC_VETO] if index_context.get("panic") else []
     check = _source_check(
         "market_index",
         f"{stock.market} 시장지수",
@@ -905,7 +906,7 @@ def build_entry_evidence_payload(
     panic_exception = bool(
         intraday_observation
         and generated_at.date() >= INTRADAY_PANIC_EXCEPTION_EFFECTIVE_DATE
-        and market_vetoes == ["시장 급락·고변동 국면"]
+        and market_vetoes == [MARKET_PANIC_VETO]
         and not disclosure_vetoes
         and not critical_failures
         and market_context.get("state") == "ready"

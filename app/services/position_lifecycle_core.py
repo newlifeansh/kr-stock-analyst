@@ -23,6 +23,11 @@ class LifecycleBar(Protocol):
     ohlc_complete: bool
 
 
+KR_INITIAL_QUANT_ENTRY_RULE = "kr-initial-quant-entry-v1"
+KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE = date(2026, 11, 20)
+KR_INITIAL_QUANT_ENTRY_SCORE = 65.0
+
+
 @dataclass(frozen=True)
 class EntryPolicy:
     entry_score: float

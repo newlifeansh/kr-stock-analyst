@@ -182,11 +182,16 @@ from app.services.recommendations import (
 )
 from app.services.stock_ai_analysis import build_stock_ai_analysis
 from app.services.local_stock_ai import enrich_stock_ai_analysis
+from app.services.position_lifecycle_core import (
+    KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE,
+    KR_INITIAL_QUANT_ENTRY_RULE,
+)
 from app.services.quant_signals import (
     EXECUTION_MODEL,
     INTRADAY_EXECUTION_EFFECTIVE_DATE,
     NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
     NEXT_OPEN_ENTRY_POLICY_VERSION,
+    annotate_market_preliminary_history,
     MARKET_SIGNAL_RECENT_DAYS,
     MARKET_SIGNAL_UNIVERSE_LIMIT,
     MIN_BACKTEST_HISTORY_ROWS,
@@ -316,7 +321,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261118v599"
+DASHBOARD_CLIENT_VERSION = "20261119v600"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -922,6 +927,8 @@ def _ai_signal_code_signatures(payload: dict[str, Any]) -> dict[str, str]:
                 "side": item.get("side"),
                 "signal_date": _signal_revision_token(item.get("signal_date")),
                 "active": bool(item.get("active")),
+                "entry_outcome": item.get("entry_outcome"),
+                "entry_rule_version": item.get("entry_rule_version"),
                 "first_seen_at": _signal_revision_token(item.get("first_seen_at")),
             }
         )
@@ -3810,6 +3817,8 @@ def health() -> dict[str, object]:
     return {
         "status": "ok",
         "app": settings.app_name,
+        "kr_initial_quant_entry_rule": KR_INITIAL_QUANT_ENTRY_RULE,
+        "kr_initial_quant_entry_effective_date": KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE,
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "intraday_execution_effective_date": INTRADAY_EXECUTION_EFFECTIVE_DATE,
@@ -4506,7 +4515,10 @@ def _merge_market_preliminary_notification_history(
         code = str(item.get("code") or "").strip()
         side = str(item.get("side") or "").strip().lower()
         signal_date = str(item.get("signal_date") or "")[:10]
-        if preliminary and code and side in {"buy", "sell"} and signal_date == event_date:
+        if (
+            preliminary and code and side in {"buy", "sell"}
+            and history_cutoff.isoformat() <= signal_date <= event_date
+        ):
             active_keys.add((code, side, signal_date))
     for item in result.get("preliminary_history") or []:
         if not isinstance(item, dict):
@@ -4523,7 +4535,8 @@ def _merge_market_preliminary_notification_history(
             and side in {"buy", "sell"}
             and history_cutoff <= parsed_signal_date <= reference_date
         ):
-            records[(code, side, signal_date)] = deepcopy(item)
+            key = (code, side, signal_date)
+            records[key] = {**item, "active": key in active_keys}
 
     rows = list(
         db.scalars(
@@ -4582,7 +4595,7 @@ def _merge_market_preliminary_notification_history(
         key=lambda item: str(item.get("first_seen_at") or ""),
         reverse=True,
     )
-    return result
+    return annotate_market_preliminary_history(result)
 
 
 @app.get("/market/quant-signals")
