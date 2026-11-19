@@ -1434,6 +1434,7 @@ def test_initial_quant_operational_cutover_keeps_earlier_decisions_and_open_guar
         "forming_bar_date": next_session,
         "entry_safety_guard": {"active": True, "effective_on": first},
         "entry_filter_version": qs.ENTRY_FILTER_VERSION,
+        "initial_quant_comparison": False,
     }
     for key, value in alternatives.items():
         replay = qs._simulate(bars, indicators, {first: blocked}, lifecycle_start_date=first, **{key: value})

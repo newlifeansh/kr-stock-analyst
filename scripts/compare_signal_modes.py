@@ -65,6 +65,7 @@ def _run_pair(
     daily = qs._simulate(
         bars,
         indicators,
+        initial_quant_comparison=False,
         performance_start_index_override=performance_start_index,
     )
     hybrid = simulate_hybrid_ohlc_proxy(

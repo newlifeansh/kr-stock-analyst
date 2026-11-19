@@ -2511,7 +2511,7 @@ def _simulate(
     observed_entries: Optional[dict[date, dict[str, Any]]] = None,
     entry_outcomes: Optional[dict[date, str]] = None,
     entry_outcome_since: date = NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
-    initial_quant_comparison: bool = False,
+    initial_quant_comparison: Optional[bool] = None,
 ) -> dict[str, Any]:
     lifecycle_start_index = WARMUP_ROWS
     if lifecycle_start_date is not None:
@@ -3168,8 +3168,9 @@ def _simulate(
             and bar.ohlc_complete and bar.trade_date != forming_bar_date
         )
         evidence = (entry_evidence_by_date or {}).get(bar.trade_date)
-        initial_quant = initial_quant_comparison or (
-            entry_filter_version is None and _initial_quant_entry_active(bar.trade_date)
+        initial_quant = (
+            initial_quant_comparison if initial_quant_comparison is not None
+            else entry_filter_version is None and _initial_quant_entry_active(bar.trade_date)
         )
         vetoes = []
         if record_entry:
