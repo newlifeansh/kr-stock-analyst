@@ -377,7 +377,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.1"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert len(ids) == 181
+    assert len(ids) == 182
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -502,7 +502,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.1`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v3-hybrid1`" in first
-    assert "QA 항목: 181개" in first
+    assert "QA 항목: 182개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -2009,7 +2009,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.1"
     assert report["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert report["catalog_case_count"] == 181
+    assert report["catalog_case_count"] == 182
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -2092,6 +2092,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-PERF-US-001",
         "SIG-ENTRY-008",
         "SIG-ENTRY-009",
+        "SIG-ENTRY-010",
         "EXEC-TOSS-LIVE-001",
         "EXEC-TOSS-POSITION-GUARD-001",
     }
@@ -2992,11 +2993,11 @@ class FakeReadOnlyApi:
             '<html lang="ko" data-market-universe="kr"><head>'
             '<meta name="secret-note-market-universe" content="kr" />'
             '<title>비밀노트 | 국내증시</title>'
-            '<link href="/assets/dashboard/styles.css?v=20261118v599" />'
+            '<link href="/assets/dashboard/styles.css?v=20261119v600" />'
             '</head><body><section id="home-view"></section>'
             '<section id="home-ai-response"></section>'
             '<nav id="bottom-nav"></nav>'
-            '<script src="/dashboard-app-v170.js?v=20261118v599"></script>'
+            '<script src="/dashboard-app-v170.js?v=20261119v600"></script>'
             '</body></html>',
             self._meta(path),
         )

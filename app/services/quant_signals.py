@@ -44,6 +44,7 @@ from app.services.signal_reconciliations import (
 )
 from app.services.signal_entry_evidence import (
     ENTRY_EVIDENCE_EFFECTIVE_DATE,
+    MARKET_PANIC_VETO,
     build_relative_strength_context,
     build_entry_evidence_payload,
     confirmation_response_payload,
@@ -54,6 +55,9 @@ from app.services.signal_entry_evidence import (
 from app.services.public_signal import build_public_signal_reasons
 from app.services.position_lifecycle_core import (
     ChasePolicy as CoreChasePolicy,
+    KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE,
+    KR_INITIAL_QUANT_ENTRY_RULE,
+    KR_INITIAL_QUANT_ENTRY_SCORE,
     ReentryPolicy as CoreReentryPolicy,
     calculate_indicators as calculate_lifecycle_indicators,
     chase_entry_veto_reason as core_chase_entry_veto_reason,
@@ -133,6 +137,11 @@ EXECUTION_MODEL = "close-confirmed-intraday-trigger-v1"
 NEXT_OPEN_ENTRY_EFFECTIVE_DATE = date(2026, 11, 12)
 NEXT_OPEN_ENTRY_POLICY_VERSION = "kr-close-next-open-entry-v1"
 NEXT_OPEN_ENTRY_EXECUTION_MODEL = "close-confirmed-next-open-v2"
+ENTRY_RELEASE_OUTCOMES = frozenset({
+    "close_conditions_not_met", "independent_evidence_not_met",
+    "risk_blocked", "market_regime_blocked", "opening_gap_exceeded",
+})
+ENTRY_WAIT_OUTCOMES = frozenset({"awaiting_close", "awaiting_next_open", "data_pending"})
 MAX_ENTRY_GAP_ATR = 1.5
 MAX_ENTRY_GAP_PERCENT = 0.05
 MIN_AVERAGE_TRADING_VALUE = 5_000_000_000.0
@@ -2448,6 +2457,45 @@ def save_entry_safety_guard(
     return guard
 
 
+def _initial_quant_entry(bar: PriceBar, indicator: dict[str, float]) -> bool:
+    """Original 4f0eedf entry predicate, using the shared unchanged score formula."""
+    return bool(
+        indicator["score"] >= KR_INITIAL_QUANT_ENTRY_SCORE
+        and bar.close > indicator["ema20"] > indicator["ema60"]
+        and indicator["ema20_slope"] > 0
+        and indicator["momentum20"] > 0.015
+    )
+
+
+def _initial_quant_entry_active(signal_date: Optional[date]) -> bool:
+    return signal_date is not None and signal_date >= KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE
+
+
+def _entry_rule_metadata(completed_signal_date: Optional[date]) -> dict[str, Any]:
+    return {
+        "entry_rule_version": (
+            KR_INITIAL_QUANT_ENTRY_RULE if _initial_quant_entry_active(completed_signal_date)
+            else ENTRY_FILTER_VERSION
+        ),
+        "initial_quant_entry_effective_date": KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE,
+    }
+
+
+def _confirmed_entry_decision(
+    evidence: Optional[dict[str, Any]], setup: str, signal_day: date, *, initial_quant: bool,
+) -> dict[str, Any]:
+    if initial_quant:
+        return {
+            "allowed": True,
+            "state": "approved",
+            "required_supports": 0,
+            "supportive_count": 0,
+            "caution_count": 0,
+            "reason": "초기 퀀트 가격 조건 충족",
+        }
+    return entry_confirmation_decision(evidence, setup, signal_date=signal_day)
+
+
 def _simulate(
     bars: list[PriceBar],
     indicators: list[dict[str, float]],
@@ -2461,6 +2509,9 @@ def _simulate(
     lifecycle_start_date: Optional[date] = None,
     entry_filter_version: Optional[str] = None,
     observed_entries: Optional[dict[date, dict[str, Any]]] = None,
+    entry_outcomes: Optional[dict[date, str]] = None,
+    entry_outcome_since: date = NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
+    initial_quant_comparison: bool = False,
 ) -> dict[str, Any]:
     lifecycle_start_index = WARMUP_ROWS
     if lifecycle_start_date is not None:
@@ -2584,6 +2635,15 @@ def _simulate(
                 )
             )
             execution_data_available = bar.ohlc_complete
+            if next_open_entry and entry_outcomes is not None and forming_bar_date != bar.trade_date:
+                signal_day = active_pending["signal_date"]
+                if signal_day in entry_outcomes:
+                    if not execution_data_available:
+                        entry_outcomes[signal_day] = "data_pending"
+                    elif execution_price is None:
+                        entry_outcomes[signal_day] = "opening_gap_exceeded"
+                    else:
+                        entry_outcomes[signal_day] = "confirmed"
             execution_allowed = execution_data_available and (
                 active_pending["side"] != "buy" or execution_price is not None
             )
@@ -2699,6 +2759,8 @@ def _simulate(
                         ),
                         **({"entry_execution_policy_version": NEXT_OPEN_ENTRY_POLICY_VERSION}
                            if next_open_entry else {}),
+                        **({"entry_rule_version": active_pending["entry_rule_version"]}
+                           if active_pending.get("entry_rule_version") else {}),
                         **execution_clock_fields,
                         **(
                             {
@@ -3100,7 +3162,25 @@ def _simulate(
             max_drawdown = min(max_drawdown, drawdown)
 
         indicator = indicators[index]
-        if index >= len(bars) - 1:
+        is_last_bar = index == len(bars) - 1
+        record_entry = (
+            entry_outcomes is not None and bar.trade_date >= entry_outcome_since
+            and bar.ohlc_complete and bar.trade_date != forming_bar_date
+        )
+        evidence = (entry_evidence_by_date or {}).get(bar.trade_date)
+        initial_quant = initial_quant_comparison or (
+            entry_filter_version is None and _initial_quant_entry_active(bar.trade_date)
+        )
+        vetoes = []
+        if record_entry:
+            vetoes = [] if initial_quant else (evidence or {}).get("vetoes") or []
+            if MARKET_PANIC_VETO in vetoes:
+                entry_outcomes[bar.trade_date] = "market_regime_blocked"
+            elif vetoes:
+                entry_outcomes[bar.trade_date] = "risk_blocked"
+            else:
+                entry_outcomes[bar.trade_date] = "close_conditions_not_met"
+        if is_last_bar and (not record_entry or position):
             continue
         if position:
             should_exit, reason, exit_levels, is_hard_exit = _full_exit_signal(
@@ -3171,13 +3251,16 @@ def _simulate(
                     "execution_cost": _execution_cost(indicator),
                 }
         elif (
-            entry_setup := _entry_setup_kind(
-                bar,
-                indicator,
-                entry_filter_version=entry_filter_version,
-                recent_indicators=indicators[
-                    max(0, index - CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
-                ],
+            entry_setup := (
+                ("trend_continuation" if _initial_quant_entry(bar, indicator) else None)
+                if initial_quant else _entry_setup_kind(
+                    bar,
+                    indicator,
+                    entry_filter_version=entry_filter_version,
+                    recent_indicators=indicators[
+                        max(0, index - CHASE_MOMENTUM_LOOKBACK_BARS + 1) : index + 1
+                    ],
+                )
             )
         ) is not None and _reentry_entry_allowed(
             bars,
@@ -3185,16 +3268,24 @@ def _simulate(
             index,
             last_exit_index,
         ):
-            evidence = (entry_evidence_by_date or {}).get(bar.trade_date)
-            confirmation = entry_confirmation_decision(
-                evidence,
-                entry_setup,
-                signal_date=bar.trade_date,
+            confirmation = _confirmed_entry_decision(
+                evidence, entry_setup, bar.trade_date, initial_quant=initial_quant,
             )
-            if confirmation["allowed"] and entry_safety_guard_active(
-                entry_safety_guard,
-                bar.trade_date,
-            ):
+            guard_blocks = confirmation["allowed"] and entry_safety_guard_active(
+                entry_safety_guard, bar.trade_date,
+            )
+            if record_entry and not vetoes:
+                if guard_blocks:
+                    entry_outcomes[bar.trade_date] = "risk_blocked"
+                elif confirmation["allowed"]:
+                    entry_outcomes[bar.trade_date] = "awaiting_next_open"
+                elif ((evidence or {}).get("quality") or {}).get("state") != "ready":
+                    entry_outcomes[bar.trade_date] = "data_pending"
+                else:
+                    entry_outcomes[bar.trade_date] = "independent_evidence_not_met"
+            if is_last_bar:
+                continue
+            if guard_blocks:
                 if index >= performance_start_index:
                     rejected_performance_guard_entries += 1
             elif confirmation["allowed"]:
@@ -3202,6 +3293,7 @@ def _simulate(
                 pending = {
                     "side": "buy",
                     "signal_date": bar.trade_date,
+                    **({"entry_rule_version": KR_INITIAL_QUANT_ENTRY_RULE} if initial_quant else {}),
                     **({"entry_execution_policy_version": NEXT_OPEN_ENTRY_POLICY_VERSION}
                        if bar.trade_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE else {}),
                     "score": indicator["score"],
@@ -4134,21 +4226,19 @@ def _current_signal(
     recent_indicators = indicators[
         max(0, current_index - CHASE_MOMENTUM_LOOKBACK_BARS + 1) : current_index + 1
     ]
-    raw_entry_setup = _base_entry_setup_kind(bar, indicator)
-    chase_veto_reason = (
-        _chase_entry_veto_reason(
-            bar,
-            indicator,
-            recent_indicators=recent_indicators,
+    initial_quant = _initial_quant_entry_active(bar.trade_date)
+    entry_rule_version = KR_INITIAL_QUANT_ENTRY_RULE if initial_quant else None
+    if initial_quant:
+        raw_entry_setup = "trend_continuation" if _initial_quant_entry(bar, indicator) else None
+        confirmed_entry_setup = raw_entry_setup
+        chase_veto_reason = None
+    else:
+        raw_entry_setup = _base_entry_setup_kind(bar, indicator)
+        chase_veto_reason = (
+            _chase_entry_veto_reason(bar, indicator, recent_indicators=recent_indicators)
+            if raw_entry_setup else None
         )
-        if raw_entry_setup
-        else None
-    )
-    confirmed_entry_setup = _entry_setup_kind(
-        bar,
-        indicator,
-        recent_indicators=recent_indicators,
-    )
+        confirmed_entry_setup = _entry_setup_kind(bar, indicator, recent_indicators=recent_indicators)
     if position:
         peak_price = max(float(position["peak_price"]), bar.close)
         should_exit, exit_reason, position_levels, is_hard_exit = _full_exit_signal(
@@ -4345,6 +4435,7 @@ def _current_signal(
         )
         label = "다음 거래일 시가 확인 대기" if next_open_entry else "장중 매수 트리거 대기"
         entry_setup = str(pending_action.get("entry_setup") or "trend_continuation")
+        entry_rule_version = pending_action.get("entry_rule_version")
         entry_confirmation = deepcopy(pending_action.get("entry_confirmation"))
         trigger_price = _safe_number(pending_action.get("entry_trigger_price"))
         reasons.append(str(pending_action.get("reason") or "전일 종가 매수 조건 확인"))
@@ -4375,14 +4466,17 @@ def _current_signal(
         label = "새 재진입 확인 대기"
         reasons.append("전량 매도 뒤 기존 조건을 승계하지 않고 새 돌파·눌림을 기다리는 중")
         next_confirmation = "새로운 돌파 또는 20일선 눌림·회복을 확인"
+    elif initial_quant and confirmed_entry_setup and live_observation:
+        state = "entry_watch"
+        label = "장마감 퀀트 조건 확인 대기"
+        reasons.append("장중 가격이 초기 퀀트 조건에 접근했습니다.")
+        next_confirmation = "정규장 완료 종가에서 초기 퀀트 조건을 확인"
     elif confirmed_entry_setup:
         entry_setup = confirmed_entry_setup
         reason_indicator = {**indicator, "entry_setup": entry_setup}
         evidence = (entry_evidence_by_date or {}).get(bar.trade_date)
-        entry_confirmation = entry_confirmation_decision(
-            evidence,
-            entry_setup,
-            signal_date=bar.trade_date,
+        entry_confirmation = _confirmed_entry_decision(
+            evidence, entry_setup, bar.trade_date, initial_quant=initial_quant,
         )
         performance_guard_active = entry_safety_guard_active(
             entry_safety_guard,
@@ -4433,16 +4527,19 @@ def _current_signal(
                 ),
                 "price": _price(max(indicator["ema20"], indicator["prior_high"])),
                 "condition": (
-                    f"기존 추세·조기 전환 {ENTRY_SCORE:.0f}점 이상·"
-                    "5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상·"
-                    f"ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·"
-                    f"20일선 이격 {CHASE_MAX_ENTRY_EXTENSION_ATR:.1f}ATR 미만·"
-                    f"절대 이격 {CHASE_MAX_ENTRY_EXTENSION_PERCENT * 100:.0f}% 미만·"
-                    f"20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상"
+                    f"{KR_INITIAL_QUANT_ENTRY_SCORE:.0f}점 이상·종가 > EMA20 > EMA60·EMA20 상승·20일 수익률 +1.5% 초과"
+                    if initial_quant else (
+                        f"기존 추세·조기 전환 {ENTRY_SCORE:.0f}점 이상·"
+                        "5일 흐름 0% 이상·거래량 20일 평균의 0.8배 이상·"
+                        f"ATR {MAX_ENTRY_ATR_PERCENT * 100:.1f}% 이하·"
+                        f"20일선 이격 {CHASE_MAX_ENTRY_EXTENSION_ATR:.1f}ATR 미만·"
+                        f"절대 이격 {CHASE_MAX_ENTRY_EXTENSION_PERCENT * 100:.0f}% 미만·"
+                        f"20일 평균 거래대금 {MIN_AVERAGE_TRADING_VALUE / 100_000_000:.0f}억원 이상"
+                    )
                 ),
             }
         )
-    elif _pre_entry_signal(
+    elif not initial_quant and _pre_entry_signal(
         bar,
         indicator,
         recent_indicators=recent_indicators,
@@ -4464,7 +4561,8 @@ def _current_signal(
         )
     else:
         reasons.append(
-            f"예비 기준 {PRE_ENTRY_SCORE:.0f}점 또는 매수 확정 조건을 아직 충족하지 않음"
+            "초기 퀀트 종가 조건 미충족" if initial_quant
+            else f"예비 기준 {PRE_ENTRY_SCORE:.0f}점 또는 매수 확정 조건을 아직 충족하지 않음"
         )
         if last_event and last_event.get("side") == "sell":
             state = "exited"
@@ -4594,6 +4692,8 @@ def _current_signal(
             ),
             "profit_steps_total": len(active_profit_steps) if position else len(PROFIT_LADDER_STEPS),
             "entry_setup": entry_setup,
+            **({"entry_rule_version": entry_rule_version}
+               if entry_rule_version and state in {"entry_watch", "entry_pending"} else {}),
             "entry_confirmation": entry_confirmation,
             "holding_days": holding_days,
             "unrealized_return": _decimal(unrealized_return * 100.0) if unrealized_return is not None else None,
@@ -4621,6 +4721,8 @@ def build_quant_signal_payload(
     historical_intraday_minutes_by_date: Optional[dict[date, list[PriceBar]]] = None,
     lifecycle_start_date: Optional[date] = None,
     observed_entries: Optional[dict[date, dict[str, Any]]] = None,
+    entry_outcomes: Optional[dict[date, str]] = None,
+    entry_outcome_since: date = NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
 ) -> dict[str, Any]:
     current_time = now or datetime.now(KST)
     bars = _normalize_prices(rows)
@@ -4673,6 +4775,7 @@ def build_quant_signal_payload(
         "candidate_strategy_version": CANDIDATE_STRATEGY_VERSION,
         "strategy_version_history": [dict(item) for item in STRATEGY_VERSION_HISTORY],
         "execution_model": EXECUTION_MODEL,
+        **_entry_rule_metadata(price_through),
         "entry_execution_policy_version": (
             NEXT_OPEN_ENTRY_POLICY_VERSION
             if price_through is not None and price_through >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
@@ -4685,7 +4788,9 @@ def build_quant_signal_payload(
         "entry_filter_shadow_versions": list(ENTRY_FILTER_SHADOW_VERSIONS),
         "profit_preservation_effective_date": PROFIT_PRESERVATION_EFFECTIVE_DATE,
         "tactical_exit_effective_date": TACTICAL_EXIT_EFFECTIVE_DATE,
-        "entry_score_threshold": _decimal(ENTRY_SCORE),
+        "entry_score_threshold": _decimal(
+            KR_INITIAL_QUANT_ENTRY_SCORE if _initial_quant_entry_active(price_through) else ENTRY_SCORE
+        ),
         "source": (
             "저장 일봉 + KIS 실시간 현재가 + 정규화 수급·실적·리포트·Yahoo/네이버 시장지수·공시"
             if live_quote
@@ -4702,7 +4807,8 @@ def build_quant_signal_payload(
             "EMA 10·20·60일, 5·10·20일 흐름, 20일 고점, 거래량, ATR14를 동일 규칙으로 계산합니다.",
             "각 종목은 관망→예비 포착→매수 대기→보유→+3%·+5% 수익확정→전량 매도로 전환합니다.",
             "수익률은 종목별 매수가·각 수익확정가·최종 매도가와 거래비용만으로 계산합니다.",
-            "2026-11-12부터 신규 매수 후보는 완료된 KRX 종가와 독립 근거로 장마감에 확정하고, 다음 거래일 시가가 갭 제한 안에 있으면 장마감 후 모델 매수로 확인합니다.",
+            "2026-11-12부터 신규 매수 후보는 완료된 KRX 종가로 정하고 다음 거래일 시가의 갭 제한을 적용합니다.",
+            f"{KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE.isoformat()}부터 초기 가격 진입식을 적용하며, 이전 신호일은 당시의 독립 근거 규칙으로 재생합니다.",
             "2026-11-11까지의 종가 후보는 다음 KRX 정규장에서 고정된 확인선 돌파를 장중 확인하며, 기존 확정 이력은 다시 계산하지 않습니다.",
             "2026-10-22부터 2026-11-11까지 실제 관측한 예비 후보는 동시간대 누적 거래량 0.75배에서 포착하고, 이후 완료된 정규장 1분봉에서 H1 1.0배·기존 가격 조건·최신 독립 근거를 충족하면 같은 날 매수 확정합니다. 기존 관측 기록은 보존합니다.",
             "장중 매도는 종료된 KRX 1분봉이 당일 현재가의 누적 고저가 범위 안에 있을 때 최대 1분 늦게 시각순으로 판정합니다. 첫 분봉 검증이 불가능하면 일중 OHLC는 조회 후보로만 쓰고 확정 매매를 보류하며, 이미 확정한 분봉 이력이 있으면 그 종목만 재검증 대기로 분리합니다. 같은 1분봉에서 손절선과 목표에 모두 닿으면 손절을 먼저 반영합니다.",
@@ -4802,6 +4908,8 @@ def build_quant_signal_payload(
         intraday_minutes_by_date=historical_intraday_minutes_by_date,
         lifecycle_start_date=lifecycle_start_date,
         observed_entries=observed_entries,
+        entry_outcomes=entry_outcomes,
+        entry_outcome_since=entry_outcome_since,
     )
     simulation_bars, live_execution = _live_execution_bars(
         confirmed,
@@ -4882,7 +4990,17 @@ def build_quant_signal_payload(
         indicators[-1],
         recent_indicators=indicators[-CHASE_MOMENTUM_LOOKBACK_BARS:],
     )
-    if confirmation_signal_date >= ENTRY_EVIDENCE_EFFECTIVE_DATE:
+    if _initial_quant_entry_active(confirmation_signal_date):
+        base["confirmation"] = {
+            "state": "neutral",
+            "label": "초기 퀀트 가격 조건",
+            "score": None,
+            "available_count": 0,
+            "total_count": 0,
+            "note": "정규장 완료 종가를 기준으로 초기 퀀트 진입 조건을 판단합니다.",
+            "evidence": [],
+        }
+    elif confirmation_signal_date >= ENTRY_EVIDENCE_EFFECTIVE_DATE:
         base["confirmation"] = confirmation_response_payload(
             evidence_timeline.get(confirmation_signal_date),
             setup=latest_setup,
@@ -6231,6 +6349,8 @@ def _market_preliminary_signal_item(
         "is_preliminary": True,
         "updated_at": signal_at,
         "current": current,
+        **({"entry_rule_version": current["entry_rule_version"]}
+           if current.get("entry_rule_version") else {}),
         "entry_execution_policy_version": (
             NEXT_OPEN_ENTRY_POLICY_VERSION
             if action == "entry_pending" and signal_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
@@ -6263,6 +6383,8 @@ def _market_stock_payload_with_intraday_path(
     ],
     *,
     verified_paths: Optional[dict[date, list[PriceBar]]] = None,
+    entry_outcomes: Optional[dict[date, str]] = None,
+    entry_outcome_since: date = NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
     lifecycle_start_date: Optional[date] = None,
     observe_entry: bool = False,
     entry_universe_eligible: Optional[Callable[[dict[str, Any]], bool]] = None,
@@ -6283,6 +6405,7 @@ def _market_stock_payload_with_intraday_path(
         historical_intraday_minutes_by_date=historical_paths,
         lifecycle_start_date=lifecycle_start_date,
         observed_entries=observed_entries,
+        entry_outcomes=entry_outcomes, entry_outcome_since=entry_outcome_since,
     )
     stored_live_path = db.get(
         QuantSignalIntradayPathSnapshot, (code, current_time.date())
@@ -6401,6 +6524,7 @@ def _market_stock_payload_with_intraday_path(
                 historical_intraday_minutes_by_date=historical_paths,
                 lifecycle_start_date=lifecycle_start_date,
                 observed_entries=observed_entries,
+                entry_outcomes=entry_outcomes, entry_outcome_since=entry_outcome_since,
             )
             if watching_entry and not verified_minutes:
                 observed_entry.project_current(
@@ -6436,6 +6560,7 @@ def _market_stock_payload_with_intraday_path(
                             entry_safety_guard=entry_safety_guard,
                             historical_intraday_minutes_by_date=historical_paths,
                             lifecycle_start_date=lifecycle_start_date, observed_entries=observed_entries,
+                            entry_outcomes=entry_outcomes, entry_outcome_since=entry_outcome_since,
                         )
         elif stored_live_path is not None and not stored_live_path.is_final:
             if watching_entry and not (payload.get("current") or {}).get("position_open"):
@@ -6512,6 +6637,7 @@ def load_market_quant_signal_feed(
         "status": "ready",
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
+        **_entry_rule_metadata(None),
         "entry_execution_policy_version": (
             NEXT_OPEN_ENTRY_POLICY_VERSION
             if current_time.date() >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE else None
@@ -6711,6 +6837,7 @@ def load_market_quant_signal_feed(
     archive = freeze_legacy_market_publication(db, capped_universe_limit, capped_limit, capped_recent_days) if forward_mode else None
     items: list[dict[str, Any]] = archived_market_items(archive, as_of=current_time.date(), recent_days=capped_recent_days) if archive else []
     forward_errors = {}
+    entry_outcomes_by_code: dict[str, dict[str, str]] = {}
     extended_qualified_codes: set[str] = set()
     current_extended_qualified_codes: set[str] = set()
     retained_signal_codes: set[str] = set()
@@ -6722,6 +6849,7 @@ def load_market_quant_signal_feed(
         stock_price_rows = prices_by_code.get(code, [])
         forward_paths = None
         forward_envelope = None
+        entry_outcomes: dict[date, str] = {}
         lifecycle_start = REGULAR_FORWARD_START
         if forward_mode:
             try:
@@ -6826,6 +6954,8 @@ def load_market_quant_signal_feed(
                 current_time, intraday_chart_loader,
                 historical_intraday_chart_loader,
                 **({"verified_paths": forward_paths, "lifecycle_start_date": lifecycle_start} if forward_mode else {}),
+                entry_outcomes=entry_outcomes if forward_mode else None,
+                entry_outcome_since=max(cutoff, NEXT_OPEN_ENTRY_EFFECTIVE_DATE),
                 observe_entry=bool(forward_mode and persist_entry_safety_guard
                                    and capped_universe_limit == MARKET_SIGNAL_UNIVERSE_LIMIT),
                 observation_universe_rank=current_rank_by_code.get(code),
@@ -6875,6 +7005,8 @@ def load_market_quant_signal_feed(
                         frozen[field] = parsed_date
                 items.append(frozen)
             continue
+        if entry_outcomes:
+            entry_outcomes_by_code[code] = {day.isoformat(): outcome for day, outcome in entry_outcomes.items()}
         public_reasons = build_public_signal_reasons(payload)
         current = payload.get("current") if isinstance(payload.get("current"), dict) else None
         events = payload.get("events") or []
@@ -7087,6 +7219,8 @@ def load_market_quant_signal_feed(
                     "candidate_id", "entry_policy_version", "first_observed_at",
                     "confirmed_at", "decision_minute_at",
                 )},
+                **({"entry_rule_version": event["entry_rule_version"]}
+                   if event.get("entry_rule_version") else {}),
                 "intraday_execution_verified": (
                     event.get("intraday_execution_verified") is True
                     and _fresh_kis_intraday_quote_for_market_alert(live_quote, current_time)
@@ -7190,6 +7324,9 @@ def load_market_quant_signal_feed(
         "execution_replay_unverified_codes": sorted(unverified_codes),
         "execution_replay_rebased_codes": sorted(rebased_codes),
         "unverified_codes_isolated": isolated_unverified,
+        "_entry_outcomes_by_code": entry_outcomes_by_code,
+        "entry_outcomes_completed_through": required_price_date,
+        **_entry_rule_metadata(required_price_date),
         "strategy_version": STRATEGY_VERSION,
         "execution_model": EXECUTION_MODEL,
         "entry_execution_policy_version": (
@@ -7610,6 +7747,8 @@ MARKET_PRELIMINARY_HISTORY_FIELDS = (
     "score",
     "reason",
     "action",
+    "entry_execution_policy_version",
+    "entry_rule_version",
 )
 
 
@@ -7625,6 +7764,66 @@ def _market_signal_date_token(value: Any) -> str:
         return date.fromisoformat(candidate).isoformat()
     except ValueError:
         return ""
+
+
+def annotate_market_preliminary_history(payload: dict[str, Any]) -> dict[str, Any]:
+    """Resolve recorded KR buy candidates against the verified close and fill replay."""
+    history = payload.get("preliminary_history") or []
+    decisions = payload.get("_entry_outcomes_by_code") or {}
+    completed_through = _market_signal_date_token(payload.get("entry_outcomes_completed_through"))
+    unverified = set(payload.get("execution_replay_unverified_codes") or [])
+    confirmed = {
+        (str(item.get("code") or ""), _market_signal_date_token(item.get("signal_date")))
+        for item in payload.get("items") or []
+        if isinstance(item, dict) and not item.get("is_preliminary") and item.get("status") != "preliminary"
+        and (item.get("event_side") or item.get("side")) == "buy" and item.get("execution_date")
+    }
+    counts = dict.fromkeys(sorted(ENTRY_RELEASE_OUTCOMES | ENTRY_WAIT_OUTCOMES | {"confirmed", "unknown"}), 0)
+    for item in history:
+        if item.get("side") != "buy":
+            continue
+        code = str(item.get("code") or "")
+        day = _market_signal_date_token(item.get("signal_date"))
+        previous = item.get("entry_outcome")
+        outcome = decisions.get(code, {}).get(day)
+        if (code, day) in confirmed or previous == "confirmed":
+            outcome = "confirmed"
+        elif outcome == "awaiting_next_open" and day and entry_safety_guard_active(
+            payload.get("entry_safety_guard"), date.fromisoformat(day),
+        ):
+            outcome = "risk_blocked"
+        elif previous in ENTRY_RELEASE_OUTCOMES and (outcome is None or outcome in ENTRY_WAIT_OUTCOMES):
+            outcome = previous
+        elif outcome == "confirmed":
+            # Only a published market entry is a confirmation in the market history.
+            outcome = "unknown"
+        elif outcome is None:
+            if code in unverified or previous == "data_pending":
+                outcome = "data_pending"
+            elif completed_through and day > completed_through:
+                outcome = "awaiting_close"
+            elif previous == "awaiting_close" and completed_through and day <= completed_through:
+                outcome = "data_pending"
+            elif previous in ENTRY_WAIT_OUTCOMES:
+                outcome = previous
+            elif item.get("active") and item.get("entry_execution_policy_version") == NEXT_OPEN_ENTRY_POLICY_VERSION:
+                outcome = "awaiting_next_open"
+            else:
+                outcome = "unknown"
+        item["entry_outcome"] = outcome
+        if outcome in ENTRY_RELEASE_OUTCOMES or outcome == "confirmed":
+            item["active"] = False
+        counts[outcome] += 1
+
+    released = sum(counts[key] for key in ENTRY_RELEASE_OUTCOMES)
+    resolved = released + counts["confirmed"]
+    payload["preliminary_buy_outcomes"] = {
+        "counts": counts,
+        "resolved_count": resolved,
+        "released_count": released,
+        "release_rate_percent": round(100 * released / resolved, 2) if resolved else None,
+    }
+    return payload
 
 
 def merge_market_preliminary_history(
@@ -7729,7 +7928,7 @@ def merge_market_preliminary_history(
         key=lambda item: str(item.get("first_seen_at") or item.get("signal_at") or ""),
         reverse=True,
     )
-    return result
+    return annotate_market_preliminary_history(result)
 
 
 def load_market_quant_signal_snapshot(

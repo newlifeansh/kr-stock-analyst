@@ -1403,6 +1403,159 @@ def test_kr_next_open_entry_waits_for_completed_regular_bar_and_rejects_gap(monk
     assert forming["pending"]["entry_execution_policy_version"] == qs.NEXT_OPEN_ENTRY_POLICY_VERSION
 
 
+def test_initial_quant_operational_cutover_keeps_earlier_decisions_and_open_guards(monkeypatch):
+    from dataclasses import replace
+
+    qs = quant_signals
+    first = qs.KR_INITIAL_QUANT_ENTRY_EFFECTIVE_DATE
+    previous = first - timedelta(days=1)
+    next_session = first + timedelta(days=3)
+    bars, indicators = _strategy_test_inputs(67)
+    _set_entry_indicator(indicators[65])
+    blocked = {"quality": {"state": "blocked"}, "vetoes": [qs.MARKET_PANIC_VETO]}
+    old_bars = [*bars[:65], replace(bars[65], trade_date=previous), replace(bars[66], trade_date=first)]
+    historic = qs._simulate(old_bars, indicators, {previous: blocked}, lifecycle_start_date=previous)
+    assert [event for event in historic["events"] if event["side"] == "buy"] == []
+
+    bars[65] = replace(bars[65], trade_date=first)
+    bars[66] = replace(bars[66], trade_date=next_session)
+    indicators[65].update(momentum5=-0.01, volume_ratio=0.7)
+    decisions = {}
+    result = qs._simulate(
+        bars, indicators, {first: blocked}, lifecycle_start_date=first, entry_outcomes=decisions,
+    )
+    buy, = [event for event in result["events"] if event["side"] == "buy"]
+    assert (buy["signal_date"], buy["execution_date"], buy["price"]) == (first, next_session, 100)
+    assert buy["entry_rule_version"] == qs.KR_INITIAL_QUANT_ENTRY_RULE
+    assert buy["execution_model"] == qs.NEXT_OPEN_ENTRY_EXECUTION_MODEL
+    assert buy.get("intraday_order_verified") is None
+    assert decisions[first] == "confirmed"
+    alternatives = {
+        "forming_bar_date": next_session,
+        "entry_safety_guard": {"active": True, "effective_on": first},
+        "entry_filter_version": qs.ENTRY_FILTER_VERSION,
+    }
+    for key, value in alternatives.items():
+        replay = qs._simulate(bars, indicators, {first: blocked}, lifecycle_start_date=first, **{key: value})
+        assert [event for event in replay["events"] if event["side"] == "buy"] == []
+    gap = replace(bars[-1], open=108, high=109, low=107, close=108)
+    replay = qs._simulate([*bars[:-1], gap], indicators, {first: blocked}, lifecycle_start_date=first)
+    assert [event for event in replay["events"] if event["side"] == "buy"] == []
+
+    latest = datetime(first.year, first.month, first.day, 16, tzinfo=qs.KST)
+    monkeypatch.setattr(qs, "_indicator_rows", lambda _bars: indicators[:-1])
+    current, _factors = qs._current_signal(bars[:-1], {}, None, latest, {first: blocked})
+    assert current["action"] == "entry_pending"
+    assert current["entry_rule_version"] == qs.KR_INITIAL_QUANT_ENTRY_RULE
+    monkeypatch.setattr(qs, "_live_bar", lambda *_args: (bars[:-1], True))
+    observed, _factors = qs._current_signal(bars[:-1], {}, {}, latest, {first: blocked})
+    assert observed["action"] == "entry_watch"
+    assert qs._entry_rule_metadata(previous)["entry_rule_version"] == qs.ENTRY_FILTER_VERSION
+    assert qs._entry_rule_metadata(first)["entry_rule_version"] == qs.KR_INITIAL_QUANT_ENTRY_RULE
+
+
+def test_kr_preliminary_outcome_follows_completed_close_and_next_open():
+    from dataclasses import replace
+
+    qs = quant_signals
+    signal_day = date(2026, 11, 12)
+    next_day = date(2026, 11, 13)
+    bars, indicators = _strategy_test_inputs(67)
+    bars[65] = replace(bars[65], trade_date=signal_day)
+    bars[66] = replace(bars[66], trade_date=next_day)
+    _set_entry_indicator(indicators[65])
+    valid = {"quality": {"state": "ready"}, "supportive_count": 2}
+
+    def outcome(prices, evidence, *, forming=None):
+        decisions = {}
+        qs._simulate(
+            prices, indicators[:len(prices)], evidence, forming_bar_date=forming,
+            lifecycle_start_date=signal_day, entry_outcomes=decisions,
+        )
+        return decisions[signal_day]
+
+    assert outcome(bars[:66], {signal_day: valid}) == "awaiting_next_open"
+    assert outcome(bars, {signal_day: valid}, forming=next_day) == "awaiting_next_open"
+    assert outcome(bars, {signal_day: valid}) == "confirmed"
+    large_gap = [*bars[:66], replace(bars[66], open=109, high=110, low=108, close=109)]
+    assert outcome(large_gap, {signal_day: valid}) == "opening_gap_exceeded"
+    incomplete = [*bars[:66], replace(bars[66], ohlc_complete=False)]
+    assert outcome(incomplete, {signal_day: valid}) == "data_pending"
+    assert outcome(bars[:66], {}) == "data_pending"
+    assert outcome(bars[:66], {signal_day: {**valid, "supportive_count": 0}}) == "independent_evidence_not_met"
+    assert outcome(bars[:66], {signal_day: {**valid, "vetoes": ["fixture"]}}) == "risk_blocked"
+    market_panic = {**valid, "quality": {"state": "blocked"}, "vetoes": ["시장 급락·고변동 국면"]}
+    assert outcome(bars[:66], {signal_day: market_panic}) == "market_regime_blocked"
+    indicators[65]["score"] = 40
+    assert outcome(bars[:66], {signal_day: valid}) == "close_conditions_not_met"
+    assert outcome(bars[:66], {signal_day: market_panic}) == "market_regime_blocked"
+
+
+def test_kr_preliminary_outcome_counts_only_resolved_candidates():
+    qs = quant_signals
+    day, next_day = "2026-11-12", "2026-11-13"
+    history = [
+        {"code": code, "signal_date": signal_day, "side": "buy", "active": False}
+        for code, signal_day in [
+            ("A", day), ("B", day), ("C", day), ("D", day), ("E", next_day), ("F", day),
+        ]
+    ]
+    result = qs.annotate_market_preliminary_history({
+        "entry_outcomes_completed_through": day,
+        "_entry_outcomes_by_code": {
+            "A": {day: "opening_gap_exceeded"}, "B": {day: "confirmed"},
+            "C": {day: "awaiting_next_open"},
+        },
+        "execution_replay_unverified_codes": ["D"],
+        "preliminary_history": history,
+        "items": [{"code": "B", "side": "buy", "signal_date": day, "execution_date": next_day}],
+    })
+    assert [row["entry_outcome"] for row in history] == [
+        "opening_gap_exceeded", "confirmed", "awaiting_next_open", "data_pending", "awaiting_close", "unknown",
+    ]
+    summary = result["preliminary_buy_outcomes"]
+    assert summary["resolved_count"] == 2
+    assert summary["released_count"] == 1
+    assert summary["release_rate_percent"] == 50
+    waiting = qs.annotate_market_preliminary_history({
+        "preliminary_history": [history[3]], "execution_replay_unverified_codes": ["D"],
+    })
+    assert waiting["preliminary_buy_outcomes"]["release_rate_percent"] is None
+    guarded = qs.annotate_market_preliminary_history({
+        "preliminary_history": [history[2]],
+        "_entry_outcomes_by_code": {"C": {day: "awaiting_next_open"}},
+        "entry_safety_guard": {"active": True, "effective_on": day},
+    })
+    assert guarded["preliminary_history"][0]["entry_outcome"] == "risk_blocked"
+
+
+def test_initial_comparison_uses_same_next_open_and_keeps_production_gate(monkeypatch):
+    from dataclasses import replace
+    from scripts.compare_entry_filters import _aggregate_initial_entries, _compare_initial_entries
+
+    qs = quant_signals
+    day = date(2026, 11, 12)
+    bars, indicators = _strategy_test_inputs(68)
+    bars[65] = replace(bars[65], trade_date=day)
+    bars[66] = replace(bars[66], trade_date=day + timedelta(days=1))
+    bars[67] = replace(bars[67], trade_date=day + timedelta(days=4), open=96, high=97, low=95, close=96)
+    _set_entry_indicator(indicators[65])
+    monkeypatch.setattr(qs, "_indicator_rows", lambda _bars: indicators)
+    denied = {"quality": {"state": "ready"}, "supportive_count": 0}
+    paths = {bars[67].trade_date: [bars[67]]}
+    comparison = _compare_initial_entries(bars, {day: denied}, paths, None)
+    initial = _aggregate_initial_entries([comparison["initial-price-rule"]])
+    current = _aggregate_initial_entries([comparison[qs.ENTRY_FILTER_VERSION]])
+    assert initial["confirmed"] == 1
+    assert initial["completed_trades"] == 1
+    assert initial["average_net_trade_return_percent"] < -4
+    assert current["confirmed"] == 0
+    assert qs._simulate(bars, indicators, {day: denied}, lifecycle_start_date=day)["events"] == []
+    approved = {**denied, "supportive_count": 2}
+    both = _compare_initial_entries(bars, {day: approved}, paths, None)
+    assert both["initial-price-rule"] == both[qs.ENTRY_FILTER_VERSION]
+
+
 def test_next_open_policy_metadata_follows_last_completed_signal_date():
     rows = _price_rows("005930", count=130)
     previous = DailyPrice(

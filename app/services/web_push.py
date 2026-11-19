@@ -49,6 +49,7 @@ from app.services.market_calendar import (
     is_scheduled_korea_market_session_date,
 )
 from app.services.recommendations import build_recommendations
+from app.services.position_lifecycle_core import KR_INITIAL_QUANT_ENTRY_RULE
 from app.services.quant_signals import (
     EXECUTION_MODEL,
     NEXT_OPEN_ENTRY_EFFECTIVE_DATE,
@@ -1946,6 +1947,8 @@ class WebPushRuntime:
                         kind="market_ai_signal",
                         title=_signal_notification_title(name, action, notification_state),
                         body=(
+                            "장마감 초기 퀀트 가격 조건을 통과한 후보입니다. 다음 정규장 시가의 갭 제한을 확인한 뒤 매수 여부를 결정합니다."
+                            if next_open_candidate and item.get("entry_rule_version") == KR_INITIAL_QUANT_ENTRY_RULE else
                             "장마감 종가와 독립 근거로 확인한 후보입니다. 다음 정규장 시가의 갭 제한을 확인한 뒤 매수 여부를 결정합니다."
                             if next_open_candidate else
                             "예비 후보가 포착됐어요. 이후 완료 분봉에서 조건을 충족하면 장중 매수 확정을 별도로 알려드려요."
