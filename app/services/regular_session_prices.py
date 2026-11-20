@@ -21,7 +21,7 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
 from app.models import DailyPrice, SignalSessionPrice
-from app.services.market_calendar import is_scheduled_korea_market_session_date
+from app.services.market_calendar import is_scheduled_korea_market_session_date, krx_session_hours
 
 KST = ZoneInfo("Asia/Seoul")
 # v1 local prototype assumed a counter reset at the date boundary. Source
@@ -836,14 +836,15 @@ def _verified_naver_minute_opening_offset(
     this extra minute proof to the opening bucket so later transient one-minute
     cumulative-volume display glitches cannot change a matched bucket result.
     """
-    opening = [row for row in regular if row["trade_time"] < "091000"]
+    hours = krx_session_hours(day)
+    opening = [row for row in regular if row["trade_time"] < hours.stamp(9, 10)]
     if (
         payload.get("code") != code
         or payload.get("trade_date") != day.strftime("%Y%m%d")
         or payload.get("timeframe") != "minute"
         or not isinstance(payload.get("rows"), list)
         or not opening
-        or opening[0]["trade_time"] == "090000"
+        or opening[0]["trade_time"] == hours.stamp(9, 0)
     ):
         raise ValueError("wrong delayed-opening minute source identity")
     minutes = payload["rows"]
@@ -928,11 +929,12 @@ def _verified_naver_closing_auction(
     its volume delta strictly positive. Joint KIS/Naver absence preserves the
     last actual regular trade and never fabricates a 15:30 execution.
     """
+    hours = krx_session_hours(day)
     if payload.get("code") != code or payload.get("stockExchangeType") != "KRX" or payload.get("periodType") != "week":
         raise ValueError("wrong closing-auction source identity")
-    if not regular or not "090000" <= regular[0]["trade_time"] <= "090900":
+    if not regular or not hours.stamp(9, 0) <= regular[0]["trade_time"] <= hours.stamp(9, 9):
         raise ValueError("cross-source coverage requires a first-bucket trade anchor")
-    delayed_opening_trade = regular[0]["trade_time"] != "090000"
+    delayed_opening_trade = regular[0]["trade_time"] != hours.stamp(9, 0)
     day_key = day.strftime("%Y%m%d")
     candles = (payload.get("priceInfos") or {}).get(day_key)
     if not isinstance(candles, list):
@@ -949,7 +951,7 @@ def _verified_naver_closing_auction(
     pending_empty_buckets = 0
     proven_open_conflicts = 0
     for index in range(0, 380, 10):
-        expected_start = datetime.combine(day, time(9)) + timedelta(minutes=index)
+        expected_start = datetime.combine(day, hours.at(9, 0)) + timedelta(minutes=index)
         expected_end = expected_start + timedelta(minutes=10)
         # These bounds are identical for every minute in the bucket. Formatting
         # them inside the predicate multiplies strftime work by ~380 per stock
@@ -1008,7 +1010,7 @@ def _verified_naver_closing_auction(
         raise ValueError("unverified trailing empty pre-auction bucket")
     if bucket_open_proof is not None and proven_open_conflicts != 1:
         raise ValueError("unused halt-bucket opening proof")
-    closing_window = buckets.get(day_key + "152000")
+    closing_window = buckets.get(day_key + hours.stamp(15, 20))
     if closing_window_trade is None:
         if closing_window is not None and _integer(closing_window.get("accumulatedTradingVolume")) != last_cumulative:
             raise ValueError("unverified positive-volume closing auction interval")
@@ -1019,7 +1021,7 @@ def _verified_naver_closing_auction(
         price = _integer(closing_window_trade.get("price"), positive=True)
         volume = _integer(closing_window_trade.get("volume"), positive=True)
         if (
-            closing_window_trade.get("trade_time") != "152000"
+            closing_window_trade.get("trade_time") != hours.stamp(15, 20)
             or closing_window is None
             or any(_integer(closing_window_trade.get(key), positive=True) != price for key in ("open", "high", "low"))
             or any(_integer(closing_window.get(key), positive=True) != price for key in ("openPrice", "highPrice", "lowPrice", "currentPrice"))
@@ -1027,7 +1029,7 @@ def _verified_naver_closing_auction(
             or _integer(closing_window_trade.get("trading_value")) - _integer(regular[-1].get("trading_value")) != price * volume
         ):
             raise ValueError("closing-window trade conflicts with independent KRX evidence")
-    close = buckets.get(day_key + "153000")
+    close = buckets.get(day_key + hours.stamp(15, 30))
     if close is None:
         # Both dated sources omit a positive closing-auction execution. The
         # regular close is therefore the last independently matched trade;
@@ -1042,7 +1044,7 @@ def _verified_naver_closing_auction(
     if volume <= 0:
         raise ValueError("closing auction has no actual volume")
     prior_turnover = closing_window_trade if closing_window_trade is not None else regular[-1]
-    return {"trade_date": day_key, "trade_time": "153000",
+    return {"trade_date": day_key, "trade_time": hours.stamp(15, 30),
             "open": prices[0], "high": prices[0], "low": prices[0], "price": prices[0],
             "volume": volume, "trading_value": _integer(prior_turnover["trading_value"]) + prices[0] * volume}
 
@@ -1062,9 +1064,10 @@ def regular_session_evidence(
     turnover. Its pre-open baseline must be observed; never sum cumulative
     values or use the after-market daily total for an entry liquidity filter.
     """
+    hours = krx_session_hours(trade_date)
     if observed_at.tzinfo is None:
         raise ValueError("observed_at must be timezone aware")
-    if observed_at.astimezone(KST) < datetime.combine(trade_date, time(15, 31), KST):
+    if observed_at.astimezone(KST) < datetime.combine(trade_date, hours.at(15, 31), KST):
         raise ValueError("regular session is not complete")
     if not code or not isinstance(rows, list):
         raise ValueError("code and minute rows are required")
@@ -1072,7 +1075,7 @@ def regular_session_evidence(
     result: dict[str, Any] = {
         "code": code, "trade_date": trade_date.isoformat(),
         "basis_version": REGULAR_PRICE_BASIS, "source": REGULAR_PRICE_SOURCE,
-        "exchange": "KRX", "session": "regular", "start": "09:00", "end": "15:30",
+        "exchange": "KRX", "session": "regular", "start": hours.at(9).isoformat(timespec="minutes"), "end": hours.at(15, 30).isoformat(timespec="minutes"),
         "state": "unverified", "reason": None, "prices": None, "turnover_bounds": None,
         "raw_rows": raw, "regular_rows": [], "preopen_baseline": preopen_baseline,
         "closing_auction_evidence": closing_auction_evidence,
@@ -1107,12 +1110,12 @@ def regular_session_evidence(
             seen.add(hhmmss)
             parsed.append((instant, row))
         parsed.sort(key=lambda pair: pair[0])
-        regular = [row for instant, row in parsed if time(9) <= instant.time() <= time(15, 30)]
-        if any("152000" < row["trade_time"] < "153000" and _integer(row.get("volume")) > 0 for row in regular):
+        regular = [row for instant, row in parsed if hours.at(9, 0) <= instant.time() <= hours.at(15, 30)]
+        if any(hours.stamp(15, 20) < row["trade_time"] < hours.stamp(15, 30) and _integer(row.get("volume")) > 0 for row in regular):
             raise ValueError("unverified auction-window trade")
-        prefix_rows = [row for row in regular if "090000" <= row["trade_time"] <= "151900"]
+        prefix_rows = [row for row in regular if hours.stamp(9, 0) <= row["trade_time"] <= hours.stamp(15, 19)]
         actual_prefix = [row for row in prefix_rows if _integer(row.get("volume")) > 0]
-        closing_window_trade = next((row for row in regular if row["trade_time"] == "152000" and _integer(row.get("volume")) > 0), None)
+        closing_window_trade = next((row for row in regular if row["trade_time"] == hours.stamp(15, 20) and _integer(row.get("volume")) > 0), None)
         sparse_prefix_verified = False
         verified_no_closing_trade = False
         verified_closing = None
@@ -1132,17 +1135,17 @@ def regular_session_evidence(
                     result["coverage_basis"] = TOSS_AUCTION_RECONCILIATION_BASIS
                     result["source"] += "+kis_j_daily_no_postmarket_auction_correction"
             regular = [
-                revised_auction if row["trade_time"] == "153000" and revised_auction is not None else row
+                revised_auction if row["trade_time"] == hours.stamp(15, 30) and revised_auction is not None else row
                 for row in regular
                 if not (
-                    ("090000" <= row["trade_time"] <= "151900" or row["trade_time"] == "153000")
+                    (hours.stamp(9, 0) <= row["trade_time"] <= hours.stamp(15, 19) or row["trade_time"] == hours.stamp(15, 30))
                     and _integer(row.get("volume")) == 0
                 )
             ]
-            if revised_auction is not None and not any(row["trade_time"] == "153000" for row in regular):
+            if revised_auction is not None and not any(row["trade_time"] == hours.stamp(15, 30) for row in regular):
                 regular.append(revised_auction)
         if len(actual_prefix) < 380 and closing_auction_evidence is not None:
-            if actual_prefix and actual_prefix[0]["trade_time"] != "090000" and minute_coverage_evidence is not None:
+            if actual_prefix and actual_prefix[0]["trade_time"] != hours.stamp(9, 0) and minute_coverage_evidence is not None:
                 verified_opening_offset = _verified_naver_minute_opening_offset(
                     code, trade_date, actual_prefix, minute_coverage_evidence
                 )
@@ -1152,7 +1155,7 @@ def regular_session_evidence(
                 bucket_open_proof=bucket_open_proof,
                 closing_window_trade=closing_window_trade,
             )
-            observed_close = next((row for row in regular if row["trade_time"] == "153000"), None)
+            observed_close = next((row for row in regular if row["trade_time"] == hours.stamp(15, 30)), None)
             if observed_close is not None and _integer(observed_close.get("volume")) > 0:
                 if verified_closing is None or any(
                     _integer(observed_close.get(key)) != _integer(verified_closing[key])
@@ -1178,14 +1181,14 @@ def regular_session_evidence(
                 row
                 for row in regular
                 if not (
-                    "090000" <= row["trade_time"] <= "151900"
+                    hours.stamp(9, 0) <= row["trade_time"] <= hours.stamp(15, 19)
                     and _integer(row.get("volume")) == 0
                 )
             ]
         closing_trade_missing = bool(
             regular
             and (
-                regular[-1]["trade_time"] != "153000"
+                regular[-1]["trade_time"] != hours.stamp(15, 30)
                 or _integer(regular[-1].get("volume")) <= 0
             )
         )
@@ -1193,7 +1196,7 @@ def regular_session_evidence(
             preauction = [
                 row
                 for row in regular
-                if row["trade_time"] <= "151900"
+                if row["trade_time"] <= hours.stamp(15, 19)
                 and _integer(row.get("volume")) > 0
             ]
             recovered_closing = (
@@ -1217,19 +1220,19 @@ def regular_session_evidence(
         if (
             not regular
             or (
-                regular[0]["trade_time"] != "090000"
+                regular[0]["trade_time"] != hours.stamp(9, 0)
                 and not sparse_prefix_verified
             )
             or (
                 not verified_no_closing_trade
-                and regular[-1]["trade_time"] != "153000"
+                and regular[-1]["trade_time"] != hours.stamp(15, 30)
             )
         ):
             raise ValueError("missing regular opening or closing trade")
         executable = []
         for row in regular:
             volume = _integer(row.get("volume"))
-            if "152000" <= row["trade_time"] < "153000" and volume == 0:
+            if hours.stamp(15, 20) <= row["trade_time"] < hours.stamp(15, 30) and volume == 0:
                 continue  # indicative auction prices are not executed trades
             if volume == 0:
                 raise ValueError("unverified zero-volume regular minute")
@@ -1241,7 +1244,7 @@ def regular_session_evidence(
             before = datetime.strptime(prior["trade_time"], "%H%M%S")
             after = datetime.strptime(following["trade_time"], "%H%M%S")
             if after - before != timedelta(minutes=1) and not (
-                prior["trade_time"] in {"151900", "152000"} and following["trade_time"] == "153000"
+                prior["trade_time"] in {hours.stamp(15, 19), hours.stamp(15, 20)} and following["trade_time"] == hours.stamp(15, 30)
             ) and not sparse_prefix_verified:
                 raise ValueError("missing regular minute")
         if full_minute_path_proof is not None:
@@ -1262,14 +1265,14 @@ def regular_session_evidence(
             "trading_value": None,
         }
         result.update(prices=prices, regular_rows=executable)
-        baseline_rows = [row for instant, row in parsed if instant.time() < time(9)]
-        if baseline_rows and baseline_rows[-1]["trade_time"] == "085900":
+        baseline_rows = [row for instant, row in parsed if instant.time() < hours.at(9, 0)]
+        if baseline_rows and baseline_rows[-1]["trade_time"] == hours.stamp(8, 59):
             baseline = _integer(baseline_rows[-1].get("trading_value"))
         elif (
             isinstance(preopen_baseline, dict)
             and preopen_baseline.get("kind") == "observed_day_boundary"
             and preopen_baseline.get("requested_date") == trade_date.strftime("%Y%m%d")
-            and preopen_baseline.get("requested_time") == "085900"
+            and preopen_baseline.get("requested_time") == hours.stamp(8, 59)
             and datetime.strptime(str(preopen_baseline.get("previous_trade_date")), "%Y%m%d").date() < trade_date
             and datetime.strptime(str(preopen_baseline.get("previous_trade_time")), "%H%M%S")
             and preopen_baseline.get("value") in (None, 0)
@@ -1491,10 +1494,11 @@ def collect_regular_session_prices(
     Each persisted evidence item commits independently so a provider outage
     cannot discard earlier completed work. Unverified evidence remains visible.
     """
+    hours = krx_session_hours(end)
     if start < REGULAR_PRICE_EFFECTIVE_DATE or end < start or max_pairs < 1:
         raise ValueError("invalid regular-session backfill range")
     local = observed_at.astimezone(KST) if observed_at.tzinfo is not None else None
-    if local is None or end > local.date() or (end == local.date() and local.time() < time(15, 31)):
+    if local is None or end > local.date() or (end == local.date() and local.time() < hours.at(15, 31)):
         raise ValueError("backfill end must be a completed session date")
     has_table = inspect(db.connection()).has_table(SignalSessionPrice.__tablename__)
     if persist and not has_table:

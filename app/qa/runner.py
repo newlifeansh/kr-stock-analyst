@@ -399,6 +399,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_hybrid_signals.test_hybrid_send_rechecks_age_at_delivery_not_scan_start",
     ),
     "SIG-KR-FORWARD-001": (
+        "tests.test_regular_session_prices.test_csat_session_collects_actual_auction_and_replays_wall_clock",
         "tests.test_app.test_regular_price_retry_waits_for_first_publication",
         "tests.test_regular_signal_transition.test_forward_baseline_is_immutable_and_detects_tampering",
         "tests.test_regular_signal_transition.test_forward_publication_preserves_return_but_never_realerts_or_claims_a_holding",

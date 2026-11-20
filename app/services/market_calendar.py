@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from functools import lru_cache
 import re
@@ -17,6 +18,30 @@ MARKET_SESSION_CACHE = TTLCache(maxsize=2)
 MARKET_SESSION_TTL_SECONDS = 60
 INVESTOR_FLOW_READY_TIME = time(18, 0)
 NAVER_INVESTOR_FLOW_READY_TIME = time(19, 0)
+
+
+@dataclass(frozen=True)
+class KrxSessionHours:
+    """Translate a regular market timetable to the session's actual KST clock."""
+
+    delay_hours: int = 0
+
+    @lru_cache(maxsize=160)
+    def at(self, hour: int, minute: int = 0) -> time:
+        return time(hour + self.delay_hours, minute)
+
+    @lru_cache(maxsize=160)
+    def stamp(self, hour: int, minute: int = 0) -> str:
+        return self.at(hour, minute).strftime("%H%M%S")
+
+
+_NORMAL_HOURS = KrxSessionHours()
+# KRX's 2026-11-05 CSAT notice shifts both opening and closing by one hour.
+_SPECIAL_HOURS = {date(2026, 11, 19): KrxSessionHours(1)}
+
+
+def krx_session_hours(day: date) -> KrxSessionHours:
+    return _SPECIAL_HOURS.get(day, _NORMAL_HOURS)
 
 
 def _kst_datetime(value: Optional[datetime] = None) -> datetime:
@@ -126,7 +151,7 @@ def is_korea_market_session_date(target: date, now: Optional[datetime] = None) -
 def is_korea_regular_market_session(now: Optional[datetime] = None) -> bool:
     current = _kst_datetime(now)
     return (
-        time(9, 0) <= current.time() <= time(15, 30)
+        krx_session_hours(current.date()).at(9) <= current.time() <= krx_session_hours(current.date()).at(15, 30)
         and is_korea_market_session_date(current.date(), current)
     )
 
@@ -134,6 +159,6 @@ def is_korea_regular_market_session(now: Optional[datetime] = None) -> bool:
 def is_korea_daily_signal_window(now: Optional[datetime] = None) -> bool:
     current = _kst_datetime(now)
     return (
-        time(15, 40) <= current.time() <= time(18, 0)
+        krx_session_hours(current.date()).at(15, 40) <= current.time() <= krx_session_hours(current.date()).at(18)
         and is_korea_market_session_date(current.date(), current)
     )

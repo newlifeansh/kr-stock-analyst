@@ -546,6 +546,48 @@ def test_store_recomputes_evidence_and_rejects_forged_ready_state(db):
         rsp.store_regular_session_evidence(db, payload, observed_at=OBSERVED)
 
 
+def test_csat_session_collects_actual_auction_and_replays_wall_clock(db, monkeypatch):
+    from app.collectors.briefing import KisRestBriefingProvider
+    from app.config import Settings
+    from app.services import quant_signals as qs
+
+    day = date(2026, 11, 19)
+    observed = datetime(2026, 11, 19, 16, 31, tzinfo=rsp.KST)
+    provider = KisRestBriefingProvider(Settings())
+    feed = []
+    for row in minute_rows():
+        shifted = datetime.strptime(row["trade_time"], "%H%M%S") + timedelta(hours=1)
+        feed.append({
+            "stck_bsop_date": "20261119", "stck_cntg_hour": shifted.strftime("%H%M%S"),
+            "stck_oprc": row["open"], "stck_hgpr": row["high"], "stck_lwpr": row["low"],
+            "stck_prpr": row["price"], "cntg_vol": row["volume"], "acml_tr_pbmn": row["trading_value"],
+        })
+
+    def page(_path, _tr, params):
+        assert params["FID_INPUT_DATE_1"] == "20261119"
+        cursor = params["FID_INPUT_HOUR_1"]
+        return {"output2": [r for r in reversed(feed) if r["stck_cntg_hour"] <= cursor][:120]}
+
+    monkeypatch.setattr(provider, "_get", page)
+    source = provider.fetch_regular_session_data("005930", day)
+    assert source["rows"][0]["trade_time"] == "095900"
+    assert source["rows"][-1]["trade_time"] == "163000"
+    with pytest.raises(ValueError, match="not complete"):
+        rsp.regular_session_evidence("005930", day, **source, observed_at=observed - timedelta(hours=1))
+    verified = rsp.regular_session_evidence("005930", day, **source, observed_at=observed)
+    assert verified["state"] == "ready"
+    rsp.store_regular_session_evidence(db, verified, observed_at=observed)
+    db.commit()
+    restored = rsp.load_regular_session_evidence(db, "005930", day)
+    path = qs._verified_completed_intraday_minutes(
+        restored["regular_rows"], qs.PriceBar(trade_date=day, **restored["prices"]),
+    )
+    assert path and path[0].closed_at.hour == 10
+    assert path[-1].closed_at == observed
+    truncated = [row for row in source["rows"] if row["trade_time"] <= "153000"]
+    assert rsp.regular_session_evidence("005930", day, truncated, observed_at=observed)["state"] == "unverified"
+
+
 def test_dated_regular_source_keeps_closing_auction_and_preopen_baseline(monkeypatch):
     from app.collectors.briefing import KisRestBriefingProvider
     from app.config import Settings

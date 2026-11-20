@@ -35,6 +35,7 @@ from app.models import (
 )
 from app.services.sector_taxonomy import investment_sector_fields
 from app.services.market_calendar import (
+    krx_session_hours,
     is_korea_market_session_date,
     latest_completed_korea_market_session_date,
 )
@@ -498,7 +499,7 @@ def _confirmed_bars(bars: list[PriceBar], now: datetime) -> list[PriceBar]:
     market_is_forming = (
         latest.trade_date == now.date()
         and now.weekday() < 5
-        and time(8, 0) <= now.time() < time(15, 40)
+        and time(8, 0) <= now.time() < krx_session_hours(now.date()).at(15, 40)
     )
     return bars[:-1] if market_is_forming else bars
 
@@ -510,7 +511,7 @@ def _forming_bar_quote(bars: list[PriceBar], now: datetime) -> Optional[dict[str
     market_is_forming = (
         latest.trade_date == now.date()
         and now.weekday() < 5
-        and time(8, 0) <= now.time() < time(15, 40)
+        and time(8, 0) <= now.time() < krx_session_hours(now.date()).at(15, 40)
     )
     if not market_is_forming:
         return None
@@ -1269,7 +1270,14 @@ def _non_trade_closing_auction_row(row: dict[str, Any]) -> bool:
         volume = float(row.get("volume"))
     except (TypeError, ValueError):
         return False
-    return "152000" <= trade_time < "153000" and volume == 0
+    if volume != 0:
+        return False
+    try:
+        day = date.fromisoformat(str(row.get("trade_date") or ""))
+    except ValueError:
+        return False
+    hours = krx_session_hours(day)
+    return hours.stamp(15, 20) <= trade_time < hours.stamp(15, 30)
 
 
 def _verified_intraday_minutes(
@@ -1282,6 +1290,7 @@ def _verified_intraday_minutes(
     conservative daily-OHLC interpretation.
     """
 
+    hours = krx_session_hours(bar.trade_date)
     if not quote or not isinstance(quote.get("intraday_minutes"), list):
         return None
     observed_at = quote.get("observed_at")
@@ -1325,7 +1334,7 @@ def _verified_intraday_minutes(
             minute_at = datetime.strptime(raw_date + raw_time, "%Y%m%d%H%M%S")
         except ValueError:
             return None
-        if not (time(9, 0) <= minute_at.time() <= time(15, 30)):
+        if not (hours.at(9, 0) <= minute_at.time() <= hours.at(15, 30)):
             return None
         # A chart can cross a minute boundary after the quote was observed.
         # Exclude newer rows while validating the complete earlier prefix.
@@ -1398,23 +1407,23 @@ def _verified_intraday_minutes(
     if not parsed:
         return None
     if (
-        parsed[0][0].time() > time(9, 2)
+        parsed[0][0].time() > hours.at(9, 2)
         or (
             (observed_local.replace(tzinfo=None) - parsed[-1][0]).total_seconds() > 180
             and not (
-                time(15, 20) <= observed_local.time() <= time(15, 30)
-                and time(15, 19) <= parsed[-1][0].time() <= time(15, 20)
+                hours.at(15, 20) <= observed_local.time() <= hours.at(15, 30)
+                and hours.at(15, 19) <= parsed[-1][0].time() <= hours.at(15, 20)
             )
             and not (
-                time(15, 31) <= observed_local.time() < time(15, 40)
-                and parsed[-1][0].time() == time(15, 30)
+                hours.at(15, 31) <= observed_local.time() < hours.at(15, 40)
+                and parsed[-1][0].time() == hours.at(15, 30)
             )
         )
         or any(
             (following[0] - previous[0]).total_seconds() > 61
             and not (
-                following[0].time() == time(15, 30)
-                and time(15, 19) <= previous[0].time() <= time(15, 20)
+                following[0].time() == hours.at(15, 30)
+                and hours.at(15, 19) <= previous[0].time() <= hours.at(15, 20)
             )
             for previous, following in zip(parsed, parsed[1:])
         )
@@ -1433,13 +1442,14 @@ class UnverifiedIntradayPathError(RuntimeError):
 def _verified_completed_intraday_minutes(
     rows: list[dict[str, Any]], bar: PriceBar
 ) -> Optional[list[PriceBar]]:
+    hours = krx_session_hours(bar.trade_date)
     if (
         not rows
         or not isinstance(rows[-1], dict)
-        or str(rows[-1].get("trade_time") or "").zfill(6) != "153000"
+        or str(rows[-1].get("trade_time") or "").zfill(6) != hours.stamp(15, 30)
     ):
         return None
-    after_close = datetime.combine(bar.trade_date, time(15, 31), tzinfo=KST)
+    after_close = datetime.combine(bar.trade_date, hours.at(15, 31), tzinfo=KST)
     verified = _verified_intraday_minutes(
         {
             "observed_at": after_close,
@@ -1751,6 +1761,7 @@ def _merge_verified_closing_auction_trade(
 ) -> Optional[list[dict[str, Any]]]:
     """Use only the KRX print captured before after-hours, never an indicative bar."""
 
+    hours = krx_session_hours(snapshot.trade_date)
     if snapshot.source != KIS_CLOSING_AUCTION_SOURCE:
         return rows
     try:
@@ -1762,7 +1773,7 @@ def _merge_verified_closing_auction_trade(
     trade = saved[-1]
     if (
         str(trade.get("trade_date") or "") != snapshot.trade_date.strftime("%Y%m%d")
-        or str(trade.get("trade_time") or "").zfill(6) != "153000"
+        or str(trade.get("trade_time") or "").zfill(6) != hours.stamp(15, 30)
         or not _has_complete_ohlc(
             _safe_number(trade.get("open")), _safe_number(trade.get("high")),
             _safe_number(trade.get("low")), _safe_number(trade.get("price")),
@@ -1774,7 +1785,7 @@ def _merge_verified_closing_auction_trade(
         }) != 1
         or any(not isinstance(row, dict) for row in rows)
         or any(
-            "152000" <= str(row.get("trade_time") or "").zfill(6) < "153000"
+            hours.stamp(15, 20) <= str(row.get("trade_time") or "").zfill(6) < hours.stamp(15, 30)
             and (_safe_number(row.get("volume")) or 0) > 0
             for row in rows
         )
@@ -1783,7 +1794,7 @@ def _merge_verified_closing_auction_trade(
     closing_rows = [
         row for row in rows
         if isinstance(row, dict)
-        and str(row.get("trade_time") or "").zfill(6) == "153000"
+        and str(row.get("trade_time") or "").zfill(6) == hours.stamp(15, 30)
     ]
     if len(closing_rows) > 1 or (
         closing_rows
@@ -1800,7 +1811,7 @@ def _merge_verified_closing_auction_trade(
     ):
         trade = verified_chart_trade
     return sorted(
-        [row for row in rows if isinstance(row, dict) and str(row.get("trade_time") or "").zfill(6) != "153000"]
+        [row for row in rows if isinstance(row, dict) and str(row.get("trade_time") or "").zfill(6) != hours.stamp(15, 30)]
         + [trade],
         key=lambda row: str(row.get("trade_time") or ""),
     )
@@ -1822,9 +1833,10 @@ def capture_closing_auction_trades_for_open_paths(
     """
 
     local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
+    hours = krx_session_hours(local_now.date())
     result = {"candidates": 0, "captured": 0, "unverified": 0}
     if not (
-        time(15, 31) <= local_now.time() < time(15, 40)
+        hours.at(15, 31) <= local_now.time() < hours.at(15, 40)
         and is_korea_market_session_date(local_now.date(), local_now)
     ):
         return result
@@ -1863,7 +1875,7 @@ def capture_closing_auction_trades_for_open_paths(
         if (
             not isinstance(trade, dict)
             or str(trade.get("trade_date") or "") != local_now.strftime("%Y%m%d")
-            or str(trade.get("trade_time") or "").zfill(6) != "153000"
+            or str(trade.get("trade_time") or "").zfill(6) != hours.stamp(15, 30)
             or (_safe_number(trade.get("volume")) or 0) <= 0
             or len({
                 _safe_number(trade.get(field))
@@ -1874,7 +1886,7 @@ def capture_closing_auction_trades_for_open_paths(
             or not rows
             or any(not isinstance(row, dict) for row in rows)
             or any(
-                "152000" <= str(row.get("trade_time") or "").zfill(6) < "153000"
+                hours.stamp(15, 20) <= str(row.get("trade_time") or "").zfill(6) < hours.stamp(15, 30)
                 and (_safe_number(row.get("volume")) or 0) > 0
                 for row in rows
             )
@@ -1883,7 +1895,7 @@ def capture_closing_auction_trades_for_open_paths(
             continue
         closing_rows = [
             row for row in rows
-            if str(row.get("trade_time") or "").zfill(6) == "153000"
+            if str(row.get("trade_time") or "").zfill(6) == hours.stamp(15, 30)
         ]
         if len(closing_rows) > 1 or (
             closing_rows
@@ -1899,7 +1911,7 @@ def capture_closing_auction_trades_for_open_paths(
             [
                 row for row in rows
                 if not _non_trade_closing_auction_row(row)
-                and str(row.get("trade_time") or "").zfill(6) != "153000"
+                and str(row.get("trade_time") or "").zfill(6) != hours.stamp(15, 30)
             ] + [trade],
             key=lambda row: str(row.get("trade_time") or ""),
         )
@@ -1951,7 +1963,7 @@ def finalize_open_intraday_paths_for_session(
     # until the session date rolls over. Never fetch a later day's chart to
     # seal yesterday's execution path.
     if not (
-        local_now.time() >= time(15, 40)
+        local_now.time() >= krx_session_hours(local_now.date()).at(15, 40)
         and is_korea_market_session_date(local_now.date(), local_now)
     ):
         return result
@@ -2039,7 +2051,7 @@ def _load_verified_historical_intraday_paths(
     completed_through = latest_completed_korea_market_session_date(now)
     local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
     if (
-        local_now.time() >= time(15, 40)
+        local_now.time() >= krx_session_hours(local_now.date()).at(15, 40)
         and is_korea_market_session_date(local_now.date(), local_now)
     ):
         # Price and its closing auction complete before the investor-flow
@@ -2086,7 +2098,7 @@ def _load_verified_historical_intraday_paths(
                 and cached.trade_date == snapshot.trade_date
                 and isinstance(cached_at, datetime)
                 and cached_at >= datetime.combine(
-                    snapshot.trade_date, time(15, 31), tzinfo=KST
+                    snapshot.trade_date, krx_session_hours(snapshot.trade_date).at(15, 31), tzinfo=KST
                 ).astimezone(timezone.utc)
             ):
                 try:
@@ -2352,7 +2364,7 @@ def _signal_at(signal_date: Optional[date]) -> Optional[datetime]:
     """Return the deterministic end-of-session timestamp for a daily signal."""
     if signal_date is None:
         return None
-    return datetime.combine(signal_date, time(15, 40), tzinfo=KST)
+    return datetime.combine(signal_date, krx_session_hours(signal_date).at(15, 40), tzinfo=KST)
 
 
 def _target_sell_status(actual_price: Optional[float], target_price: Optional[float]) -> Optional[str]:
@@ -6630,7 +6642,7 @@ def load_market_quant_signal_feed(
     )
     required_price_date = (
         current_time.date()
-        if current_time.time() >= time(15, 40)
+        if current_time.time() >= krx_session_hours(current_time.date()).at(15, 40)
         and is_korea_market_session_date(current_time.date(), current_time)
         else latest_completed_korea_market_session_date(current_time)
     )
