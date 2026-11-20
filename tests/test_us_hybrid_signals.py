@@ -28,6 +28,7 @@ def feed():
             "strategy_version": "position-lifecycle-us-v2-rc1", "snapshot_id": "daily-v2",
             "snapshot_checksum": "verified", "universe_as_of": "2026-10-12",
             "universe_count": 100, "hybrid_setups": setups,
+            "universe_members": [{"code": "AAPL", "cik": "0000320193"}],
             "public_member_signals": [{"code": item["code"], "public_reasons": reasons} for item in setups],
             "items": [{"code": "OLD", "current": {"position_open": True}, "events": []}],
             "performance_summary": {"old": "unchanged"}}
@@ -73,6 +74,120 @@ def db():
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+
+
+def _sector_feed():
+    daily = feed()
+    codes = {"AAPL": "0000320193", "MSFT": "0000789019", "NVDA": "0001045810", "PFE": "0000078003"}
+    for index, code in enumerate(codes):
+        daily["hybrid_setups"][index].update(code=code, name=code, daily_watch=True)
+        daily["public_member_signals"][index]["code"] = code
+    daily["universe_members"] = [{"code": code, "cik": cik} for code, cik in codes.items()]
+    return daily
+
+
+def _sector_tick(state, daily, quotes):
+    size = max(len(prices) for prices in quotes.values())
+    frames = {}
+    for code, prices in quotes.items():
+        frames[code] = chart(prices)
+        frames[code]["meta"]["symbol"] = code
+    return hybrid.advance_us_hybrid_state(
+        state, daily, frames, OPEN + timedelta(minutes=size, seconds=5),
+    )
+
+
+def test_sector_cap_blocks_second_confirmation_across_restart_and_renders_reason(db):
+    daily = _sector_feed()
+    base = hybrid.new_us_hybrid_state(daily, OPEN - timedelta(minutes=1))
+    symbols = ("PFE", "MSFT", "AAPL")
+    watched = _sector_tick(base, daily, {code: [100] for code in symbols})
+    state = _sector_tick(watched, daily, {code: [100, 101] for code in symbols})
+    assert [event["code"] for event in state["events"]] == ["AAPL", "PFE"]
+    assert state["positions"]["AAPL"]["sector_etf"] == "XLK"
+    assert state["entry_candidates"]["MSFT"]["blocked_by"] == ["AAPL"]
+    save(db, state)
+    now = OPEN + timedelta(minutes=2, seconds=8)
+    public = hybrid.project_us_hybrid_feed(db, daily, now=now)
+    assert public["sector_entry_policy"]["blocked_by"] == {"MSFT": ["AAPL"]}
+    assert "MSFT" not in {item["code"] for item in public["items"]}
+    restarted = hybrid.read_us_hybrid_state(db)
+    later = _sector_tick(restarted, daily, {
+        "MSFT": [100, 101, 101], "AAPL": [100, 101, 95],
+    })
+    assert [e["side"] for e in later["events"]] == ["buy", "buy", "sell"]
+    assert later["entry_candidates"]["MSFT"]["status"] == "sector_blocked"
+
+    tomorrow = OPEN + timedelta(days=1)
+    daily.update(snapshot_id="next-daily", universe_as_of="2026-10-13")
+    for minutes in (1, 2):
+        raw = chart([100] * minutes, start=tomorrow)
+        raw["meta"]["symbol"] = "MSFT"
+        later = hybrid.advance_us_hybrid_state(
+            later, daily, {"MSFT": raw}, tomorrow + timedelta(minutes=minutes, seconds=5),
+        )
+    assert later["entry_candidates"]["MSFT"]["status"] == "confirmed"
+    assert later["positions"]["MSFT"]["sector_etf"] == "XLK"
+
+
+def test_sector_cap_partial_holds_slot_and_full_exit_frees_it_in_same_poll():
+    daily = _sector_feed()
+    state = hybrid.new_us_hybrid_state(daily, OPEN - timedelta(minutes=1))
+    state = _sector_tick(state, daily, {"MSFT": [100]})
+    state = _sector_tick(state, daily, {"MSFT": [100, 100], "NVDA": [100, 100]})
+    state = _sector_tick(state, daily, {
+        "AAPL": [100, 100, 100], "NVDA": [100, 100, 101], "MSFT": [100, 100, 103],
+    })
+    assert state["positions"]["MSFT"]["remaining"] == .5
+    assert state["entry_candidates"]["NVDA"]["blocked_by"] == ["MSFT"]
+    state = _sector_tick(state, daily, {
+        "AAPL": [100, 100, 100, 101], "MSFT": [100, 100, 103, 105],
+    })
+    assert [(e["code"], e["side"]) for e in state["events"]] == [
+        ("MSFT", "buy"), ("MSFT", "partial_sell"), ("MSFT", "sell"), ("AAPL", "buy"),
+    ]
+
+
+def test_sector_cap_migrates_existing_setup_and_holding_without_rewriting_events():
+    old = entered()
+    history = deepcopy(old["events"])
+    old.pop("sector_position_limit")
+    old["positions"]["AAPL"].pop("sector_etf")
+    for setup in old["setups"].values():
+        setup.pop("sector_etf")
+    daily = _sector_feed()
+    migrated = hybrid.advance_us_hybrid_state(old, daily, {}, OPEN + timedelta(minutes=3))
+    assert migrated["positions"]["AAPL"]["sector_etf"] == "XLK"
+    assert migrated["setups"]["MSFT"]["sector_etf"] == "XLK"
+    assert migrated["events"] == history
+    missing = deepcopy(daily)
+    missing["snapshot_id"] = "new-members"
+    missing["universe_members"] = [m for m in daily["universe_members"] if m["code"] != "AAPL"]
+    unknown = _sector_tick(old, missing, {"MSFT": [100, 101, 101]})
+    unknown = _sector_tick(unknown, missing, {"MSFT": [100, 101, 101, 101]})
+    assert unknown["events"] == history
+    assert unknown["entry_candidates"]["MSFT"]["pause_reasons"] == ["sector_unclassified"]
+    assert unknown["positions"]["AAPL"]["remaining"] == 1.0
+
+
+def test_sector_cap_recovers_dropped_legacy_holding_from_entry_universe(db, monkeypatch):
+    old = entered()
+    old.pop("sector_position_limit")
+    old["positions"]["AAPL"].pop("sector_etf")
+    save(db, old)
+    daily = _sector_feed()
+    daily["universe_members"] = [m for m in daily["universe_members"] if m["code"] != "AAPL"]
+    monkeypatch.setattr("app.services.us_position_lifecycle.load_us_position_lifecycle_snapshot", lambda *a, **k: daily)
+    dates = []
+    def original(db, day):
+        dates.append(day.isoformat())
+        return {"items": [{"code": "AAPL", "cik": "0000320193"}]}
+    monkeypatch.setattr("app.services.us_signal_universe.load_us_signal_universe_snapshot_for_date", original)
+    hybrid.refresh_us_hybrid_signals(db, now=OPEN + timedelta(minutes=3), loader=lambda code: {})
+    saved = hybrid.read_us_hybrid_state(db)
+    assert dates == ["2026-10-12"]
+    assert saved["positions"]["AAPL"]["sector_etf"] == "XLK"
+    assert saved["events"] == old["events"]
 
 
 def test_hybrid_two_fresh_minutes_enter_once_and_restart_is_idempotent():
