@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
+from app.services.market_calendar import krx_session_hours
 from app.models import DailyPrice, MarketQuantSignalSnapshot, QuantSignalObservedEntry, QuantSignalTransitionBaseline, QuantSignalIntradayPathSnapshot
 from app.services.regular_session_prices import PRICE_FIELDS, UnverifiedRegularSessionPrice
 
@@ -210,7 +211,7 @@ def prepare_forward_envelope(db: Session, code: str, rows: list[DailyPrice], *, 
     from app.services import quant_signals as qs
 
     completed = qs.latest_completed_korea_market_session_date(now)
-    if now.hour * 60 + now.minute >= 15 * 60 + 40 and qs.is_korea_market_session_date(now.date(), now):
+    if now.time() >= krx_session_hours(now.date()).at(15, 40) and qs.is_korea_market_session_date(now.date(), now):
         completed = now.date()
     if completed is None:
         raise UnverifiedRegularSessionPrice("최근 완료 정규장을 확인할 수 없습니다")
@@ -240,11 +241,11 @@ def _flat_replay_publication_sources(db: Session, code: str, *, now: datetime) -
     from app.services import quant_signals as qs
 
     completed = qs.latest_completed_korea_market_session_date(now)
-    if now.time() >= time(15, 40) and qs.is_korea_market_session_date(now.date(), now):
+    if now.time() >= krx_session_hours(now.date()).at(15, 40) and qs.is_korea_market_session_date(now.date(), now):
         completed = now.date()
     if completed is None or completed < FLAT_REPLAY_WARMUP_DATE:
         raise UnverifiedRegularSessionPrice("재시작 전일의 완료 거래일을 확인할 수 없습니다")
-    close_kst = datetime.combine(completed, time(15, 40), qs.KST)
+    close_kst = datetime.combine(completed, krx_session_hours(completed).at(15, 40), qs.KST)
     close_utc = close_kst.astimezone(timezone.utc).replace(tzinfo=None)
     sources = []
     for recent_days in (30, 90):
@@ -462,7 +463,7 @@ def collect_forward_session(db: Session, provider, *, now: datetime, universe_li
     from sqlalchemy import func
 
     completed = qs.latest_completed_korea_market_session_date(now)
-    if now.hour * 60 + now.minute >= 15 * 60 + 40 and qs.is_korea_market_session_date(now.date(), now):
+    if now.time() >= krx_session_hours(now.date()).at(15, 40) and qs.is_korea_market_session_date(now.date(), now):
         completed = now.date()
     if completed is None or completed < REGULAR_FORWARD_START:
         return {"state":"awaiting_first_regular_close", "attempted":0}
@@ -509,9 +510,11 @@ def regular_intraday_quote(quote: dict[str, Any]) -> dict[str, Any]:
     if not rows:
         return quote
     try:
-        selected = sorted((row for row in rows if "090000" <= str(row.get("trade_time", "")).zfill(6) <= "153000"
+        day = date.fromisoformat(str(rows[0].get("trade_date") or ""))
+        hours = krx_session_hours(day)
+        selected = sorted((row for row in rows if hours.stamp(9) <= str(row.get("trade_time", "")).zfill(6) <= hours.stamp(15, 30)
                            and int(row.get("volume") or 0) > 0), key=lambda row: row["trade_time"])
-        if not selected or str(selected[0]["trade_time"]).zfill(6) > "090200":
+        if not selected or str(selected[0]["trade_time"]).zfill(6) > hours.stamp(9, 2):
             return quote
         price = float(quote["price"])
         high, low = max(float(row["high"]) for row in selected), min(float(row["low"]) for row in selected)

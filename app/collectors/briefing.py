@@ -32,7 +32,7 @@ from app.models import (
 )
 from app.collectors.research import latest_report_events
 from app.repository import finish_ingestion, start_ingestion, upsert_many
-from app.services.market_calendar import is_korea_market_session_date
+from app.services.market_calendar import is_korea_market_session_date, krx_session_hours
 
 KST = ZoneInfo("Asia/Seoul")
 KIS_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
@@ -76,6 +76,7 @@ def _halt_bucket_open_candidate(
     points: dict[str, dict[str, object]], weekly_rows: list[dict[str, Any]], target: str,
 ) -> str | None:
     """Identify exactly one post-halt bucket whose only dispute is its open."""
+    hours = krx_session_hours(date.fromisoformat(target))
     candidate = None
     try:
         for bucket in weekly_rows:
@@ -83,7 +84,7 @@ def _halt_bucket_open_candidate(
             if not stamp.startswith(target):
                 continue
             start = stamp[8:]
-            if not "090000" <= start <= "151000":
+            if not hours.stamp(9, 0) <= start <= hours.stamp(15, 10):
                 continue
             end = (datetime.strptime(start, "%H%M%S") + timedelta(minutes=10)).strftime("%H%M%S")
             minutes = [points[t] for t in sorted(points) if start <= t < end and int(points[t].get("volume") or 0) > 0]
@@ -289,9 +290,9 @@ def current_market_status(now: Optional[datetime] = None) -> str:
         return "closed"
     if local.time() < time(8, 30):
         return "closed"
-    if local.time() < time(9, 0):
+    if local.time() < krx_session_hours(local.date()).at(9):
         return "pre_open"
-    if local.time() < time(15, 30):
+    if local.time() < krx_session_hours(local.date()).at(15, 30):
         return "open"
     if local.time() < time(18, 0):
         return "after_hours"
@@ -613,8 +614,9 @@ class KisRestBriefingProvider:
         market_division = str(market_division or "J").strip().upper()
         if market_division not in {"J", "NX", "UN"}:
             raise ValueError("market_division must be one of J, NX, or UN")
+        hours = krx_session_hours(now.date())
         extended_market = market_division in {"NX", "UN"}
-        session_start = "080000" if extended_market else "090000"
+        session_start = "080000" if extended_market else hours.stamp(9)
         if extended_market:
             if now.time() < time(8, 0):
                 cursor = "200000"
@@ -622,10 +624,10 @@ class KisRestBriefingProvider:
                 cursor = "200000"
             else:
                 cursor = now.strftime("%H%M%S")
-        elif now.time() < time(9, 0):
-            cursor = "153000"
-        elif now.time() > time(15, 30):
-            cursor = "153000"
+        elif now.time() < hours.at(9):
+            cursor = hours.stamp(15, 30)
+        elif now.time() > hours.at(15, 30):
+            cursor = hours.stamp(15, 30)
         else:
             cursor = now.strftime("%H%M%S")
 
@@ -696,7 +698,7 @@ class KisRestBriefingProvider:
 
         if not market_live and max_chunks > 1:
             self._ensure_token()
-            closing_time = time(20, 0) if extended_market else time(15, 30)
+            closing_time = time(20, 0) if extended_market else hours.at(15, 30)
             closing_cursor = datetime.combine(now.date(), closing_time)
             cursors = [
                 (closing_cursor - timedelta(minutes=30 * index)).strftime("%H%M%S")
@@ -759,7 +761,8 @@ class KisRestBriefingProvider:
         """
 
         local_now = now.replace(tzinfo=KST) if now.tzinfo is None else now.astimezone(KST)
-        if not (time(15, 31) <= local_now.time() < time(15, 40)):
+        hours = krx_session_hours(local_now.date())
+        if not (hours.at(15, 31) <= local_now.time() < hours.at(15, 40)):
             return None
         payload = self._get(
             "/uapi/domestic-stock/v1/quotations/inquire-ccnl",
@@ -772,7 +775,9 @@ class KisRestBriefingProvider:
         prints: list[tuple[int, int]] = []
         for row in rows:
             trade_time = str(row.get("stck_cntg_hour") or "").zfill(6) if isinstance(row, dict) else ""
-            if not ("153000" <= trade_time <= "153059"):
+            if len(trade_time) != 6 or not trade_time.isdigit() or not (
+                hours.stamp(15, 30) <= trade_time <= hours.stamp(15, 30)[:4] + "59"
+            ):
                 continue
             price = _int(row.get("stck_prpr"))
             volume = _int(row.get("cntg_vol"))
@@ -783,7 +788,7 @@ class KisRestBriefingProvider:
         price = prints[0][0]
         return {
             "trade_date": local_now.strftime("%Y%m%d"),
-            "trade_time": "153000",
+            "trade_time": hours.stamp(15, 30),
             "open": price,
             "high": price,
             "low": price,
@@ -811,9 +816,10 @@ class KisRestBriefingProvider:
             raise ValueError("historical signal replay requires KRX market J")
         if not isinstance(trade_date, date):
             raise ValueError("trade_date must be a date")
+        hours = krx_session_hours(trade_date)
         target = trade_date.strftime("%Y%m%d")
         points: dict[str, dict[str, object]] = {}
-        cursor = "153000"
+        cursor = hours.stamp(15, 30)
         for _ in range(max(1, min(5, (max_points + 119) // 120))):
             payload = self._get(
                 "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
@@ -835,7 +841,7 @@ class KisRestBriefingProvider:
                 if str(row.get("stck_bsop_date") or "") != target:
                     continue
                 trade_time = str(row.get("stck_cntg_hour") or "").zfill(6)
-                if not ("090000" <= trade_time <= "153000"):
+                if not (hours.stamp(9) <= trade_time <= hours.stamp(15, 30)):
                     continue
                 valid_times.append(trade_time)
                 points[trade_time] = {
@@ -848,7 +854,7 @@ class KisRestBriefingProvider:
                     "volume": _int(row.get("cntg_vol")),
                     "trading_value": _int(row.get("acml_tr_pbmn")),
                 }
-            if not valid_times or min(valid_times) <= "090000" or len(points) >= max_points:
+            if not valid_times or min(valid_times) <= hours.stamp(9) or len(points) >= max_points:
                 break
             next_cursor = (
                 datetime.strptime(min(valid_times), "%H%M%S") - timedelta(minutes=1)
@@ -872,10 +878,11 @@ class KisRestBriefingProvider:
         max_points limit must never silently discard the closing auction.
         Cumulative monetary turnover is retained exactly, not summed here.
         """
+        hours = krx_session_hours(trade_date)
         target = trade_date.strftime("%Y%m%d")
         points: dict[str, dict[str, object]] = {}
         baseline = None
-        cursor = "153100"
+        cursor = hours.stamp(15, 31)
         # Some dated responses page fewer than 120 actual-trade rows. Keep a
         # bounded margin beyond the four pages needed for a dense session so
         # the 08:59 day-boundary probe is still reached for sparse sessions.
@@ -893,13 +900,13 @@ class KisRestBriefingProvider:
                 # final print before today's first trade. Keep that response
                 # as provenance, not as proof of zero pre-open turnover.
                 previous = [row for row in all_rows if str(row.get("stck_bsop_date") or "") < target]
-                if previous and points and "085900" < cursor < "091000":
+                if previous and points and hours.stamp(8, 59) < cursor < hours.stamp(9, 10):
                     # A delayed first print (e.g. 09:01) rolls back at 09:00.
                     # Still observe the explicit 08:59 boundary; do not infer
                     # a zero pre-open turnover from the absence of a trade.
-                    cursor = "085900"
+                    cursor = hours.stamp(8, 59)
                     continue
-                if cursor == "085900" and previous:
+                if cursor == hours.stamp(8, 59) and previous:
                     latest = max(previous, key=lambda row: (str(row.get("stck_bsop_date") or ""), str(row.get("stck_cntg_hour") or "")))
                     baseline = {"kind": "observed_day_boundary", "requested_date": target,
                                 "requested_time": cursor, "previous_trade_date": latest.get("stck_bsop_date"),
@@ -910,7 +917,7 @@ class KisRestBriefingProvider:
                 stamp = str(raw.get("stck_cntg_hour") or "").zfill(6)
                 datetime.strptime(stamp, "%H%M%S")
                 times.append(stamp)
-                if not "085900" <= stamp <= "153000":
+                if not hours.stamp(8, 59) <= stamp <= hours.stamp(15, 30):
                     continue
                 row = {"trade_date": target, "trade_time": stamp,
                        "open": _int(raw.get("stck_oprc")), "high": _int(raw.get("stck_hgpr")),
@@ -920,15 +927,15 @@ class KisRestBriefingProvider:
                     raise ValueError("Conflicting dated KRX minute evidence")
                 points[stamp] = row
             earliest = min(times)
-            if earliest <= "085900":
+            if earliest <= hours.stamp(8, 59):
                 break
             next_cursor = (datetime.strptime(earliest, "%H%M%S") - timedelta(minutes=1)).strftime("%H%M%S")
             if next_cursor >= cursor:
                 break
             cursor = next_cursor
         result = {"rows": [points[key] for key in sorted(points)], "preopen_baseline": baseline, "closing_auction_evidence": None}
-        regular_prefix_count = sum("090000" <= stamp <= "151900" for stamp in points)
-        closing_row = points.get("153000")
+        regular_prefix_count = sum(hours.stamp(9, 0) <= stamp <= hours.stamp(15, 19) for stamp in points)
+        closing_row = points.get(hours.stamp(15, 30))
         closing_trade_missing = (
             closing_row is None or int(closing_row.get("volume") or 0) <= 0
         )
@@ -952,18 +959,18 @@ class KisRestBriefingProvider:
                 pass  # missing auction stays unverified, never fabricated
         actual_prefix_times = sorted(
             stamp for stamp, row in points.items()
-            if "090000" <= stamp <= "151900" and int(row.get("volume") or 0) > 0
+            if hours.stamp(9, 0) <= stamp <= hours.stamp(15, 19) and int(row.get("volume") or 0) > 0
         )
         weekly_rows = (
             ((result["closing_auction_evidence"] or {}).get("priceInfos") or {}).get(target) or []
         )
         opening_bucket = next(
-            (row for row in weekly_rows if row.get("localDateTime") == target + "090000"), None
+            (row for row in weekly_rows if row.get("localDateTime") == target + hours.stamp(9, 0)), None
         )
         try:
             opening_offset = (
                 int(opening_bucket["accumulatedTradingVolume"])
-                - sum(int(points[stamp]["volume"]) for stamp in actual_prefix_times if stamp < "091000")
+                - sum(int(points[stamp]["volume"]) for stamp in actual_prefix_times if stamp < hours.stamp(9, 10))
                 if opening_bucket is not None else None
             )
         except (KeyError, TypeError, ValueError):
@@ -972,7 +979,7 @@ class KisRestBriefingProvider:
         if (
             result["closing_auction_evidence"] is not None
             and actual_prefix_times
-            and actual_prefix_times[0] != "090000"
+            and actual_prefix_times[0] != hours.stamp(9, 0)
             and ((opening_offset is not None and opening_offset > 0) or open_conflict_bucket is not None)
         ):
             try:
@@ -984,7 +991,7 @@ class KisRestBriefingProvider:
                 response.raise_for_status()
                 if opening_offset is not None and opening_offset > 0:
                     result["minute_coverage_evidence"] = _parse_naver_minute_coverage(
-                        code, target, response.content
+                        code, target, response.content, bucket_start=hours.stamp(9, 0)
                     )
                 if open_conflict_bucket is not None:
                     minute_bucket = _parse_naver_minute_coverage(

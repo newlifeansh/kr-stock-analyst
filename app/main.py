@@ -150,6 +150,7 @@ from app.services.staging_page_summary import (
     summarize_staging_page,
 )
 from app.services.market_calendar import (
+    krx_session_hours,
     is_korea_market_session_date,
     is_korea_regular_market_session,
     is_scheduled_korea_market_session_date,
@@ -1633,7 +1634,7 @@ def _quant_signal_quote_refresh_active(now: Optional[datetime] = None) -> bool:
     if is_korea_regular_market_session(current):
         return True
     return (
-        time(15, 30) < current.time() <= QUANT_SIGNAL_QUOTE_REFRESH_END
+        krx_session_hours(current.date()).at(15, 30) < current.time() <= QUANT_SIGNAL_QUOTE_REFRESH_END
         and is_korea_market_session_date(current.date(), current)
     )
 
@@ -1779,7 +1780,7 @@ def _verified_next_open_market_candidate(
     if not (
         str(payload.get("universe_as_of") or "")[:10] == signal_date.isoformat()
         and signal_date >= NEXT_OPEN_ENTRY_EFFECTIVE_DATE
-        and generated_at >= datetime.combine(signal_date, time(15, 40), tzinfo=KST)
+        and generated_at >= datetime.combine(signal_date, krx_session_hours(signal_date).at(15, 40), tzinfo=KST)
         and age_seconds >= -SNAPSHOT_MAX_FUTURE_SKEW_SECONDS
         and current.date() > signal_date
     ):
@@ -1871,7 +1872,7 @@ def _market_signal_regular_preflight_key(now: datetime) -> tuple[date, str]:
     current = now.astimezone(KST)
     phase = (
         "premarket" if current.time() < time(9, 0)
-        else "postclose" if current.time() >= time(15, 40)
+        else "postclose" if current.time() >= krx_session_hours(current.date()).at(15, 40)
         else "regular"
     )
     return current.date(), phase
@@ -2065,10 +2066,11 @@ async def _run_market_closing_auction_capture_loop() -> None:
 
     while True:
         now = datetime.now(KST)
-        interval_seconds = 30 if time(15, 30) <= now.time() < time(15, 40) else 300
+        hours = krx_session_hours(now.date())
+        interval_seconds = 30 if hours.at(15, 30) <= now.time() < hours.at(15, 40) else 300
         try:
             if (
-                time(15, 31) <= now.time() < time(15, 40)
+                hours.at(15, 31) <= now.time() < hours.at(15, 40)
                 and is_korea_market_session_date(now.date(), now)
                 and kis_rest_provider.is_configured()
             ):
