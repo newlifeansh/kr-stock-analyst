@@ -40,6 +40,7 @@ from app.us_public_gateway import checked_backend_url, forward_us_http, forward_
 from app.collectors.research import ensure_stock_research_reports
 from app.models import (
     CompanyProfile,
+    SignalSessionPrice,
     DailyPrice,
     DashboardAccessIdentity,
     DashboardAccessQuota,
@@ -263,7 +264,7 @@ from app.services.kis_realtime import (
     kis_tick_session_fields,
     parse_kis_stock_tick,
 )
-from app.services.regular_session_prices import REGULAR_PRICE_EFFECTIVE_DATE
+from app.services.regular_session_prices import REGULAR_PRICE_BASIS, REGULAR_PRICE_EFFECTIVE_DATE
 from app.services.ttl_cache import TTLCache
 from app.services.trends import build_event_graph, build_trend_analysis
 from app.services.web_push import (
@@ -4600,6 +4601,27 @@ def _merge_market_preliminary_notification_history(
     return annotate_market_preliminary_history(result)
 
 
+def _has_recovered_market_signal_inputs(db: Session, payload: dict[str, Any]) -> bool:
+    """Rebuild a cached scan after verified prices arrive for its quarantined codes."""
+    codes = payload.get("execution_replay_unverified_codes")
+    if not isinstance(codes, list) or not codes or payload.get("unverified_codes_isolated") is not True:
+        return False
+    try:
+        generated_at = datetime.fromisoformat(str(payload["snapshot_generated_at"]))
+        through = date.fromisoformat(str(payload["universe_as_of"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+    if generated_at.tzinfo is None:
+        return False
+    return db.scalar(select(SignalSessionPrice.id).where(
+        SignalSessionPrice.code.in_(codes),
+        SignalSessionPrice.basis_version == REGULAR_PRICE_BASIS,
+        SignalSessionPrice.trade_date <= through,
+        SignalSessionPrice.created_at > generated_at.astimezone(timezone.utc).replace(tzinfo=None),
+        SignalSessionPrice.state.in_(("ready", "bounded")),
+    ).limit(1)) is not None
+
+
 @app.get("/market/quant-signals")
 def get_market_quant_signals(
     request: Request,
@@ -4702,24 +4724,21 @@ def get_market_quant_signals(
         isolated_unverified = (
             payload.get("unverified_codes_isolated") is True
         )
-        if freshness["snapshot_state"] == "stale" or (
+        stale_or_incomplete = freshness["snapshot_state"] == "stale" or (
             execution_evidence_incomplete and not isolated_unverified
-        ):
+        )
+        if stale_or_incomplete:
             payload["status"] = "refreshing"
             payload = _suppress_stale_preliminary_market_signals(payload, current_time)
-        if freshness["snapshot_state"] == "stale" or (
-            execution_evidence_incomplete and not isolated_unverified
-        ):
-            # A fresh isolated snapshot is already a valid publication for its
-            # healthy codes.  The five-minute collector owns retries for those
-            # failed codes; enqueuing another full scan on every read lets the
-            # canonical Top150 request continuously take the process lock and
-            # starve secondary scopes such as the Top100 release check.
             background_tasks.add_task(
-                _refresh_market_quant_signal_snapshot,
-                universe_limit,
-                limit,
-                recent_days,
+                _refresh_market_quant_signal_snapshot, universe_limit, limit, recent_days,
+            )
+        elif _has_recovered_market_signal_inputs(db, payload):
+            # The dated evidence has already been collected. Keep the current
+            # publication visible until the ordinary verified replay succeeds.
+            background_tasks.add_task(
+                _refresh_market_quant_signal_snapshot, universe_limit, limit, recent_days,
+                reuse_regular_preflight=True,
             )
         payload = apply_market_signal_reconciliations(payload, now=current_time) or payload
         payload = _suppress_out_of_session_preliminary_market_signals(

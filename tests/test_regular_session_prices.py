@@ -546,6 +546,27 @@ def test_store_recomputes_evidence_and_rejects_forged_ready_state(db):
         rsp.store_regular_session_evidence(db, payload, observed_at=OBSERVED)
 
 
+def test_recovered_price_requeues_only_an_older_affected_signal_snapshot(db):
+    from app.main import _has_recovered_market_signal_inputs
+
+    stored = rsp.store_regular_session_evidence(db, evidence(), observed_at=OBSERVED)
+    db.flush()
+    generated = stored.created_at.replace(tzinfo=timezone.utc)
+    payload = {
+        "execution_replay_unverified_codes": ["005930"],
+        "unverified_codes_isolated": True,
+        "snapshot_generated_at": (generated - timedelta(seconds=1)).isoformat(),
+        "universe_as_of": DAY.isoformat(),
+    }
+    assert _has_recovered_market_signal_inputs(db, payload)
+    assert not _has_recovered_market_signal_inputs(db, {**payload, "execution_replay_unverified_codes": ["000660"]})
+    assert not _has_recovered_market_signal_inputs(db, {**payload, "universe_as_of": (DAY - timedelta(days=1)).isoformat()})
+    assert not _has_recovered_market_signal_inputs(db, {**payload, "snapshot_generated_at": generated.isoformat()})
+    stored.state = "unverified"
+    db.flush()
+    assert not _has_recovered_market_signal_inputs(db, payload)
+
+
 def test_csat_session_collects_actual_auction_and_replays_wall_clock(db, monkeypatch):
     from app.collectors.briefing import KisRestBriefingProvider
     from app.config import Settings
