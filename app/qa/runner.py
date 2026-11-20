@@ -370,6 +370,10 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_home_signal_loading.test_market_signal_request_timeout_aborts_hung_transport",
     ),
     "SIG-US-HYBRID-001": (
+        "tests.test_us_hybrid_signals.test_sector_cap_blocks_second_confirmation_across_restart_and_renders_reason",
+        "tests.test_us_hybrid_signals.test_sector_cap_partial_holds_slot_and_full_exit_frees_it_in_same_poll",
+        "tests.test_us_hybrid_signals.test_sector_cap_migrates_existing_setup_and_holding_without_rewriting_events",
+        "tests.test_us_hybrid_signals.test_sector_cap_recovers_dropped_legacy_holding_from_entry_universe",
         "tests.test_us_hybrid_signals.test_hybrid_ignores_seconds_stamped_forming_tail_not_finished_misalignment",
         "tests.test_us_hybrid_signals.test_hybrid_minute_transport_explicitly_requests_split_evidence",
         "tests.test_us_hybrid_signals.test_hybrid_counts_never_inherit_legacy_daily_positions[preparing]",

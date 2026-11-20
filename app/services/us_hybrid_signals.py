@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.models import MarketQuantSignalSnapshot
 from app.services.us_market_calendar import us_signal_session_state
+from app.services.us_sector_classification import US_SECTOR_ETFS, sector_etf_for_cik
 
 US_HYBRID_VERSION = "position-lifecycle-us-v3-hybrid1"
 LEGACY_US_HYBRID_EXECUTION_MODEL = "completed-close-fresh-minute-confirmation-v1"
@@ -29,6 +30,7 @@ US_HYBRID_START = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
 US_HYBRID_KEY = "us-hybrid-forward-v1"
 US_HYBRID_MAX_AGE_SECONDS = 90
 US_HYBRID_POLL_SECONDS = 30
+US_MAX_OPEN_POSITIONS_PER_SECTOR = 1
 US_PRELIMINARY_VOLUME_RATIO = 0.75
 US_CONFIRMED_VOLUME_RATIO = 1.0
 LABELS = {
@@ -39,7 +41,7 @@ LABELS = {
 }
 HYBRID_NOTICE = (
     "전일 완료 일봉 근거를 바탕으로 정규장 장중 예비 포착을 새로 생성하고, "
-    "포착 이후의 신선한 완료 1분봉에서 매수·매도를 확인합니다. "
+    "포착 이후의 신선한 완료 1분봉에서 매수·매도를 확인합니다. 업종별 동시 보유는 1종목입니다. "
     "+3%에서 원래 비중의 50%, +5%에서 잔여 비중을 매도하며 초기 손실 기준은 -4%입니다. "
     "관측·전송 지연이나 갭으로 해당 가격의 체결을 보장하지 않습니다. 실제 계좌 주문이 아닌 모델 신호입니다."
 )
@@ -271,10 +273,23 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
     session = calendar["current_session"]
     base_ready = _base_ready(feed, now)
     source_identity = str(feed.get("snapshot_id") or "")
-    if base_ready and result.get("setup_snapshot_id") != source_identity:
+    if base_ready and (
+        result.get("setup_snapshot_id") != source_identity
+        or result.get("sector_position_limit") != US_MAX_OPEN_POSITIONS_PER_SECTOR
+    ):
+        # The verified daily membership also covers pre-rollout snapshots
+        # whose hybrid setups did not yet carry the issuer's sector.
+        sectors = {
+            member["code"]: sector_etf_for_cik(member.get("cik"))
+            for member in feed.get("universe_members", [])
+        }
+        for code, held in result["positions"].items():
+            if held["remaining"] > 0 and not held.get("sector_etf") and sectors.get(code):
+                held["sector_etf"] = sectors[code]
+        result["sector_position_limit"] = US_MAX_OPEN_POSITIONS_PER_SECTOR
         previous_setups = result["setups"]
         result["setups"] = {
-            item["code"]: {**item, "armed_at": (
+            item["code"]: {**item, "sector_etf": sectors.get(item["code"]), "armed_at": (
                 previous_setups[item["code"]]["armed_at"]
                 if item["code"] in previous_setups
                 and previous_setups[item["code"]].get("signal_date") == item.get("signal_date")
@@ -291,7 +306,11 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
         return result
     result.setdefault("entry_candidates", {})
     session_date = str(session.session_date)
-    for code, raw in raw_by_code.items():
+    # All events from this poll share a publication time. Apply exits first,
+    # then resolve simultaneous buys by ticker, independent of network order.
+    held_at_start = {code for code, p in result["positions"].items() if p["remaining"] > 0}
+    for code in sorted(raw_by_code, key=lambda c: (c not in held_at_start, c)):
+        raw = raw_by_code[code]
         points, quality = verified_minutes(raw, code, now)
         observation = {"state": quality, "checked_at": now.isoformat(), "session_date": session_date}
         if not points:
@@ -349,6 +368,8 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
                 position["last_exit_at"] = latest["at"]
                 position["last_exit_price"] = price
         elif base_ready and result["last_entry_sessions"].get(code) != session_date:
+            if candidate and candidate.get("blocked_session") == session_date:
+                continue
             reference = _number(setup.get("reference_close"))
             atr = _number(setup.get("atr"))
             supportive = bool(
@@ -392,7 +413,23 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
                     and price_supported
                     and price >= float(candidate["trigger_price"])
                 ):
+                    sector = setup.get("sector_etf")
+                    open_sectors = {
+                        symbol: held.get("sector_etf")
+                        for symbol, held in result["positions"].items() if held["remaining"] > 0
+                    }
+                    if sector not in US_SECTOR_ETFS or any(
+                        held_sector not in US_SECTOR_ETFS for held_sector in open_sectors.values()
+                    ):
+                        candidate.update(paused_at=now.isoformat(), pause_reasons=["sector_unclassified"])
+                        continue
+                    blockers = sorted(symbol for symbol, held_sector in open_sectors.items() if held_sector == sector)
+                    if len(blockers) >= US_MAX_OPEN_POSITIONS_PER_SECTOR:
+                        candidate.update(status="sector_blocked", blocked_session=session_date,
+                                         blocked_at=now.isoformat(), blocked_by=blockers, sector_etf=sector)
+                        continue
                     position = {
+                        "sector_etf": sector,
                         "code": code, "name": setup["name"], "market": setup["market"],
                         "market_cap_rank": setup.get("market_cap_rank"),
                         "entry_price": price, "entry_at": latest["at"], "entry_date": session_date,
@@ -447,6 +484,9 @@ def advance_us_hybrid_state(state: dict, feed: dict, raw_by_code: dict, now: dat
                     US_HYBRID_EXECUTION_MODEL if side == "buy" else None
                 ),
             }
+            if side == "buy":
+                event["sector_etf"] = position["sector_etf"]
+                event["sector_position_limit"] = US_MAX_OPEN_POSITIONS_PER_SECTOR
             result["events"].append(event)
             position["last_event_id"] = event_id
     return result
@@ -467,6 +507,21 @@ def refresh_us_hybrid_signals(db: Session, *, now: datetime | None = None,
         if not _base_ready(feed, current):
             return {"state": "waiting_completed_setups"}
         state = new_us_hybrid_state(feed, current)
+    # Recover pre-policy holdings even if their issuer left today's Top100.
+    # The original validated universe is read-only; the ledger CAS below
+    # persists the classification together with the next transition.
+    members = {item["code"] for item in feed.get("universe_members", [])}
+    for code, position in state["positions"].items():
+        if position["remaining"] > 0 and not position.get("sector_etf") and code not in members:
+            from app.services.us_signal_universe import load_us_signal_universe_snapshot_for_date
+
+            entry_at = _utc(position["entry_at"])
+            if entry_at is None:
+                continue
+            universe_date = us_signal_session_state(entry_at)["latest_completed_date"]
+            original = load_us_signal_universe_snapshot_for_date(db, universe_date) or {}
+            member = next((m for m in original.get("items", []) if m["code"] == code), {})
+            position["sector_etf"] = sector_etf_for_cik(member.get("cik"))
     # Release the read transaction while the provider requests are in flight.
     db.rollback()
     codes = {code for code, value in state["positions"].items() if value["remaining"] > 0}
@@ -583,6 +638,19 @@ def project_us_hybrid_feed(db: Session, feed: dict, *, now: datetime | None = No
         for code, candidate in state.get("entry_candidates", {}).items()
         if result["new_entries_allowed"] and candidate.get("status") == "watching"
     )
+    if state.get("sector_position_limit") is not None:
+        session = calendar["current_session"]
+        blocked = {
+            code: candidate["blocked_by"]
+            for code, candidate in state.get("entry_candidates", {}).items()
+            if session and candidate.get("blocked_session") == str(session.session_date)
+        }
+        codes.difference_update(blocked)
+        result["sector_entry_policy"] = {
+            "max_open_positions_per_sector": state["sector_position_limit"],
+            "classified_setups": sum(s.get("sector_etf") in US_SECTOR_ETFS for s in state["setups"].values()),
+            "blocked_by": blocked,
+        }
     codes.update(state["positions"])
     for code in sorted(codes):
         position = state["positions"].get(code)
