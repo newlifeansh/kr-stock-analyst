@@ -8,7 +8,7 @@ from threading import Event
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateIndex
@@ -160,6 +160,34 @@ def test_validation_serialization_and_failure_never_replace_complete_payload(
         row = db.get(CompletePayloadSnapshot, key)
         assert row.failure_count == 1
         assert row.last_error == "provider unavailable"
+
+
+def test_claim_preserves_queue_order_without_fetching_snapshot_bodies(snapshot_sessions):
+    now = datetime(2026, 8, 13, 3)
+    with snapshot_sessions() as db:
+        for key in ("charts:b", "charts:a", "other"):
+            publish(db, key, {"history": "x" * 262144}, schema_version=3,
+                    fresh_for_seconds=60, now=now)
+            request_refresh(db, key, requested_at=now)
+
+    with snapshot_sessions() as db:
+        selected_columns = []
+
+        def record_columns(conn, cursor, statement, parameters, context, executemany):
+            if cursor.description:
+                selected_columns.extend(column[0] for column in cursor.description)
+
+        event.listen(db.get_bind(), "after_cursor_execute", record_columns)
+        try:
+            for key in ("charts:a", "charts:b"):
+                job = claim(db, "worker", now=now, key_prefixes=["charts:"])
+                assert job is not None
+                assert (job.snapshot_key, job.schema_version, job.failure_count) == (key, 3, 0)
+            assert claim(db, "second", now=now, key_prefixes=["charts:"]) is None
+        finally:
+            event.remove(db.get_bind(), "after_cursor_execute", record_columns)
+        assert "snapshot_key" in selected_columns
+        assert "payload" not in selected_columns
 
 
 def test_cross_process_lease_prevents_stale_worker_publish(snapshot_sessions):

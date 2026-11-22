@@ -383,7 +383,7 @@ def claim(
                 for prefix in normalized_prefixes
             )
         )
-    candidate_statement = select(CompletePayloadSnapshot).where(
+    candidate_statement = select(CompletePayloadSnapshot.snapshot_key).where(
         CompletePayloadSnapshot.refresh_requested_at.is_not(None),
         CompletePayloadSnapshot.refresh_requested_at <= current,
         available_lease,
@@ -401,9 +401,9 @@ def claim(
         )
     )
 
-    for candidate in candidates:
+    for snapshot_key in candidates:
         claim_conditions = [
-            CompletePayloadSnapshot.snapshot_key == candidate.snapshot_key,
+            CompletePayloadSnapshot.snapshot_key == snapshot_key,
             CompletePayloadSnapshot.refresh_requested_at.is_not(None),
             CompletePayloadSnapshot.refresh_requested_at <= current,
             or_(
@@ -422,18 +422,18 @@ def claim(
                 lease_until=lease_until,
                 updated_at=current,
             )
+            .returning(CompletePayloadSnapshot.schema_version, CompletePayloadSnapshot.failure_count)
             .execution_options(synchronize_session=False)
-        )
-        if result.rowcount == 1:
-            db.commit()
+        ).one_or_none()
+        db.commit()
+        if result is not None:
             return SnapshotClaim(
-                snapshot_key=candidate.snapshot_key,
+                snapshot_key=snapshot_key,
                 lease_owner=owner,
                 lease_until=lease_until,
-                schema_version=candidate.schema_version,
-                failure_count=candidate.failure_count,
+                schema_version=result.schema_version,
+                failure_count=result.failure_count,
             )
-        db.commit()
     return None
 
 

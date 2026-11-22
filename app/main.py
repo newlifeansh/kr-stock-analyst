@@ -8751,6 +8751,10 @@ def _load_closed_intraday_snapshot(
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     latest_daily_date = _latest_daily_trade_date(db, code)
     cached = intraday_chart_cache.get(code)
+    if isinstance(cached, dict) and "points_json" in cached:
+        # The cache returns an isolated metadata dict. Decode the persisted
+        # JSON into a fresh list for the same validation and response path.
+        cached["points"] = json.loads(cached.pop("points_json"))
     if isinstance(cached, dict) and _intraday_record_is_usable(
         cached,
         limit=limit,
@@ -8780,8 +8784,15 @@ def _load_closed_intraday_snapshot(
         latest_daily_date=latest_daily_date,
     ):
         return None, None
-    intraday_chart_cache.set(code, record, INTRADAY_CLOSED_TTL_SECONDS)
+    _cache_closed_intraday_snapshot(code, record, snapshot.payload)
     return record, "database"
+
+
+def _cache_closed_intraday_snapshot(code: str, record: dict[str, Any], points_json: str) -> None:
+    metadata = record.copy()
+    del metadata["points"]
+    metadata["points_json"] = points_json
+    intraday_chart_cache.set(code, metadata, INTRADAY_CLOSED_TTL_SECONDS)
 
 
 def _save_closed_intraday_snapshot(
@@ -8812,7 +8823,8 @@ def _save_closed_intraday_snapshot(
         db.add(snapshot)
     snapshot.trade_date = trade_date
     snapshot.source = "kis_rest"
-    snapshot.payload = json.dumps(points, ensure_ascii=False, separators=(",", ":"))
+    points_json = json.dumps(points, ensure_ascii=False, separators=(",", ":"))
+    snapshot.payload = points_json
     snapshot.max_points = limit
     snapshot.point_count = len(points)
     snapshot.validated_on = now.date()
@@ -8830,7 +8842,7 @@ def _save_closed_intraday_snapshot(
         "max_points": limit,
         "fetched_at": fetched_at,
     }
-    intraday_chart_cache.set(code, record, INTRADAY_CLOSED_TTL_SECONDS)
+    _cache_closed_intraday_snapshot(code, record, points_json)
     return record
 
 
