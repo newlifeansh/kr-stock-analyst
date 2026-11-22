@@ -8,7 +8,7 @@ from threading import Event
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateIndex
@@ -23,6 +23,7 @@ from app.models import (
     ResearchReport,
 )
 from app.services.complete_snapshots import (
+    SnapshotCapturePoll,
     SnapshotLeaseLostError,
     SnapshotPublishConflictError,
     claim,
@@ -825,3 +826,34 @@ def test_surge_cold_start_failure_never_masquerades_as_an_empty_complete_snapsho
 
     assert exc_info.value.status_code == 503
     assert queued == [main_module.SURGE_COMPLETE_SNAPSHOT_KEY]
+
+
+def test_etf_poll_skips_validated_body_and_rechecks_same_time_replacements(
+    snapshot_sessions, monkeypatch
+):
+    from unittest.mock import patch
+
+    capture = datetime(2026, 11, 21, 15)
+    poll = SnapshotCapturePoll("etf", 1)
+    with snapshot_sessions() as db:
+        assert poll.captured_at(db) is None
+        publish(db, "etf", {"items": [1]}, fresh_for_seconds=60, captured_at=capture)
+        assert poll.captured_at(db) == capture
+
+        # Supply representative PostgreSQL row versions to the real SELECT
+        # on SQLite, including a replacement with an identical capture time.
+        db.execute(text("ALTER TABLE complete_payload_snapshot ADD COLUMN xmin INTEGER DEFAULT 1"))
+        monkeypatch.setattr(db.get_bind().dialect, "name", "postgresql")
+        with patch("app.services.complete_snapshots.json.loads", wraps=json.loads) as decode:
+            assert poll.captured_at(db) == capture
+            assert poll.captured_at(db) == capture
+            assert decode.call_count == 1
+            db.execute(text("UPDATE complete_payload_snapshot SET payload = 'broken', xmin = 2"))
+            assert poll.captured_at(db) is None
+            db.execute(text("UPDATE complete_payload_snapshot SET payload = '{}', xmin = 3"))
+            assert poll.captured_at(db) == capture
+            assert decode.call_count == 3
+            db.execute(text("UPDATE complete_payload_snapshot SET schema_version = 2, xmin = 4"))
+            assert poll.captured_at(db) is None
+            db.execute(text("UPDATE complete_payload_snapshot SET schema_version = 1, payload = NULL, xmin = 5"))
+            assert poll.captured_at(db) is None

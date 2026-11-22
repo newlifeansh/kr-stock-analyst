@@ -7,7 +7,7 @@ from decimal import Decimal
 import json
 from typing import Any, Callable, Iterable, Optional
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import String, case, cast, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -152,6 +152,53 @@ def get(
         fresh_until=row.fresh_until,
         is_fresh=row.fresh_until > current,
     )
+
+
+class SnapshotCapturePoll:
+    """Read the capture time of a parseable snapshot without retaining its body."""
+
+    def __init__(self, snapshot_key: str, schema_version: int):
+        self.snapshot_key = snapshot_key
+        self.schema_version = schema_version
+        self._validated_version: tuple[str, datetime] | None = None
+
+    def captured_at(self, db: Session) -> datetime | None:
+        if db.get_bind().dialect.name != "postgresql":
+            snapshot = get(db, self.snapshot_key, schema_version=self.schema_version)
+            return snapshot.captured_at if snapshot is not None else None
+
+        # xmin changes on every committed UPDATE, even when a repair preserves
+        # the capture time. Select the version and its body in one MVCC read.
+        row = CompletePayloadSnapshot
+        xmin = cast(literal_column("xmin"), String)
+        body = row.payload
+        if self._validated_version is not None:
+            version, captured = self._validated_version
+            body = case(
+                ((xmin == version) & (row.captured_at == captured), None),
+                else_=row.payload,
+            )
+        result = db.execute(
+            select(xmin, row.captured_at, body).where(
+                row.snapshot_key == self.snapshot_key,
+                row.schema_version == self.schema_version,
+                row.captured_at.is_not(None),
+                row.fresh_until.is_not(None),
+                row.payload.is_not(None),
+            )
+        ).one_or_none()
+        if result is None:
+            self._validated_version = None
+            return None
+        version, captured, serialized = result
+        if serialized is not None:
+            try:
+                json.loads(serialized)
+            except (TypeError, ValueError):
+                self._validated_version = None
+                return None
+            self._validated_version = (version, captured)
+        return captured
 
 
 def publish(

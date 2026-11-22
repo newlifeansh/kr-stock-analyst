@@ -245,6 +245,7 @@ from app.services.stock_dashboard import (
     stock_news_snapshot_metadata,
 )
 from app.services.complete_snapshots import (
+    SnapshotCapturePoll,
     SnapshotPublishConflictError,
     get as get_complete_snapshot,
     publish as publish_complete_snapshot,
@@ -2318,19 +2319,18 @@ def _latest_etf_holdings_refresh_slot(now: Optional[datetime] = None) -> datetim
 
 
 def _etf_holdings_snapshot_due(
-    complete: Any,
+    captured_at: Optional[datetime],
     now: Optional[datetime] = None,
 ) -> bool:
-    if complete is None or getattr(complete, "captured_at", None) is None:
+    if captured_at is None:
         return True
-    captured_at = complete.captured_at
     if captured_at.tzinfo is None:
         captured_at = captured_at.replace(tzinfo=timezone.utc)
     captured_kst = captured_at.astimezone(KST)
     return captured_kst < _latest_etf_holdings_refresh_slot(now)
 
 
-def _queue_due_periodic_complete_snapshots() -> None:
+def _queue_due_periodic_complete_snapshots(etf_poll: SnapshotCapturePoll) -> None:
     with SessionLocal() as db:
         for snapshot_key in _periodic_complete_snapshot_keys():
             complete = get_complete_snapshot(
@@ -2345,12 +2345,7 @@ def _queue_due_periodic_complete_snapshots() -> None:
                     schema_version=COMPLETE_SNAPSHOT_SCHEMA_VERSION,
                 )
         if settings.etf_holdings_snapshot_enabled:
-            etf_complete = get_complete_snapshot(
-                db,
-                ETF_HOLDINGS_SNAPSHOT_KEY,
-                schema_version=ETF_HOLDINGS_SNAPSHOT_SCHEMA_VERSION,
-            )
-            if _etf_holdings_snapshot_due(etf_complete):
+            if _etf_holdings_snapshot_due(etf_poll.captured_at(db)):
                 request_complete_snapshot_refresh(
                     db,
                     ETF_HOLDINGS_SNAPSHOT_KEY,
@@ -2359,9 +2354,12 @@ def _queue_due_periodic_complete_snapshots() -> None:
 
 
 async def _run_complete_snapshot_schedule_loop() -> None:
+    etf_poll = SnapshotCapturePoll(
+        ETF_HOLDINGS_SNAPSHOT_KEY, ETF_HOLDINGS_SNAPSHOT_SCHEMA_VERSION
+    )
     while True:
         try:
-            await asyncio.to_thread(_queue_due_periodic_complete_snapshots)
+            await asyncio.to_thread(_queue_due_periodic_complete_snapshots, etf_poll)
             _get_complete_snapshot_runtime().wake()
         except Exception:  # pragma: no cover - operational safeguard
             logger.exception("Complete snapshot scheduling failed")
@@ -7290,7 +7288,7 @@ def stock_etf_profile(
     if (
         likely_etf
         and settings.etf_holdings_snapshot_enabled
-        and _etf_holdings_snapshot_due(complete)
+        and _etf_holdings_snapshot_due(complete.captured_at if complete else None)
     ):
         request_complete_snapshot_refresh(
             db,

@@ -129,6 +129,12 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-ETF-001": (
+        "tests.test_complete_snapshots.test_etf_poll_skips_validated_body_and_rechecks_same_time_replacements",
+        "tests.test_etf_profiles.test_etf_holdings_refresh_is_due_at_midnight_and_noon_kst",
+        "tests.test_etf_profiles.test_full_etf_holdings_snapshot_keeps_last_complete_item_on_empty_refresh",
+        "tests.test_etf_profiles.test_etf_profile_endpoint_uses_the_persisted_universe_item",
+    ),
     "SIG-ENTRY-010": (
         "tests.test_quant_signals.test_initial_comparison_uses_same_next_open_and_keeps_production_gate",
     ),
