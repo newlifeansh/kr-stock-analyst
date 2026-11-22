@@ -284,6 +284,27 @@ def test_unleased_publish_cannot_clear_active_lease_or_replace_newer_complete(
         assert get(web, key).payload == {"generation": "collector-new"}
 
 
+def test_unleased_publish_uses_returned_key_when_rowcount_is_unknown(snapshot_sessions, monkeypatch):
+    key = "stock_dashboard:005930"
+    with snapshot_sessions() as db:
+        execute = db.execute
+
+        def unknown_insert_rowcount(statement, *args, **kwargs):
+            result = execute(statement, *args, **kwargs)
+            if statement.is_insert:
+                # psycopg can leave SQLAlchemy's INSERT rowcount at -1.
+                result.rowcount = -1
+            return result
+
+        monkeypatch.setattr(db, "execute", unknown_insert_rowcount)
+        publish(db, key, {"items": ["first"]}, fresh_for_seconds=60)
+        with pytest.raises(SnapshotPublishConflictError):
+            publish(db, key, {"items": ["second"]}, fresh_for_seconds=60)
+
+    with snapshot_sessions() as reader:
+        assert get(reader, key).payload == {"items": ["first"]}
+
+
 def test_unleased_publish_can_fill_an_unclaimed_placeholder(snapshot_sessions):
     now = datetime(2026, 8, 13, 3, 45, 0)
     key = "market_indices:placeholder"

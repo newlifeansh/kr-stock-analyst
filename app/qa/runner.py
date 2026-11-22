@@ -131,6 +131,7 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-COM-003": (
         "tests.test_complete_snapshots.test_claim_preserves_queue_order_without_fetching_snapshot_bodies",
+        "tests.test_complete_snapshots.test_unleased_publish_uses_returned_key_when_rowcount_is_unknown",
         "tests.test_complete_snapshots.test_cross_process_lease_prevents_stale_worker_publish",
         "tests.test_complete_snapshots.test_validation_serialization_and_failure_never_replace_complete_payload",
     ),

@@ -283,9 +283,9 @@ def publish(
                             table.c.lease_until <= published_at,
                         )
                     ),
-                )
+                ).returning(table.c.snapshot_key)
             )
-            if result.rowcount != 1:
+            if result.scalar_one_or_none() is None:
                 db.rollback()
                 raise SnapshotPublishConflictError(
                     f"Snapshot already has a complete payload or active lease for {key}",
