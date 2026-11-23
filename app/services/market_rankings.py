@@ -14,6 +14,7 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models import DailyPrice, NewsItem, StockMaster
+from app.services.kr_period_rankings import read_period_rankings
 from app.services.market_calendar import (
     is_scheduled_korea_market_session_date,
     krx_session_hours,
@@ -952,79 +953,6 @@ def _completed_price_cutoff() -> date:
     return now.date() if now.time() > krx_session_hours(now.date()).at(15, 30) else now.date() - timedelta(days=1)
 
 
-def _period_return_items(db: Session, market: Optional[str], mode: str) -> list[dict[str, object]]:
-    coverage_statement = (
-        select(DailyPrice.trade_date, func.count(DailyPrice.code).label("stock_count"))
-        .join(StockMaster, StockMaster.code == DailyPrice.code)
-        .where(DailyPrice.close.is_not(None), DailyPrice.trade_date <= _completed_price_cutoff())
-        .group_by(DailyPrice.trade_date)
-        .order_by(desc(DailyPrice.trade_date))
-        .limit(40)
-    )
-    if market:
-        coverage_statement = coverage_statement.where(StockMaster.market == market.upper())
-    coverage_rows = [row for row in db.execute(coverage_statement) if is_scheduled_korea_market_session_date(row.trade_date)]
-    if not coverage_rows:
-        return []
-    max_coverage = max(int(row.stock_count or 0) for row in coverage_rows)
-    minimum_coverage = max(1, int(max_coverage * 0.75))
-    latest_date = next(
-        (row.trade_date for row in coverage_rows if int(row.stock_count or 0) >= minimum_coverage),
-        coverage_rows[0].trade_date,
-    )
-    previous_date = preceding_korea_session(latest_date, 1)
-    baseline_date = preceding_korea_session(latest_date, 5 if mode == "week" else 21)
-    if previous_date is None or baseline_date is None:
-        return []
-
-    LatestPrice = aliased(DailyPrice)
-    PreviousPrice = aliased(DailyPrice)
-    BaselinePrice = aliased(DailyPrice)
-    statement = (
-        select(
-            StockMaster,
-            LatestPrice,
-            PreviousPrice.close.label("previous_close"),
-            BaselinePrice.close.label("baseline_close"),
-        )
-        .join(LatestPrice, and_(LatestPrice.code == StockMaster.code, LatestPrice.trade_date == latest_date))
-        .outerjoin(PreviousPrice, and_(PreviousPrice.code == StockMaster.code, PreviousPrice.trade_date == previous_date))
-        .outerjoin(BaselinePrice, and_(BaselinePrice.code == StockMaster.code, BaselinePrice.trade_date == baseline_date))
-        .where(LatestPrice.close.is_not(None), BaselinePrice.close.is_not(None))
-    )
-    if market:
-        statement = statement.where(StockMaster.market == market.upper())
-
-    items: list[dict[str, object]] = []
-    for stock, latest, previous_close, baseline_close in db.execute(statement):
-        period_return = _rate(latest.close, baseline_close)
-        items.append(
-            {
-                "code": stock.code,
-                "name": stock.name,
-                "market": stock.market,
-                "trade_date": latest.trade_date,
-                "price": latest.close,
-                "volume": latest.volume,
-                "market_cap": latest.market_cap,
-                "change_rate": _rate(latest.close, previous_close),
-                "_previous_price": previous_close,
-                "_one_week_price": baseline_close if mode == "week" else None,
-                "_one_month_price": baseline_close if mode == "month" else None,
-                "_three_month_price": None,
-                "one_week_return": period_return if mode == "week" else None,
-                "one_month_return": period_return if mode == "month" else None,
-                "three_month_return": None,
-                "trading_value": _row_value(latest),
-                "trading_value_change": None,
-                "per": None,
-                "pbr": None,
-                "sentiment_score": None,
-            }
-        )
-    return items
-
-
 def _latest_session_surge_items(db: Session, market: Optional[str]) -> list[dict[str, object]]:
     date_statement = (
         select(DailyPrice.trade_date)
@@ -1348,17 +1276,19 @@ def build_market_rankings(
 
     if category == "surge" and normalized_mode in {"week", "weekly", "month", "monthly"}:
         period_mode = "week" if normalized_mode in {"week", "weekly"} else "month"
-        items = _period_return_items(db, market, period_mode) if db is not None else []
-        metric_key = "one_week_return" if period_mode == "week" else "one_month_return"
-        maximum_return = Decimal("300") if period_mode == "week" else Decimal("1000")
-        candidates = [
-            item
-            for item in items
-            if Decimal("0") < Decimal(str(item.get(metric_key) or 0)) <= maximum_return
-        ]
-        rankings = _ranked(candidates, "surge", metric_key, True, limit)
-        payload = _live_top_payload(db, category, market, rankings, "database")
-        payload["mode"] = "week" if metric_key == "one_week_return" else "month"
+        payload = read_period_rankings(db, market, period_mode, limit)
+        items = payload["items"]
+        if db is not None and items:
+            # Trading activity remains the recorded, unadjusted session evidence.
+            bars = {bar.code: bar for bar in db.scalars(select(DailyPrice).where(
+                DailyPrice.trade_date == items[0]["trade_date"],
+                DailyPrice.code.in_([item["code"] for item in items]),
+            ))}
+            for item in items:
+                bar = bars.get(item["code"])
+                if bar is not None:
+                    item.update(volume=bar.volume, market_cap=bar.market_cap, trading_value=_row_value(bar))
+        payload["items"] = enrich_market_ranking_sector_fields(db, items)
         return payload
 
     if category in {"etf", "dividend"}:

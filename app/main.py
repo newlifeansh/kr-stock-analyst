@@ -40,6 +40,7 @@ from app.us_public_gateway import checked_backend_url, forward_us_http, forward_
 from app.collectors.research import ensure_stock_research_reports
 from app.models import (
     CompanyProfile,
+    CompletePayloadSnapshot,
     SignalSessionPrice,
     DailyPrice,
     DashboardAccessIdentity,
@@ -164,6 +165,7 @@ from app.services.global_market_assets import (
     fetch_live_global_market_assets,
     merge_global_market_assets,
 )
+from app.services import kr_period_rankings
 from app.services.market_rankings import (
     build_market_period_returns,
     build_market_rankings,
@@ -324,7 +326,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261123v602"
+DASHBOARD_CLIENT_VERSION = "20261123v603"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -332,7 +334,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261123us172"
+US_DASHBOARD_CLIENT_VERSION = "20261123us173"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -2272,6 +2274,12 @@ def _complete_snapshot_handlers() -> tuple[SnapshotHandler, ...]:
             lane="market",
         ),
         SnapshotHandler(
+            key_prefix=kr_period_rankings.PERIOD_RANKING_KEY,
+            builder=_build_kr_period_rankings,
+            fresh_for_seconds=86400,
+            lane="kr-period-returns",
+        ),
+        SnapshotHandler(
             key_prefix=ETF_HOLDINGS_SNAPSHOT_KEY,
             builder=_build_etf_holdings_universe_snapshot,
             fresh_for_seconds=13 * 60 * 60,
@@ -2280,6 +2288,17 @@ def _complete_snapshot_handlers() -> tuple[SnapshotHandler, ...]:
             lane="etf",
         ),
     )
+
+
+def _build_kr_period_rankings(db: Session, _key: str) -> SnapshotBuild:
+    trade_day = kr_period_rankings.completed_session(datetime.now(KST))
+    payload = kr_period_rankings.build_period_snapshot(db, trade_day)
+    # Expire at the close of the next exchange session, including delayed closes.
+    next_day = trade_day + timedelta(days=1)
+    while not is_scheduled_korea_market_session_date(next_day):
+        next_day += timedelta(days=1)
+    remaining = kr_period_rankings.market_close(next_day) - datetime.now(KST)
+    return SnapshotBuild(payload=payload, fresh_for_seconds=max(0, int(remaining.total_seconds())))
 
 
 def _get_complete_snapshot_runtime() -> SnapshotRuntime:
@@ -2345,6 +2364,13 @@ def _queue_due_periodic_complete_snapshots(etf_poll: SnapshotCapturePoll) -> Non
                     snapshot_key,
                     schema_version=COMPLETE_SNAPSHOT_SCHEMA_VERSION,
                 )
+        if not settings.us_market_enabled:
+            # Poll the indexed key without loading thousands of adjusted closes.
+            expires = db.scalar(select(CompletePayloadSnapshot.fresh_until).where(
+                CompletePayloadSnapshot.snapshot_key == kr_period_rankings.PERIOD_RANKING_KEY
+            ))
+            if expires is None or expires <= datetime.utcnow():
+                request_complete_snapshot_refresh(db, kr_period_rankings.PERIOD_RANKING_KEY)
         if settings.etf_holdings_snapshot_enabled:
             if _etf_holdings_snapshot_due(etf_poll.captured_at(db)):
                 request_complete_snapshot_refresh(
@@ -9637,7 +9663,8 @@ def market_rankings(
                 refresh_live=refresh,
                 mode=mode,
             )
-            api_cache.set(key, payload, MARKET_RANKING_TTL_SECONDS)
+            if payload.get("source") != "unavailable":
+                api_cache.set(key, payload, MARKET_RANKING_TTL_SECONDS)
             return payload
         return cached_payload
     except Exception:

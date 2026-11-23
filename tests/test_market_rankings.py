@@ -11,8 +11,9 @@ from sqlalchemy.orm import sessionmaker
 from app import main as main_module
 from app.db import Base
 from app.main import _ensure_market_ranking_stock_masters, _surge_ranking_snapshot_response
-from app.models import DailyPrice, MarketRankingSnapshot, StockMaster
-from app.services import market_rankings
+from app.models import CompletePayloadSnapshot, DailyPrice, MarketRankingSnapshot, StockMaster
+from app.services import kr_period_rankings, market_rankings
+from app.services.complete_snapshots import publish
 
 
 def test_surge_ranking_snapshot_keeps_home_and_more_order_identical():
@@ -359,26 +360,48 @@ def test_delayed_close_keeps_in_progress_day_out_of_saved_returns(monkeypatch):
 @pytest.mark.qa_gate
 def test_period_rankings_use_exact_completed_exchange_sessions(monkeypatch):
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine, tables=[StockMaster.__table__, DailyPrice.__table__])
-    monkeypatch.setattr(market_rankings, "_now_kst", lambda: datetime(2026, 11, 23, 9, 6, tzinfo=market_rankings.KST))
+    Base.metadata.create_all(engine, tables=[
+        StockMaster.__table__, DailyPrice.__table__, CompletePayloadSnapshot.__table__,
+    ])
+    def adjusted_chart(code):
+        closes = {
+            "095910": [("20261022", 5830), ("20261113", 4600), ("20261119", 4300), ("20261120", 4140)],
+            "123690": [("20261022", 5000), ("20261113", 5500), ("20261119", 7000), ("20261120", 8000)],
+            "000001": [("20261112", 1), ("20261119", 500), ("20261120", 1000)],
+        }[code] + [("20261123", 20000)]
+        bars = "".join(f'<item data="{day}|0|0|0|{close}|0"/>' for day, close in closes)
+        return f'<protocol><chartdata symbol="{code}" timeframe="day">{bars}</chartdata></protocol>'.encode()
+    monkeypatch.setattr(kr_period_rankings, "_fetch_chart", adjusted_chart)
     with sessionmaker(bind=engine)() as db:
-        db.add(StockMaster(code="123690", name="한국화장품", market="KOSPI"))
-        for day, close in [
-            ("2026-10-22", 5000), ("2026-11-13", 5500), ("2026-11-19", 7000),
-            ("2026-11-20", 8000), ("2026-11-21", 1000), ("2026-11-23", 9999),
-        ]:
-            db.add(DailyPrice(code="123690", trade_date=date.fromisoformat(day), close=close, volume=1))
+        for code, name in [("123690", "한국화장품"), ("095910", "에스에너지"), ("000001", "신규상장")]:
+            db.add(StockMaster(code=code, name=name, market="KOSPI"))
+        db.add(DailyPrice(code="095910", trade_date=date(2026, 10, 22), close=583))
         db.commit()
+        assert not market_rankings.build_market_rankings(db, category="surge", mode="week")["items"]
+        snapshot = kr_period_rankings.build_period_snapshot(db, date(2026, 11, 20))
+        publish(db, kr_period_rankings.PERIOD_RANKING_KEY, snapshot, fresh_for_seconds=300)
+        monkeypatch.setattr(kr_period_rankings, "_fetch_chart", lambda _code: pytest.fail("GET fetched a chart"))
         for mode, key, expected in [("week", "one_week_return", "45.45"), ("month", "one_month_return", "60.00")]:
             payload = market_rankings.build_market_rankings(db, category="surge", market="KOSPI", mode=mode)
             item, = payload["items"]
+            assert payload["source"] == "naver_adjusted_close"
             assert item["trade_date"] == date(2026, 11, 20)
+            assert item["code"] == "123690" and item["price"] == 8000
             assert item[key] == item["metric_value"] == Decimal(expected)
             assert item["change_rate"] == Decimal("14.29")
-        db.delete(db.query(DailyPrice).filter_by(code="123690", trade_date=date(2026, 11, 13)).one())
-        db.commit()
-        assert not market_rankings.build_market_rankings(db, category="surge", market="KOSPI", mode="week")["items"]
+        assert not market_rankings.build_market_rankings(db, category="surge", market="KOSDAQ", mode="month")["items"]
     engine.dispose()
+
+
+@pytest.mark.qa_gate
+def test_adjusted_period_chart_rejects_incomplete_market_and_wrong_security(monkeypatch):
+    monkeypatch.setattr(kr_period_rankings, "_fetch_chart", lambda _code: b"<protocol/>")
+    with pytest.raises(ValueError, match="coverage"):
+        kr_period_rankings.collect_period_closes([("095910", "test", "KOSDAQ")], date(2026, 11, 20))
+    with pytest.raises(ValueError, match="identity"):
+        kr_period_rankings.chart_closes(b'<protocol><chartdata symbol="000001" timeframe="day"/></protocol>', "095910", set())
+    assert kr_period_rankings.completed_session(datetime(2026, 11, 19, 16, 10, tzinfo=market_rankings.KST)) == date(2026, 11, 18)
+    assert kr_period_rankings.completed_session(datetime(2026, 11, 23, 9, 6, tzinfo=market_rankings.KST)) == date(2026, 11, 20)
 
 
 @pytest.mark.qa_gate
