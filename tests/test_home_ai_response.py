@@ -1142,6 +1142,20 @@ const items = marketAiSignalItems({{
       is_current_holding: true,
       current: {{ action: "holding", position_open: true, entry_price: 152800 }},
     }},
+    {{
+      code: "068270", side: "sell", event_side: "sell", status: "confirmed",
+      execution_date: "2026-08-21", signal_at: "2026-08-21T10:12:00+09:00",
+      state_after: "exited", display_return_kind: "closed_trade", display_return_rate: -4.32,
+    }},
+    {{
+      code: "068270", side: "buy", status: "confirmed", state_after: "holding",
+      signal_at: "2026-08-20T15:40:00+09:00", signal_date: "2026-08-20",
+      execution_date: "2026-08-21", updated_at: "2026-08-21T15:35:00+09:00",
+    }},
+    {{
+      code: "068270", side: "sell", status: "confirmed", state_after: "partially_exited",
+      execution_date: "2026-08-21", confirmed_at: "2026-08-21T09:45:00+09:00",
+    }},
   ],
 }});
 items.push({{
@@ -1164,6 +1178,10 @@ console.log(JSON.stringify({{
     positionOpen: item.current.position_open,
   }})),
   navers: current.filter((item) => item.code === "035420").length,
+  historicalEntry: items.filter((item) => item.code === "068270" && item.side === "buy")
+    .map((item) => [item.signal_at, item.current.position_open]),
+  historicalPartialSale: items.filter((item) => item.state_after === "partially_exited")
+    .map((item) => [item.signal_at, homeAiSignalView(item).label, item.current.position_open]),
   historyCodes: history.map((item) => item.code),
   counts: aiSignalModeCounts(items),
 }}));
@@ -1185,6 +1203,12 @@ console.log(JSON.stringify({{
                 "positionOpen": False,
             },
             {
+                "code": "068270",
+                "stage": "recent-sell",
+                "label": "전량 매도 확정",
+                "positionOpen": False,
+            },
+            {
                 "code": "010950",
                 "stage": "buy-holding",
                 "label": "확정 매수",
@@ -1192,8 +1216,10 @@ console.log(JSON.stringify({{
             },
         ],
         "navers": 1,
+        "historicalEntry": [["2026-08-21", False]],
+        "historicalPartialSale": [["2026-08-21T09:45:00+09:00", "부분 수익 확정(1차)", False]],
         "historyCodes": ["000810"],
-        "counts": {"current": 2, "history": 1},
+        "counts": {"current": 3, "history": 1},
     }
 
 

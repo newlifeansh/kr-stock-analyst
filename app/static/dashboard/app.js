@@ -607,7 +607,7 @@ const WATCHLIST_INVESTOR_STATES = Object.freeze({
     note: "평균 매수가와 현재가를 비교해 수익·손실 구간별 대응 기준을 확인해요.",
   }),
 });
-const HOME_AI_SIGNALS_MARKET_CACHE_KEY = "analyst.homeAiSignals.market.v2";
+const HOME_AI_SIGNALS_MARKET_CACHE_KEY = "analyst.homeAiSignals.market.v3";
 const HOME_AI_SIGNALS_WATCHLIST_CACHE_PREFIX = "analyst.homeAiSignals.watchlist.v2";
 const HOME_AI_SIGNALS_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
 const PUSH_HISTORY_CACHE_PREFIX = "analyst.pushHistory";
@@ -15762,7 +15762,9 @@ function homeAiSignalView(item = {}) {
   if (action === "full_exit_pending") {
     return { key: "recent-sell", label: usModelReplay ? "전략 매도 대기" : "전량 매도 대기", tone: "sell", signalDate, signalAt, updatedAt, preliminary };
   }
-  if (action === "partially_exited" && current.position_open) {
+  if (action === "partially_exited" && (
+    current.position_open || item.event_side === "partial_sell" || item.state_after === "partially_exited"
+  )) {
     const profitStage = Number(current.profit_stage || transition?.profit_stage || 1);
     return { key: "recent-sell", label: `부분 수익 확정(${profitStage}차)`, tone: "sell", signalDate, signalAt, updatedAt, preliminary: false };
   }
@@ -15850,10 +15852,15 @@ function marketAiSignalItems(payload = {}) {
         return null;
       }
       const signalDateToken = String(signalDate).slice(0, 10);
-      const signalAt = (canonicalPending
-        ? [item?.signal_at, item?.updated_at, canonicalCurrent?.as_of, payload.as_of, signalDate]
-        : [item?.signal_at, item?.signal_date, item?.updated_at, payload.as_of, signalDate]
-      ).find((value) => String(value || "").slice(0, 10) === signalDateToken) || signalDate;
+      // A next-open buy can have only an execution date. A later snapshot
+      // refresh must never move that buy past an intraday exit.
+      let eventTimes = [item.confirmed_at, item.signal_at, item.signal_date];
+      if (preliminary) {
+        eventTimes = canonicalPending
+          ? [item.signal_at, item.updated_at, canonicalCurrent?.as_of, payload.as_of]
+          : [item.signal_at, item.signal_date, item.updated_at, payload.as_of];
+      }
+      const signalAt = eventTimes.find((value) => String(value || "").slice(0, 10) === signalDateToken) || signalDate;
       const isBuy = side === "buy";
       const eventSide = String(item?.event_side || "").toLowerCase();
       const effectiveEventSide = canonicalPending
@@ -15966,7 +15973,7 @@ function marketAiSignalItems(payload = {}) {
           action: preliminary
             ? (isBuy ? "entry_pending" : "full_exit_pending")
             : partialProfit ? "partially_exited" : (isBuy ? "entered" : "exited"),
-          position_open: preliminary ? !isBuy : (isBuy || partialProfit),
+          position_open: preliminary ? !isBuy : item.is_current_holding === true,
           model_exposure_percent: partialProfit ? item.position_percent ?? 0 : isBuy ? 100 : 0,
           profit_stage: partialProfit ? item.profit_stage ?? 1 : 0,
           live_observation: preliminary,
