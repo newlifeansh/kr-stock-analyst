@@ -1392,8 +1392,9 @@ def _refresh_entry_filter_shadow_snapshot() -> Optional[dict[str, Any]]:
 
 
 async def _run_entry_filter_shadow_backtest_loop() -> None:
-    """Keep H1/H2/H3 replayed together whenever a new daily dataset exists."""
+    """Warm the shadow series immediately, then refresh it as new data arrives."""
 
+    await _warm_entry_filter_shadow_snapshot()
     while True:
         interval_seconds = 300
         try:
@@ -2414,7 +2415,6 @@ async def lifespan(_: FastAPI):
                     _run_us_position_lifecycle_refresh_loop()
                 )
                 us_hybrid_task = asyncio.create_task(_run_us_hybrid_signal_loop())
-            await _warm_entry_filter_shadow_snapshot()
             entry_filter_shadow_task = asyncio.create_task(
                 _run_entry_filter_shadow_backtest_loop()
             )
