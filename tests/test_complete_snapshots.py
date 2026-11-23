@@ -8,7 +8,7 @@ from threading import Event
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateIndex
@@ -23,6 +23,7 @@ from app.models import (
     ResearchReport,
 )
 from app.services.complete_snapshots import (
+    SnapshotCapturePoll,
     SnapshotLeaseLostError,
     SnapshotPublishConflictError,
     claim,
@@ -161,6 +162,34 @@ def test_validation_serialization_and_failure_never_replace_complete_payload(
         assert row.last_error == "provider unavailable"
 
 
+def test_claim_preserves_queue_order_without_fetching_snapshot_bodies(snapshot_sessions):
+    now = datetime(2026, 8, 13, 3)
+    with snapshot_sessions() as db:
+        for key in ("charts:b", "charts:a", "other"):
+            publish(db, key, {"history": "x" * 262144}, schema_version=3,
+                    fresh_for_seconds=60, now=now)
+            request_refresh(db, key, requested_at=now)
+
+    with snapshot_sessions() as db:
+        selected_columns = []
+
+        def record_columns(conn, cursor, statement, parameters, context, executemany):
+            if cursor.description:
+                selected_columns.extend(column[0] for column in cursor.description)
+
+        event.listen(db.get_bind(), "after_cursor_execute", record_columns)
+        try:
+            for key in ("charts:a", "charts:b"):
+                job = claim(db, "worker", now=now, key_prefixes=["charts:"])
+                assert job is not None
+                assert (job.snapshot_key, job.schema_version, job.failure_count) == (key, 3, 0)
+            assert claim(db, "second", now=now, key_prefixes=["charts:"]) is None
+        finally:
+            event.remove(db.get_bind(), "after_cursor_execute", record_columns)
+        assert "snapshot_key" in selected_columns
+        assert "payload" not in selected_columns
+
+
 def test_cross_process_lease_prevents_stale_worker_publish(snapshot_sessions):
     now = datetime(2026, 8, 13, 3, 0, 0)
     key = "market_indices:30"
@@ -253,6 +282,27 @@ def test_unleased_publish_cannot_clear_active_lease_or_replace_newer_complete(
             )
         web.expire_all()
         assert get(web, key).payload == {"generation": "collector-new"}
+
+
+def test_unleased_publish_uses_returned_key_when_rowcount_is_unknown(snapshot_sessions, monkeypatch):
+    key = "stock_dashboard:005930"
+    with snapshot_sessions() as db:
+        execute = db.execute
+
+        def unknown_insert_rowcount(statement, *args, **kwargs):
+            result = execute(statement, *args, **kwargs)
+            if statement.is_insert:
+                # psycopg can leave SQLAlchemy's INSERT rowcount at -1.
+                result.rowcount = -1
+            return result
+
+        monkeypatch.setattr(db, "execute", unknown_insert_rowcount)
+        publish(db, key, {"items": ["first"]}, fresh_for_seconds=60)
+        with pytest.raises(SnapshotPublishConflictError):
+            publish(db, key, {"items": ["second"]}, fresh_for_seconds=60)
+
+    with snapshot_sessions() as reader:
+        assert get(reader, key).payload == {"items": ["first"]}
 
 
 def test_unleased_publish_can_fill_an_unclaimed_placeholder(snapshot_sessions):
@@ -855,3 +905,34 @@ def test_surge_cold_start_failure_never_masquerades_as_an_empty_complete_snapsho
 
     assert exc_info.value.status_code == 503
     assert queued == [main_module.SURGE_COMPLETE_SNAPSHOT_KEY]
+
+
+def test_etf_poll_skips_validated_body_and_rechecks_same_time_replacements(
+    snapshot_sessions, monkeypatch
+):
+    from unittest.mock import patch
+
+    capture = datetime(2026, 11, 21, 15)
+    poll = SnapshotCapturePoll("etf", 1)
+    with snapshot_sessions() as db:
+        assert poll.captured_at(db) is None
+        publish(db, "etf", {"items": [1]}, fresh_for_seconds=60, captured_at=capture)
+        assert poll.captured_at(db) == capture
+
+        # Supply representative PostgreSQL row versions to the real SELECT
+        # on SQLite, including a replacement with an identical capture time.
+        db.execute(text("ALTER TABLE complete_payload_snapshot ADD COLUMN xmin INTEGER DEFAULT 1"))
+        monkeypatch.setattr(db.get_bind().dialect, "name", "postgresql")
+        with patch("app.services.complete_snapshots.json.loads", wraps=json.loads) as decode:
+            assert poll.captured_at(db) == capture
+            assert poll.captured_at(db) == capture
+            assert decode.call_count == 1
+            db.execute(text("UPDATE complete_payload_snapshot SET payload = 'broken', xmin = 2"))
+            assert poll.captured_at(db) is None
+            db.execute(text("UPDATE complete_payload_snapshot SET payload = '{}', xmin = 3"))
+            assert poll.captured_at(db) == capture
+            assert decode.call_count == 3
+            db.execute(text("UPDATE complete_payload_snapshot SET schema_version = 2, xmin = 4"))
+            assert poll.captured_at(db) is None
+            db.execute(text("UPDATE complete_payload_snapshot SET schema_version = 1, payload = NULL, xmin = 5"))
+            assert poll.captured_at(db) is None

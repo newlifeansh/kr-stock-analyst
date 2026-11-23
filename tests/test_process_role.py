@@ -1,4 +1,6 @@
+import asyncio
 import inspect
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException, Response
@@ -15,6 +17,46 @@ def test_process_role_separates_web_and_collector_workloads():
     assert Settings(process_role="web").runs_collectors() is False
     assert Settings(process_role="collector").runs_web_services() is False
     assert Settings(process_role="collector").runs_collectors() is True
+
+
+@pytest.mark.qa_gate
+def test_collector_can_serve_while_initial_shadow_warmup_is_running(monkeypatch):
+    async def exercise():
+        warming = asyncio.Event()
+        stopped = asyncio.Event()
+
+        async def blocked_warmup():
+            warming.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+        async def idle(*args):
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(main_module, "settings", Settings(
+            process_role="collector", us_market_enabled=False, stock_logo_enabled=False, bootstrap_on_start=False,
+        ))
+        monkeypatch.setattr(main_module, "init_db_with_retry", lambda: None)
+        monkeypatch.setattr(main_module, "recover_interrupted_ingestions", lambda: None)
+        monkeypatch.setattr(main_module, "briefing_runtime", AsyncMock())
+        monkeypatch.setattr(main_module, "web_push_runtime", AsyncMock())
+        monkeypatch.setattr(main_module, "_get_complete_snapshot_runtime", lambda: AsyncMock())
+        for name in (
+            "_run_complete_snapshot_schedule_loop", "_run_intraday_warmup_loop",
+            "_run_market_quant_signal_refresh_loop", "_run_market_quant_signal_detail_refresh_loop",
+            "_run_market_quant_signal_regular_evidence_retry_loop", "_run_market_closing_auction_capture_loop",
+        ):
+            monkeypatch.setattr(main_module, name, idle)
+        monkeypatch.setattr(main_module, "_warm_entry_filter_shadow_snapshot", blocked_warmup)
+        async with asyncio.timeout(3):
+            async with main_module.lifespan(main_module.app):
+                await warming.wait()
+                assert not stopped.is_set()
+            assert stopped.is_set()
+
+    asyncio.run(exercise())
 
 
 def test_process_role_is_normalized_and_invalid_values_fail_fast():

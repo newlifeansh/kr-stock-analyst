@@ -177,6 +177,33 @@ def test_closed_intraday_snapshot_survives_memory_cache_clear():
     assert loaded["trade_date"] == date(2026, 7, 24)
 
 
+def test_closed_chart_cache_preserves_points_and_revalidates_session(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    cache = main.TTLCache(maxsize=1)
+    monkeypatch.setattr(main, "intraday_chart_cache", cache)
+    now = datetime(2026, 7, 24, 18, 0, tzinfo=main.KST)
+    points = _points()
+    points[0].update(open=None, high=101_000, low=98_000, trading_value=2**54)
+    with Session(engine) as db:
+        saved = main._save_closed_intraday_snapshot(db, "000660", points, 30, now)
+        assert saved is not None
+        for source in ("memory", "database", "memory"):
+            if source == "database":
+                cache.clear()
+            record, hit = main._load_closed_intraday_snapshot(db, "000660", 30, now)
+            assert hit == source
+            assert record == saved
+            assert isinstance(record["points"][0]["trading_value"], int)
+            record["points"][0]["price"] = -1
+            cached = cache.get("000660")
+            assert "points" not in cached
+            assert isinstance(cached["points_json"], str)
+        assert main._load_closed_intraday_snapshot(db, "000660", 390, now) == (None, None)
+        next_close = now + timedelta(days=3)
+        assert main._load_closed_intraday_snapshot(db, "000660", 30, next_close) == (None, None)
+
+
 def test_closed_intraday_collection_fetches_time_windows_in_parallel(monkeypatch):
     provider = KisRestBriefingProvider(Settings(kis_app_key="key", kis_app_secret="secret"))
     active = 0

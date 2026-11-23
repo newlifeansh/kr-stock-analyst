@@ -438,19 +438,15 @@ def test_full_etf_holdings_snapshot_keeps_last_complete_item_on_empty_refresh():
 
 
 def test_etf_holdings_refresh_is_due_at_midnight_and_noon_kst():
-    class Complete:
-        def __init__(self, captured_at):
-            self.captured_at = captured_at
-
     before_noon_utc = datetime(2026, 8, 25, 2, 59)
     after_noon_utc = datetime(2026, 8, 25, 3, 1)
     noon_kst = datetime(2026, 8, 25, 12, 0, tzinfo=main_module.KST)
     next_midnight_kst = datetime(2026, 8, 26, 0, 0, tzinfo=main_module.KST)
 
-    assert main_module._etf_holdings_snapshot_due(Complete(before_noon_utc), noon_kst)
-    assert not main_module._etf_holdings_snapshot_due(Complete(after_noon_utc), noon_kst)
+    assert main_module._etf_holdings_snapshot_due(before_noon_utc, noon_kst)
+    assert not main_module._etf_holdings_snapshot_due(after_noon_utc, noon_kst)
     assert main_module._etf_holdings_snapshot_due(
-        Complete(after_noon_utc),
+        after_noon_utc,
         next_midnight_kst,
     )
 

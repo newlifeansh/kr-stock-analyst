@@ -2023,7 +2023,9 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
 @pytest.mark.qa_gate
 def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -> None:
     expected_case_ids = {
+        "DATA-COM-003",
         "DATA-KR-QUOTE-SESSION-001",
+        "DATA-ETF-001",
         "DATA-KR-REGULAR-001",
         "DATA-GLOBAL-002",
         "DATA-COM-008",
