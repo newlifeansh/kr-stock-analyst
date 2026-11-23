@@ -15664,6 +15664,10 @@ function marketRankingBasisLabel(payload = {}, options = {}) {
     const basis = closeDate === "-" ? "미국장 기준 정보 확인 중" : `${closeDate} 미국장 마감 기준`;
     return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
   }
+  if (payload.category === "surge" && firstTradeDate && payload.source === "naver_adjusted_close") {
+    const basis = `${formatDateLabel(firstTradeDate)} 수정종가 기준`;
+    return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
+  }
   if (payload.category === "surge" && firstTradeDate && payload.source === "database") {
     const basis = `${formatDateLabel(firstTradeDate)} 저장 일봉 기준`;
     return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
