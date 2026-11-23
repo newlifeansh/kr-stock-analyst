@@ -2879,7 +2879,7 @@ def test_staging_market_calendar_places_today_second():
     client = TestClient(staging_app)
     shell = client.get("/dashboard?view=home").text
     dashboard_source = client.get("/dashboard-app-v170.js").text
-    assert 'dashboard-app-v170.js?v=20261123v601' in shell
+    assert 'dashboard-app-v170.js?v=20261123v602' in shell
     assert 'document.body.dataset.stagingIa === "tds-video"' in dashboard_source
     assert 'addTrendCalendarDays(anchorKey, -1)' in dashboard_source
 
@@ -3973,7 +3973,7 @@ def test_staging_v172_compacts_ai_stock_response_into_a_visual_decision_flow():
         1,
     )[1].split("/* v156 —", 1)[0]
 
-    assert "ai-response-visual-fold-v174" in shell
+    assert "ai-response-visual-fold-v174-quote-line-v175" in shell
     assert "20261123-ranking-returns-v119" in shell
     labels = (
         "선택한 이유",
