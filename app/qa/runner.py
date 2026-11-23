@@ -129,6 +129,18 @@ def shell_asset_version(shell: str, attribute: str, path: str, version: str) -> 
 # clear the corresponding QA case. Existing catalog entries keep the legacy
 # suite-level evidence contract until they are migrated incrementally.
 PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
+    "DATA-COM-003": (
+        "tests.test_complete_snapshots.test_claim_preserves_queue_order_without_fetching_snapshot_bodies",
+        "tests.test_complete_snapshots.test_unleased_publish_uses_returned_key_when_rowcount_is_unknown",
+        "tests.test_complete_snapshots.test_cross_process_lease_prevents_stale_worker_publish",
+        "tests.test_complete_snapshots.test_validation_serialization_and_failure_never_replace_complete_payload",
+    ),
+    "DATA-ETF-001": (
+        "tests.test_complete_snapshots.test_etf_poll_skips_validated_body_and_rechecks_same_time_replacements",
+        "tests.test_etf_profiles.test_etf_holdings_refresh_is_due_at_midnight_and_noon_kst",
+        "tests.test_etf_profiles.test_full_etf_holdings_snapshot_keeps_last_complete_item_on_empty_refresh",
+        "tests.test_etf_profiles.test_etf_profile_endpoint_uses_the_persisted_universe_item",
+    ),
     "SIG-ENTRY-010": (
         "tests.test_quant_signals.test_initial_comparison_uses_same_next_open_and_keeps_production_gate",
     ),
@@ -636,6 +648,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_live_krx_holiday_still_passes_valid_dated_replay",
     ),
     "DATA-KIS-003": (
+        "tests.test_intraday_cache.test_closed_chart_cache_preserves_points_and_revalidates_session",
+        "tests.test_intraday_cache.test_regular_market_intraday_endpoint_never_uses_snapshot",
         "tests.test_data_signal_qa.test_completed_kis_minute_chart_contract_requires_dated_open_and_close",
         "tests.test_intraday_cache.test_historical_intraday_chart_uses_dated_krx_endpoint_and_paginates",
         "tests.test_intraday_cache.test_kis_premarket_chart_discards_future_same_day_minutes",

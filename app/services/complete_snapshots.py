@@ -7,7 +7,7 @@ from decimal import Decimal
 import json
 from typing import Any, Callable, Iterable, Optional
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import String, case, cast, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -154,6 +154,53 @@ def get(
     )
 
 
+class SnapshotCapturePoll:
+    """Read the capture time of a parseable snapshot without retaining its body."""
+
+    def __init__(self, snapshot_key: str, schema_version: int):
+        self.snapshot_key = snapshot_key
+        self.schema_version = schema_version
+        self._validated_version: tuple[str, datetime] | None = None
+
+    def captured_at(self, db: Session) -> datetime | None:
+        if db.get_bind().dialect.name != "postgresql":
+            snapshot = get(db, self.snapshot_key, schema_version=self.schema_version)
+            return snapshot.captured_at if snapshot is not None else None
+
+        # xmin changes on every committed UPDATE, even when a repair preserves
+        # the capture time. Select the version and its body in one MVCC read.
+        row = CompletePayloadSnapshot
+        xmin = cast(literal_column("xmin"), String)
+        body = row.payload
+        if self._validated_version is not None:
+            version, captured = self._validated_version
+            body = case(
+                ((xmin == version) & (row.captured_at == captured), None),
+                else_=row.payload,
+            )
+        result = db.execute(
+            select(xmin, row.captured_at, body).where(
+                row.snapshot_key == self.snapshot_key,
+                row.schema_version == self.schema_version,
+                row.captured_at.is_not(None),
+                row.fresh_until.is_not(None),
+                row.payload.is_not(None),
+            )
+        ).one_or_none()
+        if result is None:
+            self._validated_version = None
+            return None
+        version, captured, serialized = result
+        if serialized is not None:
+            try:
+                json.loads(serialized)
+            except (TypeError, ValueError):
+                self._validated_version = None
+                return None
+            self._validated_version = (version, captured)
+        return captured
+
+
 def publish(
     db: Session,
     snapshot_key: str,
@@ -236,9 +283,9 @@ def publish(
                             table.c.lease_until <= published_at,
                         )
                     ),
-                )
+                ).returning(table.c.snapshot_key)
             )
-            if result.rowcount != 1:
+            if result.scalar_one_or_none() is None:
                 db.rollback()
                 raise SnapshotPublishConflictError(
                     f"Snapshot already has a complete payload or active lease for {key}",
@@ -336,7 +383,7 @@ def claim(
                 for prefix in normalized_prefixes
             )
         )
-    candidate_statement = select(CompletePayloadSnapshot).where(
+    candidate_statement = select(CompletePayloadSnapshot.snapshot_key).where(
         CompletePayloadSnapshot.refresh_requested_at.is_not(None),
         CompletePayloadSnapshot.refresh_requested_at <= current,
         available_lease,
@@ -354,9 +401,9 @@ def claim(
         )
     )
 
-    for candidate in candidates:
+    for snapshot_key in candidates:
         claim_conditions = [
-            CompletePayloadSnapshot.snapshot_key == candidate.snapshot_key,
+            CompletePayloadSnapshot.snapshot_key == snapshot_key,
             CompletePayloadSnapshot.refresh_requested_at.is_not(None),
             CompletePayloadSnapshot.refresh_requested_at <= current,
             or_(
@@ -375,18 +422,18 @@ def claim(
                 lease_until=lease_until,
                 updated_at=current,
             )
+            .returning(CompletePayloadSnapshot.schema_version, CompletePayloadSnapshot.failure_count)
             .execution_options(synchronize_session=False)
-        )
-        if result.rowcount == 1:
-            db.commit()
+        ).one_or_none()
+        db.commit()
+        if result is not None:
             return SnapshotClaim(
-                snapshot_key=candidate.snapshot_key,
+                snapshot_key=snapshot_key,
                 lease_owner=owner,
                 lease_until=lease_until,
-                schema_version=candidate.schema_version,
-                failure_count=candidate.failure_count,
+                schema_version=result.schema_version,
+                failure_count=result.failure_count,
             )
-        db.commit()
     return None
 
 
