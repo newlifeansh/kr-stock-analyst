@@ -2788,7 +2788,10 @@
         ? `$${rankingUsdPriceFormatter.format(number)}`
         : `${rankingPriceFormatter.format(Math.round(number))}원`;
     };
-    const rankingRatePresentation = (value) => {
+    const rankingRatePresentation = (item) => {
+      const value = item && state.homeRankingCategory === "surge"
+        ? rankingPeriodReturn(item, state.homeRankingMode)
+        : item?.change_rate;
       const number = value === null || value === undefined || value === "" ? null : Number(value);
       if (!Number.isFinite(number)) return { text: "등락률 확인 중", tone: "neutral" };
       const sign = number > 0 ? "+" : "";
@@ -2831,7 +2834,7 @@
         if (price.textContent !== text) price.textContent = text;
       }
       if (item && rate) {
-        const presentation = rankingRatePresentation(item.change_rate);
+        const presentation = rankingRatePresentation(item);
         if (rate.textContent !== presentation.text) rate.textContent = presentation.text;
         rate.className = `staging-home-ranking-rate ${presentation.tone}`;
       }
@@ -2993,7 +2996,7 @@
           className: "staging-home-ranking-price",
           textContent: rankingPriceText(item?.price, "USD"),
         });
-        const ratePresentation = rankingRatePresentation(item?.change_rate);
+        const ratePresentation = rankingRatePresentation(item);
         const rate = Object.assign(document.createElement("span"), {
           className: `staging-home-ranking-rate ${ratePresentation.tone}`,
           textContent: ratePresentation.text,
@@ -3033,7 +3036,7 @@
         const priceText = rankingPriceText(item?.price, "USD");
         if (price && price.textContent !== priceText) price.textContent = priceText;
         if (rate) {
-          const presentation = rankingRatePresentation(item?.change_rate);
+          const presentation = rankingRatePresentation(item);
           if (rate.textContent !== presentation.text) rate.textContent = presentation.text;
           rate.className = `staging-home-ranking-rate ${presentation.tone}`;
         }

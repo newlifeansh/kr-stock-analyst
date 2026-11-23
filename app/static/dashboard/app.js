@@ -1400,6 +1400,7 @@ const state = {
   watchChartLoadSequence: 0,
   selectedWatchChartCode: "",
   marketRankingCache: new Map(),
+  marketRankingRequestId: 0,
   marketRankingSnapshotId: requestedMarketRankingSnapshotId,
   marketRankingMarket: isUnifiedRootPath && !dashboardQueryParams.has("market")
     ? ({ all: "MIXED", kr: "ALL", us: "NASDAQ" }[requestedMarketScope] || "MIXED")
@@ -1989,6 +1990,21 @@ function syncUnifiedMarketScopePresentation(view = state.view) {
   }
 }
 
+function bindHomeRankingModeTabs(filters) {
+  filters?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-home-ranking-mode]");
+    if (button) {
+      setHomeSurgeSector(button.dataset.homeRankingMode);
+    }
+  });
+  filters?.addEventListener("keydown", (event) => {
+    const tabs = Array.from(filters.querySelectorAll("button[data-home-ranking-mode]"));
+    if (tabs.includes(event.target)) {
+      moveRovingTabFocus(event, tabs, event.target);
+    }
+  });
+}
+
 function ensureUnifiedHomeTop50() {
   if (!isUnifiedRootPath || document.getElementById("home-surge-us")) return;
   const domestic = document.getElementById("home-surge");
@@ -2045,6 +2061,7 @@ function ensureUnifiedHomeTop50() {
     }
     button.addEventListener("click", () => setHomeRankingCategory(category));
   }
+  bindHomeRankingModeTabs(usSection.querySelector("#home-surge-sector-filters-us"));
   const usMore = usSection.querySelector("#home-surge-more-us");
   if (usMore) usMore.setAttribute("aria-label", "미국 TOP 50 전체 보기");
   usMore?.addEventListener("click", () => {
@@ -9621,7 +9638,7 @@ function sortMarketLeaderboardItems() {
 }
 
 function updateMarketLeaderboardQuote(code, quote) {
-  if (!code || !quote) {
+  if (state.rankingCategory === "surge" || !code || !quote) {
     return;
   }
   const item = state.marketLeaderboardItems.find((entry) => entry.code === code);
@@ -9633,9 +9650,6 @@ function updateMarketLeaderboardQuote(code, quote) {
   }
   if (quote.change_rate !== null && quote.change_rate !== undefined && quote.change_rate !== "") {
     item.change_rate = quote.change_rate;
-    if (state.rankingCategory === "surge" && normalizeMarketRankingMode("surge", state.marketRankingMode) === "daily") {
-      item.metric_value = quote.change_rate;
-    }
   }
   if (quote.volume !== null && quote.volume !== undefined && quote.volume !== "") {
     item.volume = quote.volume;
@@ -9666,7 +9680,7 @@ function updateMarketLeaderboardQuote(code, quote) {
 }
 
 function connectMarketQuoteStream(code) {
-  if (!code) return;
+  if (!code || state.rankingCategory === "surge") return;
   setQuoteStreamHandler("market", code, {
     onQuote: (payload) => updateMarketLeaderboardQuote(code, payload.quote),
   });
@@ -15650,6 +15664,15 @@ function marketRankingBasisLabel(payload = {}, options = {}) {
     const basis = closeDate === "-" ? "미국장 기준 정보 확인 중" : `${closeDate} 미국장 마감 기준`;
     return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
   }
+  if (payload.category === "surge" && firstTradeDate && payload.source === "database") {
+    const basis = `${formatDateLabel(firstTradeDate)} 저장 일봉 기준`;
+    return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
+  }
+  if (payload.category === "surge" && firstTradeDate && payload.source === "naver_market_rise") {
+    const quoteTime = formatDateLabel(payload.as_of) === firstTradeDate ? payload.as_of : firstTradeDate;
+    const basis = formatDataBasis(quoteTime);
+    return options.includeMarket === false ? basis : `${basis} · ${marketLabel}`;
+  }
   if (firstTradeDate && isDomesticMarketClosed()) {
     const closeDate = formatDateLabel(firstTradeDate);
     if (closeDate !== "-") {
@@ -20573,16 +20596,16 @@ function syncHomeRankingCategoryTabs() {
   }
 }
 
-function renderHomeSurgeSectorFilters() {
-  if (!elements.homeSurgeSectorFilters) {
+function renderHomeSurgeSectorFilters(filters = elements.homeSurgeSectorFilters, category = state.homeRankingCategory) {
+  if (!filters) {
     return;
   }
-  const modes = marketRankingConfig(state.homeRankingCategory).modes;
-  state.homeRankingMode = normalizeMarketRankingMode(state.homeRankingCategory, state.homeRankingMode);
-  const previousScrollLeft = elements.homeSurgeSectorFilters.scrollLeft;
+  const modes = marketRankingConfig(category).modes;
+  const mode = normalizeMarketRankingMode(category, state.homeRankingMode);
+  const previousScrollLeft = filters.scrollLeft;
   const fragment = document.createDocumentFragment();
   for (const option of modes) {
-    const selected = state.homeRankingMode === option.key;
+    const selected = mode === option.key;
     const button = el("button", selected ? "active" : "");
     button.type = "button";
     button.dataset.homeRankingMode = option.key;
@@ -20592,9 +20615,9 @@ function renderHomeSurgeSectorFilters() {
     button.textContent = option.label;
     fragment.append(button);
   }
-  elements.homeSurgeSectorFilters.replaceChildren(fragment);
-  elements.homeSurgeSectorFilters.hidden = modes.length === 0;
-  elements.homeSurgeSectorFilters.scrollLeft = previousScrollLeft;
+  filters.replaceChildren(fragment);
+  filters.hidden = modes.length === 0;
+  filters.scrollLeft = previousScrollLeft;
 }
 
 function renderHomeSurgeList() {
@@ -20625,6 +20648,7 @@ function syncHomeUsRankingControls() {
     button.setAttribute("aria-selected", String(selected));
     button.tabIndex = selected ? 0 : -1;
   }
+  renderHomeSurgeSectorFilters(section.querySelector("#home-surge-sector-filters-us"), category);
   const column = section.querySelector("#home-ranking-column-label-us");
   if (column) column.textContent = marketRankingColumnLabel(category, mode);
 }
@@ -20657,7 +20681,9 @@ async function loadHomeUsRankings(options = {}) {
     ? state.homeRankingMode
     : defaultMarketRankingMode(category);
   const requestId = ++state.homeUsRankingRequestId;
-  if (!list.querySelector(".home-surge-row")) {
+  const selection = `${category}:${mode}`;
+  if (list.dataset.selection !== selection || !list.querySelector(".home-surge-row")) {
+    list.dataset.selection = selection;
     list.innerHTML = `<p class="muted">미국 ${marketRankingConfig(category).loading}</p>`;
   }
   try {
@@ -20677,7 +20703,7 @@ async function loadHomeUsRankings(options = {}) {
 
 function setHomeSurgeSector(mode, options = {}) {
   state.homeRankingMode = normalizeMarketRankingMode(state.homeRankingCategory, mode);
-  for (const button of elements.homeSurgeSectorFilters?.querySelectorAll("button[data-home-ranking-mode]") || []) {
+  for (const button of document.querySelectorAll("#home-view button[data-home-ranking-mode]")) {
     const selected = button.dataset.homeRankingMode === state.homeRankingMode;
     button.classList.toggle("active", selected);
     button.setAttribute("aria-selected", String(selected));
@@ -20697,6 +20723,7 @@ function closeHomeRankingQuoteStreams() {
 }
 
 function updateHomeRankingQuote(code, quote) {
+  if (state.homeRankingCategory === "surge") return;
   const item = state.homeSurgeItems.find((entry) => entry.code === code);
   if (!item || !quote) {
     return;
@@ -20717,7 +20744,7 @@ function updateHomeRankingQuote(code, quote) {
 }
 
 function connectHomeRankingQuoteStreams(items = state.homeSurgeItems.slice(0, 5)) {
-  if (isUsRankingMarket(state.homeRankingMarket)) {
+  if (state.homeRankingCategory === "surge" || isUsRankingMarket(state.homeRankingMarket)) {
     closeHomeRankingQuoteStreams();
     return;
   }
@@ -20729,7 +20756,14 @@ function connectHomeRankingQuoteStreams(items = state.homeSurgeItems.slice(0, 5)
   })));
 }
 
+function rememberRankingSnapshot(payload) {
+  if (!payload.snapshot_id) return;
+  state.marketRankingSnapshotId = payload.snapshot_id;
+  state.marketRankingSnapshotAsOf = payload.snapshot_captured_at || payload.as_of || "";
+}
+
 function renderHomeSurgeRankings(payload = {}) {
+  rememberRankingSnapshot(payload);
   if (!elements.homeSurgeList) {
     return;
   }
@@ -20759,7 +20793,9 @@ async function loadHomeSurgeRankings(options = {}) {
   state.homeRankingMode = mode;
   const requestId = ++state.homeRankingRequestId;
   const config = marketRankingConfig(category);
-  if (!elements.homeSurgeList.querySelector(".home-surge-row")) {
+  const selection = `${market}:${category}:${mode}`;
+  if (elements.homeSurgeList.dataset.selection !== selection || !elements.homeSurgeList.querySelector(".home-surge-row")) {
+    elements.homeSurgeList.dataset.selection = selection;
     elements.homeSurgeList.innerHTML = `<p class="muted">${config.loading}</p>`;
   }
   try {
@@ -20768,7 +20804,6 @@ async function loadHomeSurgeRankings(options = {}) {
       ttlMs,
       limit: 5,
       mode,
-      snapshotId: category === "surge" && mode === "daily" && !force ? state.marketRankingSnapshotId : "",
     });
     if (state.view === "home" && requestId === state.homeRankingRequestId && category === state.homeRankingCategory) {
       renderHomeSurgeRankings(payload);
@@ -20777,6 +20812,8 @@ async function loadHomeSurgeRankings(options = {}) {
     if (state.view === "home" && requestId === state.homeRankingRequestId && !elements.homeSurgeList.querySelector(".home-surge-row")) {
       elements.homeSurgeList.innerHTML = '<p class="muted">순위를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</p>';
     }
+  } finally {
+    if (state.view === "home" && requestId === state.homeRankingRequestId) scheduleMarketRankingRefresh();
   }
 }
 
@@ -20981,6 +21018,15 @@ function stopMarketRankingRefresh() {
 
 function scheduleMarketRankingRefresh() {
   stopMarketRankingRefresh();
+  if (document.hidden) return;
+  if (state.view === "home" && !IS_US_ONLY_PRODUCT
+      && state.homeRankingCategory === "surge" && state.homeRankingMode === "daily") {
+    state.marketRankingRefreshTimer = window.setTimeout(() => {
+      if (!document.hidden && state.view === "home" && state.homeRankingCategory === "surge"
+          && state.homeRankingMode === "daily") void loadHomeSurgeRankings({ ttlMs: 0 });
+    }, 60_000);
+    return;
+  }
   if (state.view !== "movers") {
     return;
   }
@@ -21126,7 +21172,9 @@ function requestMarketRanking(category, market, options = {}) {
         ].filter(Boolean).sort().at(-1) || null,
         items: items.map((item, index) => ({ ...item, rank: index + 1 })),
       };
-      state.marketRankingCache.set(cacheKey, { payload, savedAt: Date.now() });
+      if (state.marketRankingCache.get(cacheKey)?.promise === promise) {
+        state.marketRankingCache.set(cacheKey, { payload, savedAt: Date.now() });
+      }
       return payload;
     });
     state.marketRankingCache.set(cacheKey, { promise });
@@ -21176,15 +21224,13 @@ function requestMarketRanking(category, market, options = {}) {
     timeoutMs: 25_000,
   })
     .then((payload) => {
-      if (!usMarket && normalizedCategory === "surge" && mode === "daily" && payload?.snapshot_id) {
-        state.marketRankingSnapshotId = payload.snapshot_id;
-        state.marketRankingSnapshotAsOf = payload.snapshot_captured_at || payload.as_of || "";
+      if (state.marketRankingCache.get(key)?.promise === promise) {
+        state.marketRankingCache.set(key, { payload, savedAt: Date.now() });
       }
-      state.marketRankingCache.set(key, { payload, savedAt: Date.now() });
       return payload;
     })
     .catch((error) => {
-      state.marketRankingCache.delete(key);
+      if (state.marketRankingCache.get(key)?.promise === promise) state.marketRankingCache.delete(key);
       throw error;
     });
   state.marketRankingCache.set(key, { promise });
@@ -21196,6 +21242,7 @@ async function prefetchMarketRankings(market = currentMarketFilter()) {
 }
 
 async function loadMarketRankings(options = {}) {
+  const requestId = ++state.marketRankingRequestId;
   let category = MARKET_RANKING_CONFIG[options.category]
     ? options.category
     : MARKET_RANKING_CONFIG[state.rankingCategory]
@@ -21224,6 +21271,7 @@ async function loadMarketRankings(options = {}) {
   if (!force && cached?.payload && Date.now() - (cached.savedAt || 0) <= ttlMs) {
     // Keep the route query aligned with the selected market even when the
     // ranking data is served from the in-memory cache.
+    rememberRankingSnapshot(cached.payload);
     syncMarketRankingSnapshotUrl();
     renderRankings(cached.payload);
     renderMarketRankingHeader(cached.payload);
@@ -21240,14 +21288,15 @@ async function loadMarketRankings(options = {}) {
       snapshotId,
       mode: state.marketRankingMode,
     });
-    if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
+    if (state.view === "movers" && requestId === state.marketRankingRequestId) {
+      rememberRankingSnapshot(payload);
       syncMarketRankingSnapshotUrl();
       renderRankings(payload);
       renderMarketRankingHeader(payload);
       scheduleMarketRankingRefresh();
     }
   } catch {
-    if (state.view === "movers" && state.rankingCategory === category && currentMarketFilter() === market) {
+    if (state.view === "movers" && requestId === state.marketRankingRequestId) {
       renderRankingMessage("데이터를 불러오지 못했습니다. 시장 탭을 다시 눌러주세요.");
     }
   }
@@ -32401,18 +32450,7 @@ for (const tab of elements.homeRankingCategoryTabs) {
   ));
 }
 
-elements.homeSurgeSectorFilters?.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-home-ranking-mode]");
-  if (button) {
-    setHomeSurgeSector(button.dataset.homeRankingMode);
-  }
-});
-elements.homeSurgeSectorFilters?.addEventListener("keydown", (event) => {
-  const tabs = Array.from(elements.homeSurgeSectorFilters.querySelectorAll("button[data-home-ranking-mode]"));
-  if (tabs.includes(event.target)) {
-    moveRovingTabFocus(event, tabs, event.target);
-  }
-});
+bindHomeRankingModeTabs(elements.homeSurgeSectorFilters);
 elements.homeSurgeMore?.addEventListener("click", () => {
   state.rankingCategory = state.homeRankingCategory;
   state.marketRankingMode = normalizeMarketRankingMode(state.rankingCategory, state.homeRankingMode);

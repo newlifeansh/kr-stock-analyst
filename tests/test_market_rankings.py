@@ -1,10 +1,14 @@
 import json
-from datetime import datetime, timedelta
+import os
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import Mock
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app import main as main_module
 from app.db import Base
 from app.main import _ensure_market_ranking_stock_masters, _surge_ranking_snapshot_response
 from app.models import DailyPrice, MarketRankingSnapshot, StockMaster
@@ -273,7 +277,7 @@ def test_after_close_surge_uses_current_market_feed(monkeypatch):
         session.close()
 
 
-def test_preopen_surge_falls_back_to_partial_session_history(monkeypatch):
+def test_preopen_surge_requires_two_completed_sessions(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
@@ -301,9 +305,8 @@ def test_preopen_surge_falls_back_to_partial_session_history(monkeypatch):
         )
 
         assert payload["source"] == "database"
-        assert payload["matching_count"] == 1
-        assert [item["code"] for item in payload["items"]] == ["005930"]
-        assert payload["items"][0]["change_rate"] == 10
+        assert payload["matching_count"] == 0
+        assert payload["items"] == []
     finally:
         session.close()
 
@@ -344,28 +347,117 @@ def test_database_surge_rankings_include_period_returns(monkeypatch):
         session.close()
 
 
-def test_parse_naver_market_rise_uses_quote_cells():
-    html = """
-    <html><body><table class="type_2"><tr>
-      <td class="no">1</td><td><a href="/item/main.naver?code=005930" class="tltle">삼성전자</a></td>
-      <td class="number">250,000</td><td class="number">상승 5,000</td>
-      <td class="number"><span>+2.04%</span></td><td class="number">1,234,567</td>
-    </tr></table></body></html>
-    """.encode("euc-kr")
+@pytest.mark.qa_gate
+def test_delayed_close_keeps_in_progress_day_out_of_saved_returns(monkeypatch):
+    session_day = date(2026, 11, 19)
+    for hour, minute, expected in [(16, 10, date(2026, 11, 18)), (16, 31, session_day)]:
+        now = datetime(2026, 11, 19, hour, minute, tzinfo=market_rankings.KST)
+        monkeypatch.setattr(market_rankings, "_now_kst", lambda: now)
+        assert market_rankings._completed_price_cutoff() == expected
 
-    rows = market_rankings._parse_naver_market_rise(html, "KOSPI")
 
-    assert rows == [
-        {
-            "code": "005930",
-            "name": "삼성전자",
-            "market": "KOSPI",
-            "price": 250000,
-            "change_rate": Decimal("2.04"),
-            "volume": 1234567,
-            "trading_value": 308641750000,
+@pytest.mark.qa_gate
+def test_period_rankings_use_exact_completed_exchange_sessions(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine, tables=[StockMaster.__table__, DailyPrice.__table__])
+    monkeypatch.setattr(market_rankings, "_now_kst", lambda: datetime(2026, 11, 23, 9, 6, tzinfo=market_rankings.KST))
+    with sessionmaker(bind=engine)() as db:
+        db.add(StockMaster(code="123690", name="한국화장품", market="KOSPI"))
+        for day, close in [
+            ("2026-10-22", 5000), ("2026-11-13", 5500), ("2026-11-19", 7000),
+            ("2026-11-20", 8000), ("2026-11-21", 1000), ("2026-11-23", 9999),
+        ]:
+            db.add(DailyPrice(code="123690", trade_date=date.fromisoformat(day), close=close, volume=1))
+        db.commit()
+        for mode, key, expected in [("week", "one_week_return", "45.45"), ("month", "one_month_return", "60.00")]:
+            payload = market_rankings.build_market_rankings(db, category="surge", market="KOSPI", mode=mode)
+            item, = payload["items"]
+            assert item["trade_date"] == date(2026, 11, 20)
+            assert item[key] == item["metric_value"] == Decimal(expected)
+            assert item["change_rate"] == Decimal("14.29")
+        db.delete(db.query(DailyPrice).filter_by(code="123690", trade_date=date(2026, 11, 13)).one())
+        db.commit()
+        assert not market_rankings.build_market_rankings(db, category="surge", market="KOSPI", mode="week")["items"]
+    engine.dispose()
+
+
+@pytest.mark.qa_gate
+def test_daily_gainers_rank_latest_session_quotes_across_pages(monkeypatch):
+    def quote(code, name, price, rate, at="2026-11-23T09:06:00+09:00"):
+        return {
+            "itemCode": code, "stockName": name, "closePrice": price, "fluctuationsRatio": rate,
+            "localTradedAt": at, "accumulatedTradingVolume": "1,234",
+            "accumulatedTradingValueRaw": "10,321,000",
         }
+
+    pages = {
+        1: [
+            quote("451250", "삐아", "8,850", "13.32"), quote("109610", "에스와이", "2,245", "-1.54"),
+            quote("439090", "마녀공장", "17,830", "3.84"), quote("187660", "페니트리움바이오", "6,490", "-4.98"),
+            quote("123690", "한국화장품", "7,100", "9.91", "2026-11-23T09:05:00+09:00"),
+        ],
+        2: [
+            quote("123690", "한국화장품", "7,190", "11.30"),
+            quote("000001", "전 거래일", "900", "25", "2026-11-20T15:30:00+09:00"),
+            quote("000002", "날짜 누락", "800", "23", ""),
+            quote("000003", "신규 상장", "15,000", "50.00"),
+        ],
+    }
+    requested = []
+
+    def fetch(url, *, params, **_kwargs):
+        assert url.endswith("/api/stocks/up/KOSDAQ") and params["pageSize"] == 100
+        page = params["page"]
+        requested.append(page)
+        return Mock(json=lambda: {
+            "page": page, "totalCount": 101, "stockListCategoryType": "KOSDAQ", "stocks": pages[page],
+        })
+
+    monkeypatch.setattr(market_rankings.requests, "get", fetch)
+    monkeypatch.setattr(market_rankings, "_enrich_market_period_returns", lambda items, max_items: items)
+    monkeypatch.setattr(market_rankings, "MARKET_RISE_CACHE", type(market_rankings.MARKET_RISE_CACHE)())
+    payload = market_rankings.build_market_rankings(None, category="surge", market="KOSDAQ", limit=5)
+    assert requested == [1, 2]
+    assert payload["source"] == "naver_market_rise"
+    assert [(r["name"], r["price"], r["change_rate"]) for r in payload["items"]] == [
+        ("신규 상장", 15000, Decimal("50")), ("삐아", 8850, Decimal("13.32")),
+        ("한국화장품", 7190, Decimal("11.30")), ("마녀공장", 17830, Decimal("3.84")),
     ]
+    assert all(row["volume"] == 1234 and row["trading_value"] == 10321000 for row in payload["items"])
+    assert all(row["trade_date"].isoformat() == "2026-11-23" for row in payload["items"])
+
+
+@pytest.mark.parametrize("second_source,second_date", [
+    ("database", "2026-11-23"), ("naver_market_rise", "2026-11-20"),
+])
+def test_daily_gainers_reject_mixed_exchange_snapshots(monkeypatch, second_source, second_date):
+    def build(_db, *, market, **_kwargs):
+        kospi = market == "KOSPI"
+        return {
+            "source": "naver_market_rise" if kospi else second_source,
+            "universe_count": 1,
+            "items": [{"code": "000001" if kospi else "000002", "change_rate": 1,
+                       "trade_date": "2026-11-23" if kospi else second_date}],
+        }
+
+    monkeypatch.setattr(main_module, "build_market_rankings", build)
+    with pytest.raises(ValueError, match="one session and source"):
+        main_module._build_surge_ranking_snapshot_payload(None, refresh_live=True)
+
+
+@pytest.mark.qa_live
+@pytest.mark.skipif(os.environ.get("RUN_LIVE_MARKET_RANKING_QA") != "1", reason="Opt-in read-only market data check")
+def test_live_gainer_feed_supplies_dated_prices_and_rates():
+    snapshot = main_module._build_surge_ranking_snapshot_payload(None, refresh_live=True)
+    for name in ("KOSPI", "KOSDAQ", "ALL"):
+        bucket = snapshot["markets"][name]
+        rows = bucket["items"]
+        assert bucket["source"] == "naver_market_rise" and rows
+        rates = [row["change_rate"] for row in rows]
+        assert rates == sorted(rates, reverse=True) and min(rates) > 0
+        assert len({row["code"] for row in rows}) == len(rows)
+        assert len({row["trade_date"] for row in rows}) == 1
+        assert all(datetime.fromisoformat(row["updated_at"]).date() == row["trade_date"] for row in rows)
 
 
 def test_live_market_rise_uses_latest_session_date_on_weekend(monkeypatch):

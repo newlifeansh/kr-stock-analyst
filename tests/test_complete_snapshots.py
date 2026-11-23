@@ -725,6 +725,36 @@ def test_incomplete_surge_refresh_never_deletes_previous_complete_snapshot(monke
     engine.dispose()
 
 
+def test_database_fallback_preserves_newer_verified_gainers(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    MarketRankingSnapshot.__table__.create(engine)
+    with sessionmaker(bind=engine)() as db:
+        live = _surge_payload()
+        fallback = _surge_payload()
+        for name in ("KOSPI", "KOSDAQ", "ALL"):
+            for payload, source, date_text in [
+                (live, "naver_market_rise", "2026-11-23"), (fallback, "database", "2026-11-20"),
+            ]:
+                bucket = payload["markets"][name]
+                bucket["source"] = source
+                for row in bucket["items"]:
+                    row["trade_date"] = date_text
+                    if payload is live:
+                        row["updated_at"] = date_text + "T09:06:00+09:00"
+        live["as_of"] = "2026-11-23T09:08:00+09:00"
+        previous = _surge_snapshot("verified-today", live)
+        previous.expires_at = datetime.utcnow() + timedelta(hours=1)
+        db.add(previous)
+        db.commit()
+        monkeypatch.setattr(main_module, "_build_surge_ranking_snapshot_payload", lambda *_a, **_kw: fallback)
+        snapshot = main_module._load_surge_ranking_snapshot(db, snapshot_id=None, refresh=True)
+        result = main_module._surge_ranking_snapshot_response(snapshot, market=None, limit=5)
+        assert result["snapshot_id"] == "verified-today"
+        assert result["as_of"] == "2026-11-23T09:06:00+09:00"
+        assert result["snapshot_captured_at"].isoformat() == live["as_of"]
+    engine.dispose()
+
+
 def test_complete_surge_refresh_cleans_only_expired_previous_snapshots(monkeypatch):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine, tables=[MarketRankingSnapshot.__table__])
