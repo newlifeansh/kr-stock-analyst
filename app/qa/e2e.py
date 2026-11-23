@@ -2842,7 +2842,10 @@ def run_e2e_checks(
                           ?.querySelector('.home-ai-signal-metric-label');
                         const badge = row?.querySelector('[data-field="ai_signal_freshness"]');
                         const sellPrice = row?.querySelector('[data-metric="sell-price"] .home-ai-signal-metric-value');
+                        const entryPrice = row?.querySelector('[data-field="ai_signal_price"]');
                         return {
+                          entryPrice: entryPrice?.textContent?.trim() || '',
+                          entryLabel: entryPrice?.previousElementSibling?.textContent?.trim() || '',
                           value: Number(value?.dataset.rawValue),
                           text: value?.textContent?.trim() || '',
                           label: label?.textContent?.trim() || '',
@@ -2867,6 +2870,7 @@ def run_e2e_checks(
                         ariaAtomic: statusNode.getAttribute('aria-atomic') || '',
                       });
 
+                      const beforeQuote = readRow('005930');
                       dispatchQuoteStreamPayload(quote('005930', 10, 105000, 0));
                       dispatchQuoteStreamPayload(quote('000660', 10, 55000, 0));
                       dispatchQuoteStreamPayload(quote('005930', 11, 106000, 10));
@@ -2967,7 +2971,7 @@ def run_e2e_checks(
                       state.aiSignalReconcilePending = false;
 
                       return {
-                        accepted, staleRejected, mixedFallback, fallback, recovered,
+                        beforeQuote, accepted, staleRejected, mixedFallback, fallback, recovered,
                         rejectedAck, restoredAck, historyStatus,
                         revision: {
                           initialAccepted, changedAccepted, duplicateAccepted,
@@ -2982,6 +2986,11 @@ def run_e2e_checks(
                 mixed_fallback = live_return_contract["mixedFallback"]
                 fallback = live_return_contract["fallback"]
                 recovered = live_return_contract["recovered"]
+                entry_states = [live_return_contract["beforeQuote"], accepted["holding"],
+                                fallback["holding"], recovered["holding"]]
+                if any(row["entryLabel"] != "매수 확정가" or row["entryPrice"] != "100,000원"
+                       or "매수 확정가 100,000원" not in row["rowAria"] for row in entry_states):
+                    raise QaFailure("시세 수신 전후 매수 확정가 표시가 달라졌습니다.", {"rows": entry_states})
                 if (
                     accepted["holding"]["value"] != 6
                     or accepted["pendingSell"]["value"] != 11

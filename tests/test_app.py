@@ -5433,7 +5433,7 @@ def test_ai_signal_sell_cards_keep_confirmed_entry_price_and_stream_live_returns
     assert "const entryPrice = pendingEntry" in market_adapter
     assert "entry_price: entryPrice," in market_adapter
     assert "return sanitizePendingEntryAiSignal(mapped);" in market_adapter
-    assert "entry_price: item.entry_price ?? (isBuy && !preliminary ? item.price ?? null : null)," in market_adapter
+    assert "entry_price: item.entry_price ?? (confirmedBuy ? eventPrice : null)," in market_adapter
     assert "entry_price: item.entry_price ?? null," in market_adapter
     assert "holding_context: holdingContext," in market_adapter
     assert "signal_origin: canonicalCurrent?.signal_origin || item.signal_origin || null," in market_adapter
@@ -5463,7 +5463,7 @@ def test_ai_signal_sell_cards_keep_confirmed_entry_price_and_stream_live_returns
     assert "transition.entry_price" in trade_context
     assert "latestEvent.entry_price" in trade_context
     assert trade_context.index('(view.preliminary ? actionSide : "")') < trade_context.index("|| item.side")
-    assert 'if (side === "sell") {\n    return { side, price: entryPrice };\n  }' in trade_context
+    assert "return { side, price: confirmedEntry.price };" in trade_context
     assert "current.partial_exit_price" not in trade_context
 
     price_metric = source[

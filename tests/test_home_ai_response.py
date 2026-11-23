@@ -587,6 +587,37 @@ console.log(JSON.stringify({{
     assert result["returnRate"] == pytest.approx(5.2657, abs=0.001)
 
 
+def test_confirmed_buy_price_uses_only_entry_evidence_for_the_position() -> None:
+    source = app_source()
+    adapter = source[source.index("function marketAiSignalItems("):source.index("function combineAiSignalPayloads(")]
+    metrics = source[source.index("function aiSignalConfirmedEntry("):source.index("function formatAiSignalHistoryTime(")]
+    script = adapter + metrics + """
+const formatNumber = value => Number(value).toLocaleString("ko-KR");
+const view = { key: "recent-buy", preliminary: false };
+const base = { code: "003490", side: "buy", status: "confirmed",
+  signal_date: "2026-11-20", execution_date: "2026-11-23", price: 30700 };
+const current = { action: "holding", position_open: true, entry_date: "2026-11-23", price: 30300 };
+const buy = { side: "buy", execution_date: "2026-11-23", price: 30700 };
+const rows = [
+  base,
+  { ...base, price: 30300, current: { ...current, entry_price: 30700 } },
+  { ...base, price: 30300, entry_price: "", current, events: [buy] },
+  { ...base, price: 30300, current: { ...current, lifecycle: { latest_transition: {
+      side: "buy", transition_date: "2026-11-23", entry_price: 30700
+  } } } },
+  { ...base, current, events: [{ ...buy, execution_date: "2026-11-19" }, { ...buy, side: "sell" }] },
+  { ...base, execution_date: null },
+];
+const items = marketAiSignalItems({ items: rows });
+console.log(JSON.stringify(items.map(item => aiSignalPriceLine(item, view))));
+"""
+    result = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == [
+        "매수 확정가 30,700원", "매수 확정가 30,700원", "매수 확정가 30,700원", "매수 확정가 30,700원",
+        "매수 확정가 확인 중", "매수 확정가 확인 중",
+    ]
+
+
 def test_us_pending_exit_adapter_preserves_confirmed_entry_event() -> None:
     source = app_source()
     market_start = source.index("function marketAiSignalItems(")

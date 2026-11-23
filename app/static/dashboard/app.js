@@ -15862,6 +15862,8 @@ function marketAiSignalItems(payload = {}) {
       }
       const signalAt = eventTimes.find((value) => String(value || "").slice(0, 10) === signalDateToken) || signalDate;
       const isBuy = side === "buy";
+      const confirmedBuy = isBuy && !preliminary;
+      const eventPrice = confirmedBuy && !item.execution_date ? null : item.price ?? null;
       const eventSide = String(item?.event_side || "").toLowerCase();
       const effectiveEventSide = canonicalPending
         ? (canonicalAction === "partial_exit_pending" ? "partial_sell" : side)
@@ -15980,8 +15982,8 @@ function marketAiSignalItems(payload = {}) {
           score: item.score ?? null,
           price: item.price ?? null,
           as_of: item.updated_at || payload.as_of || signalDate,
-          entry_date: isBuy && !preliminary ? signalDate : null,
-          entry_price: item.entry_price ?? (isBuy && !preliminary ? item.price ?? null : null),
+          entry_date: confirmedBuy ? item.execution_date ?? null : null,
+          entry_price: item.entry_price ?? (confirmedBuy ? eventPrice : null),
           target_sell_price: item.target_sell_price ?? null,
           target_sell_status: item.target_sell_status || null,
           target_sell_delta: item.target_sell_delta ?? null,
@@ -15994,7 +15996,7 @@ function marketAiSignalItems(payload = {}) {
               signal_at: signalAt,
               signal_date: signalDate,
               transition_date: signalDate,
-              price: item.price ?? null,
+              price: eventPrice,
               entry_price: item.entry_price ?? null,
               target_sell_price: item.target_sell_price ?? null,
               target_sell_status: item.target_sell_status || null,
@@ -16378,26 +16380,29 @@ function aiSignalConfirmedEntry(item = {}) {
   const transition = current.lifecycle?.latest_transition || {};
   const entryDate = String(current.entry_date || item.execution_date || "").slice(0, 10);
   const events = Array.isArray(item.events) ? item.events : [];
+  const validPrice = (price) => (typeof price === "number" || typeof price === "string")
+    && Number.isFinite(Number(price)) && Number(price) > 0;
   const matchingEvent = [...events].reverse().find((event) => {
     const eventSide = String(event?.side || "").toLowerCase();
     const eventDate = String(event?.execution_date || event?.transition_date || "").slice(0, 10);
     return eventSide === "buy"
-      && event?.price !== null
-      && event?.price !== undefined
+      && (validPrice(event.price) || validPrice(event.entry_price))
       && (!entryDate || eventDate === entryDate);
   });
   const transitionIsEntry = String(transition.side || "").toLowerCase() === "buy"
-    && transition.price !== null
-    && transition.price !== undefined
     && (
       !entryDate
       || String(transition.transition_date || transition.execution_date || "").slice(0, 10) === entryDate
     );
-  const price = item.entry_price
-    ?? current.entry_price
-    ?? item.holding_context?.entry_price
-    ?? matchingEvent?.price
-    ?? (transitionIsEntry ? transition.price : null);
+  const price = [
+    item.entry_price,
+    current.entry_price,
+    item.holding_context?.entry_price,
+    matchingEvent?.price,
+    matchingEvent?.entry_price,
+    transitionIsEntry ? transition.price : null,
+    transitionIsEntry ? transition.entry_price : null,
+  ].find(validPrice) ?? null;
   const executionDate = item.execution_date
     || current.entry_date
     || matchingEvent?.execution_date
@@ -16429,18 +16434,10 @@ function aiSignalTradeContext(item = {}, view = homeAiSignalView(item) || {}) {
     };
   }
   const confirmedEntry = aiSignalConfirmedEntry(item);
-  const entryPrice = confirmedEntry.price
-    ?? transition.entry_price
-    ?? latestEvent.entry_price;
-  if (side === "sell") {
-    return { side, price: entryPrice };
+  if (side === "sell" || side === "partial_sell") {
+    return { side: "sell", price: confirmedEntry.price ?? transition.entry_price ?? latestEvent.entry_price };
   }
-  const price = entryPrice
-    ?? (view.preliminary ? item.live_price ?? current.price ?? item.price : null)
-    ?? item.price
-    ?? transition.price
-    ?? latestEvent.price;
-  return { side, price };
+  return { side, price: confirmedEntry.price };
 }
 
 function aiSignalPriceLine(item, view) {
@@ -16463,7 +16460,7 @@ function aiSignalPriceMetric(item, view) {
   const trade = aiSignalTradeContext(item, view);
   const label = trade.side === "sell"
     ? "매수가"
-    : (trade.reference === "signal" ? "신호 기준가" : (view.preliminary ? "예상 매수가" : "매수가"));
+    : (trade.reference === "signal" ? "신호 기준가" : "매수 확정가");
   if (trade.price === null || trade.price === undefined || trade.price === "") {
     return {
       key: "price",
