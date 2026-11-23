@@ -1400,6 +1400,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_cvna_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed."
+        "test_ant_first_two_sessions_are_covered_but_not_signal_eligible",
+        "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_wmb_sony_top100_boundary_restores_complete_coverage",
         "tests.test_us_position_lifecycle_fail_closed."
         "test_reviewed_now_isrg_top100_boundary_restores_complete_coverage",
@@ -1671,6 +1673,8 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "test_older_sector_snapshots_are_preserved_until_current_rebuild[v12]",
         "tests.test_us_position_lifecycle_runtime."
         "test_older_sector_snapshots_are_preserved_until_current_rebuild[v13]",
+        "tests.test_us_position_lifecycle_runtime."
+        "test_older_sector_snapshots_are_preserved_until_current_rebuild[v14]",
         "tests.test_us_position_lifecycle_runtime.test_sector_v10_snapshot_is_preserved_until_v11_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v9_snapshot_is_preserved_until_v10_rebuild",
         "tests.test_us_position_lifecycle_runtime.test_sector_v8_snapshot_is_preserved_until_v9_rebuild",

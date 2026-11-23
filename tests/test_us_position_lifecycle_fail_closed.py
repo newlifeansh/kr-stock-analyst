@@ -49,6 +49,7 @@ def test_sector_etf_mapping_uses_only_reviewed_cik_taxonomy():
         ("0000313838", "Consumer Staples", "XLY"),  # Sony Group ADR
         ("0001393818", "Technology", "XLF"),  # Blackstone
         ("0001690820", "Technology", "XLY"),  # Carvana
+        ("0002130357", "Financials", "XLK"),  # Anthropic
     ]
     for cik, misleading_display_sector, expected in cases:
         assert (
@@ -365,6 +366,29 @@ def test_reviewed_cvna_top100_boundary_restores_complete_coverage():
     assert payload["data_coverage_count"] == 100
     assert payload["sector_classification_errors"] == {}
     assert payload["sector_classification_version"] == US_SECTOR_ETF_CLASSIFICATION_VERSION
+
+
+def test_ant_first_two_sessions_are_covered_but_not_signal_eligible():
+    completed = date(2026, 11, 20)
+    universe = _universe(as_of=completed)
+    universe["items"][-1].update(code="ANT", cik="0002130357")
+    stock = _bars(0.0017, through=completed)
+    histories = {
+        "SPY": _bars(0.0007, through=completed),
+        "QQQ": _bars(0.0009, through=completed),
+        "XLK": _bars(0.0010, through=completed),
+        **{item["code"]: stock for item in universe["items"]},
+    }
+    histories["ANT"] = stock[-2:]
+    payload = build_us_position_lifecycle_feed(
+        limit=100, now=datetime(2026, 11, 23, 1, 0, tzinfo=UTC),
+        universe_payload=universe, history_loader=lambda symbol: histories.get(symbol, []),
+    )
+    assert payload["status"] == "ready"
+    assert payload["data_coverage_count"] == 100
+    assert payload["sector_classification_errors"] == {}
+    assert payload["insufficient_history_codes"] == ["ANT"]
+    assert payload["signal_eligible_count"] == 99
 
 
 def test_one_unreviewed_issuer_sector_blocks_every_new_entry():

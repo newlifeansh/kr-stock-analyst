@@ -11,7 +11,7 @@ fails closed for an issuer that has not yet been reviewed for this version.
 from typing import Final
 
 
-US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v14"
+US_SECTOR_ETF_CLASSIFICATION_VERSION: Final = "us-sector-etf-cik-v15"
 US_SECTOR_ETFS: Final[frozenset[str]] = frozenset(
     {"XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"}
 )
@@ -61,6 +61,11 @@ def _cik_map(etf: str, values: str) -> dict[str, str]:
 # Carvana as an auto dealer (SIC 5500), and State Street lists it in XLY.
 # https://data.sec.gov/submissions/CIK0001690820.json
 # https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-xly.xlsx
+# v15 adds Anthropic. EDGAR identifies SIC 7372 and Nasdaq confirms software.
+# XLK is the sector benchmark for software companies.
+# https://data.sec.gov/submissions/CIK0002130357.json
+# https://api.nasdaq.com/api/company/ANT/company-profile
+# https://www.ssga.com/us/en/intermediary/etfs/state-street-technology-select-sector-spdr-etf-xlk
 US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
     **_cik_map(
         "XLK",
@@ -70,7 +75,7 @@ US_SECTOR_ETF_BY_CIK: Final[dict[str, str]] = {
         0001321655 0000707549 0000006951 0001571996 0001973239 0001327567
         0001000184 0002023554 0001596532 0000319201 0000097476 0000051143
         0001535527 0001108524 0001137789 0001835632 0000804328 0000006281
-        0000106040 0001594805 0000820313 0001467373 0001373715
+        0000106040 0001594805 0000820313 0001467373 0001373715 0002130357
         """,
     ),
     **_cik_map(
