@@ -6581,8 +6581,6 @@ body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-name-row h2 {
   font-weight: 790 !important;
   letter-spacing: -0.05em !important;
   line-height: 1.22 !important;
-  overflow-wrap: break-word !important;
-  word-break: keep-all !important;
 }
 
 body[data-staging-ia="tds-video"] #stock-view :is(
@@ -6687,16 +6685,17 @@ body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero > .stock-pre-m
   min-height: var(--tc-touch) !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 7px !important;
+  gap: 3px !important;
   margin: -2px 0 -5px !important;
   border: 0 !important;
   border-radius: 10px !important;
-  padding: 8px 5px 8px 0 !important;
+  padding: 8px 0 !important;
   color: var(--tc-muted) !important;
   background: transparent !important;
-  font-size: 13px !important;
+  font-size: clamp(12px, 3.2vw, 13px) !important;
   font-weight: 720 !important;
   line-height: 1.4 !important;
+  white-space: nowrap !important;
 }
 
 body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero > .stock-pre-market.staging-stock-market-status[data-status-tone="live"] {
@@ -14973,7 +14972,26 @@ body[data-staging-ia="tds-video"] #stock-view .staging-stock-hero-change {
 
 body[data-staging-ia="tds-video"] #stock-view .staging-stock-orderability,
 body[data-staging-ia="tds-video"] #stock-view .staging-stock-status-separator {
+  flex: none;
   color: var(--tc-muted) !important;
+}
+
+/* Let long quote text scroll within its own row or cell. Keep the logo,
+   order state and trading-hours control in place. */
+body[data-staging-ia="tds-video"] #stock-view :is(
+  .staging-stock-hero-name-row h2,
+  .staging-stock-hero-price,
+  .staging-stock-hero-change,
+  #stock-market-status-label,
+  .staging-stock-quote-before-tabs .stock-v3-quote-metrics :is(dt, dd)
+) {
+  min-width: 0;
+  white-space: nowrap !important;
+  overflow-x: auto;
+}
+
+body[data-staging-ia="tds-video"] #stock-view .staging-stock-quote-before-tabs .stock-v3-quote-metrics > div {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* v87 — use the supplied matching heart and search silhouettes in both themes. */
