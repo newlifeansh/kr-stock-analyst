@@ -141,6 +141,13 @@ def is_scheduled_korea_market_session_date(target: date) -> bool:
         return False
 
 
+def preceding_korea_session(target: date, sessions: int) -> Optional[date]:
+    try:
+        return _scheduled_krx_calendar().session_offset(target.isoformat(), -sessions).date()
+    except (TypeError, ValueError):
+        return None
+
+
 def is_korea_market_session_date(target: date, now: Optional[datetime] = None) -> bool:
     current = _kst_datetime(now)
     if target.weekday() >= 5 or target > current.date():

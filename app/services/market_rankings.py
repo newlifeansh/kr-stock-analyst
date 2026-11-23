@@ -14,13 +14,18 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models import DailyPrice, NewsItem, StockMaster
-from app.services.market_calendar import latest_korea_market_session_date
+from app.services.market_calendar import (
+    is_scheduled_korea_market_session_date,
+    krx_session_hours,
+    latest_korea_market_session_date,
+    preceding_korea_session,
+)
 from app.services.sector_taxonomy import investment_sector_fields
 from app.services.stock_dashboard import NAVER_CACHE, _keyword_score, _naver_snapshot, _rate, _round_decimal
 from app.services.ttl_cache import TTLCache
 
 KST = timezone(timedelta(hours=9))
-NAVER_MARKET_RISE_URL = "https://finance.naver.com/sise/sise_rise.naver"
+NAVER_MARKET_RISE_URL = "https://m.stock.naver.com/api/stocks/up"
 NAVER_CHART_URL = "https://fchart.stock.naver.com/sise.nhn"
 NAVER_DOMESTIC_LIST_URL = "https://m.stock.naver.com/front-api/domestic/stock/list"
 NAVER_REALTIME_QUOTES_URL = "https://polling.finance.naver.com/api/realtime/domestic/stock"
@@ -101,13 +106,6 @@ def _latest_ranking_trade_date(db: Optional[Session], now: Optional[datetime] = 
     return _previous_weekday(current.date())
 
 
-def _is_regular_session(now: Optional[datetime] = None) -> bool:
-    current = now or _now_kst()
-    if current.weekday() >= 5:
-        return False
-    return (current.hour, current.minute) >= (9, 0) and (current.hour, current.minute) <= (15, 30)
-
-
 def _row_value(row: DailyPrice) -> Optional[int]:
     if row.trading_value is not None:
         return row.trading_value
@@ -124,48 +122,61 @@ def _mapping_row_value(row: dict[str, object]) -> Optional[int]:
     return None
 
 
-def _parse_naver_market_rise(html: bytes, market: str) -> list[dict[str, object]]:
-    soup = BeautifulSoup(html.decode("euc-kr", "replace"), "html.parser")
-    rows: list[dict[str, object]] = []
-    for link in soup.select("table.type_2 a.tltle"):
-        match = re.search(r"[?&]code=([0-9A-Z]+)", str(link.get("href") or ""))
-        row = link.find_parent("tr")
-        cells = row.find_all("td") if row else []
-        if not match or len(cells) < 6:
+def _fetch_naver_market_rise(market: str) -> list[dict[str, object]]:
+    page_size = 100
+
+    def fetch_page(page: int) -> dict:
+        response = requests.get(
+            f"{NAVER_MARKET_RISE_URL}/{market}",
+            params={"page": page, "pageSize": page_size},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if (
+            payload.get("stockListCategoryType") != market
+            or payload.get("page") != page
+            or not isinstance(payload.get("stocks"), list)
+        ):
+            raise ValueError("Unexpected Naver gainers page")
+        return payload
+
+    first = fetch_page(1)
+    rows = list(first["stocks"])
+    page_count = (int(first["totalCount"]) + page_size - 1) // page_size
+    if page_count > 1:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for payload in executor.map(fetch_page, range(2, page_count + 1)):
+                rows.extend(payload["stocks"])
+
+    # Quotes can move between pages. Rank each symbol once using its newest observation.
+    by_code = {}
+    for row in rows:
+        code = str(row.get("itemCode") or "")
+        observed_at = str(row.get("localTradedAt") or "")
+        price = _integer(row.get("closePrice"))
+        rate = _decimal(row.get("fluctuationsRatio"))
+        if (
+            not re.fullmatch(r"[0-9A-Z]{6}", code)
+            or not row.get("stockName")
+            or price is None or price <= 0
+            or rate is None or not rate.is_finite()
+        ):
             continue
         try:
-            price = int(cells[2].get_text(" ", strip=True).replace(",", ""))
-            change_rate = Decimal(
-                cells[4].get_text(" ", strip=True).replace(",", "").replace("%", "").replace("+", "")
-            )
-            volume = int(cells[5].get_text(" ", strip=True).replace(",", ""))
-        except (ValueError, ArithmeticError):
+            traded_at = datetime.fromisoformat(observed_at)
+        except ValueError:
             continue
-        if price <= 0 or change_rate <= 0:
-            continue
-        rows.append(
-            {
-                "code": match.group(1),
-                "name": link.get_text(" ", strip=True),
-                "market": market,
-                "price": price,
-                "change_rate": _round_decimal(change_rate),
-                "volume": volume,
-                "trading_value": price * volume,
+        if code not in by_code or observed_at > by_code[code]["updated_at"]:
+            by_code[code] = {
+                "code": code, "name": row["stockName"], "market": market,
+                "trade_date": traded_at.date(), "updated_at": observed_at,
+                "price": price, "change_rate": rate,
+                "volume": _integer(row.get("accumulatedTradingVolume")),
+                "trading_value": _integer(row.get("accumulatedTradingValueRaw")),
             }
-        )
-    return rows
-
-
-def _fetch_naver_market_rise(market: str) -> list[dict[str, object]]:
-    response = requests.get(
-        NAVER_MARKET_RISE_URL,
-        params={"sosok": "1" if market == "KOSDAQ" else "0"},
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=12,
-    )
-    response.raise_for_status()
-    return _parse_naver_market_rise(response.content, market)
+    return list(by_code.values())
 
 
 def _parse_naver_chart_baselines(payload: bytes) -> dict[str, Optional[int]]:
@@ -279,11 +290,14 @@ def _naver_market_rise_items(db: Optional[Session], market: Optional[str]) -> li
             try:
                 fetched.extend(future.result())
             except Exception:
-                continue
+                return []
     if not fetched:
         return []
 
-    trade_date = _latest_ranking_trade_date(db)
+    trade_date = max((row["trade_date"] for row in fetched if row.get("trade_date")), default=None)
+    if trade_date is None:
+        trade_date = _latest_ranking_trade_date(db)
+    fetched = [row for row in fetched if row.get("trade_date", trade_date) == trade_date]
     if db is None:
         return [
             {
@@ -933,40 +947,35 @@ def _fast_price_items(db: Session, market: Optional[str], lookback: int = 64) ->
     return [item for stock, prices in groups.values() if (item := _base_item_from_rows(stock, prices))]
 
 
+def _completed_price_cutoff() -> date:
+    now = _now_kst()
+    return now.date() if now.time() > krx_session_hours(now.date()).at(15, 30) else now.date() - timedelta(days=1)
+
+
 def _period_return_items(db: Session, market: Optional[str], mode: str) -> list[dict[str, object]]:
-    required_sessions = 6 if mode == "week" else 22
     coverage_statement = (
         select(DailyPrice.trade_date, func.count(DailyPrice.code).label("stock_count"))
         .join(StockMaster, StockMaster.code == DailyPrice.code)
-        .where(DailyPrice.close.is_not(None))
+        .where(DailyPrice.close.is_not(None), DailyPrice.trade_date <= _completed_price_cutoff())
         .group_by(DailyPrice.trade_date)
         .order_by(desc(DailyPrice.trade_date))
         .limit(40)
     )
     if market:
         coverage_statement = coverage_statement.where(StockMaster.market == market.upper())
-    coverage_rows = list(db.execute(coverage_statement))
+    coverage_rows = [row for row in db.execute(coverage_statement) if is_scheduled_korea_market_session_date(row.trade_date)]
     if not coverage_rows:
         return []
     max_coverage = max(int(row.stock_count or 0) for row in coverage_rows)
     minimum_coverage = max(1, int(max_coverage * 0.75))
-    latest_complete_date = next(
+    latest_date = next(
         (row.trade_date for row in coverage_rows if int(row.stock_count or 0) >= minimum_coverage),
         coverage_rows[0].trade_date,
     )
-    date_statement = (
-        select(DailyPrice.trade_date)
-        .where(DailyPrice.trade_date <= latest_complete_date)
-        .distinct()
-        .order_by(desc(DailyPrice.trade_date))
-        .limit(required_sessions)
-    )
-    recent_dates = list(db.scalars(date_statement))
-    if len(recent_dates) < required_sessions:
+    previous_date = preceding_korea_session(latest_date, 1)
+    baseline_date = preceding_korea_session(latest_date, 5 if mode == "week" else 21)
+    if previous_date is None or baseline_date is None:
         return []
-    latest_date = recent_dates[0]
-    previous_date = recent_dates[1]
-    baseline_date = recent_dates[5] if mode == "week" else recent_dates[21]
 
     LatestPrice = aliased(DailyPrice)
     PreviousPrice = aliased(DailyPrice)
@@ -1020,22 +1029,24 @@ def _latest_session_surge_items(db: Session, market: Optional[str]) -> list[dict
     date_statement = (
         select(DailyPrice.trade_date)
         .join(StockMaster, StockMaster.code == DailyPrice.code)
+        .where(DailyPrice.trade_date <= _completed_price_cutoff(), DailyPrice.close.is_not(None))
         .distinct()
         .order_by(desc(DailyPrice.trade_date))
     )
     if market:
         date_statement = date_statement.where(StockMaster.market == market.upper())
     date_statement = date_statement.limit(16)
-    now = _now_kst()
     completed_dates = [
         trade_date
         for trade_date in db.scalars(date_statement)
-        if trade_date.weekday() < 5
-        and not (trade_date >= now.date() and (now.hour, now.minute) <= (15, 30))
+        if is_scheduled_korea_market_session_date(trade_date)
     ]
     if len(completed_dates) < 2:
         return []
-    latest_date, previous_date = completed_dates[:2]
+    latest_date = completed_dates[0]
+    previous_date = preceding_korea_session(latest_date, 1)
+    if previous_date not in completed_dates:
+        return []
 
     LatestPrice = aliased(DailyPrice)
     PreviousPrice = aliased(DailyPrice)
@@ -1244,60 +1255,6 @@ def _valuation_rank(
     return output
 
 
-def _enrich_live_rankings(items: list[dict[str, object]], category: str, limit: int) -> list[dict[str, object]]:
-    def enrich(item: dict[str, object]) -> dict[str, object]:
-        snapshot = _naver_snapshot(str(item["code"]), refresh=True)
-        enriched = dict(item)
-        price = snapshot.get("price")
-        if price is not None:
-            enriched["price"] = price
-            enriched["one_month_return"] = _rate(price, item.get("_one_month_price"))
-            enriched["three_month_return"] = _rate(price, item.get("_three_month_price"))
-        change_rate = snapshot.get("change_rate_abs")
-        if change_rate is not None:
-            enriched["change_rate"] = change_rate
-        if snapshot.get("trading_value") is not None:
-            enriched["trading_value"] = snapshot.get("trading_value")
-        if snapshot.get("market_cap") is not None:
-            enriched["market_cap"] = snapshot.get("market_cap")
-        if category == "surge":
-            enriched["metric_value"] = enriched.get("change_rate")
-        elif category == "trading_value":
-            enriched["metric_value"] = enriched.get("trading_value")
-        elif category == "momentum":
-            one_month = enriched.get("one_month_return")
-            three_month = enriched.get("three_month_return")
-            if one_month is not None and three_month is not None:
-                enriched["momentum_score"] = _round_decimal(
-                    Decimal(str(one_month)) * Decimal("0.55") + Decimal(str(three_month)) * Decimal("0.45")
-                )
-                enriched["metric_value"] = enriched["momentum_score"]
-        return enriched
-
-    enriched_items: list[dict[str, object]] = []
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = [executor.submit(enrich, item) for item in items]
-        for future in as_completed(futures):
-            enriched_items.append(future.result())
-
-    metric_key = {
-        "surge": "change_rate",
-        "trading_value": "trading_value",
-        "momentum": "momentum_score",
-        "sentiment": "sentiment_score",
-        "valuation": "metric_value",
-    }.get(category, "metric_value")
-    reverse = category != "valuation"
-    enriched_items = [item for item in enriched_items if item.get(metric_key) is not None]
-    enriched_items.sort(key=lambda item: Decimal(str(item[metric_key])), reverse=reverse)
-    output = enriched_items[:limit]
-    for idx, item in enumerate(output, start=1):
-        item["rank"] = idx
-        item["category"] = category
-        item["metric_value"] = item.get(metric_key)
-    return output
-
-
 def _news_sentiment_rank(db: Session, items: list[dict[str, object]], limit: int) -> list[dict[str, object]]:
     since = datetime.utcnow() - timedelta(days=14)
     news = list(
@@ -1409,7 +1366,6 @@ def build_market_rankings(
         payload["mode"] = normalized_mode
         return payload
 
-    should_refresh_live = category == "surge" and _is_regular_session()
     source = "database"
     # The market-wide feed remains authoritative after the close as well. The
     # local DailyPrice table can lag or contain an unadjusted corporate-action
@@ -1419,74 +1375,48 @@ def build_market_rankings(
         items = live_market_items
         source = "naver_market_rise"
     elif category == "surge":
-        items = _latest_session_surge_items(db, market)
-        if not items:
-            items = _fast_price_items(db, market, lookback=64)
+        items = _latest_session_surge_items(db, market) if db is not None else []
     else:
         groups = _price_groups(db, market)
         items = [item for stock, prices in groups.values() if (item := _base_item(stock, prices))]
-    rank_limit = (
-        limit
-        if source == "naver_market_rise"
-        else min(max(limit * 5, limit), 200)
-        if should_refresh_live and category in {"surge", "trading_value", "momentum"}
-        else limit
-    )
-
     universe_count = len(items)
     matching_count = 0
     if category == "surge":
         rising_items = [
             item
             for item in items
-            if Decimal("0") < Decimal(str(item.get("change_rate") or 0)) <= Decimal("30.5")
+            if (rate := item.get("change_rate")) is not None and rate > 0
+            and (source == "naver_market_rise" or rate <= Decimal("30.5"))
         ]
         matching_count = len(rising_items)
-        rankings = _ranked(rising_items, "surge", "change_rate", True, rank_limit)
+        rankings = _ranked(rising_items, "surge", "change_rate", True, limit)
     elif category == "trading_value":
-        rankings = _ranked(items, "trading_value", "trading_value", True, rank_limit)
+        rankings = _ranked(items, "trading_value", "trading_value", True, limit)
     elif category == "volume":
-        rankings = _ranked(items, "volume", "volume", True, rank_limit)
+        rankings = _ranked(items, "volume", "volume", True, limit)
     elif category == "market_cap":
-        rankings = _ranked(items, "market_cap", "market_cap", True, rank_limit)
+        rankings = _ranked(items, "market_cap", "market_cap", True, limit)
     elif category == "low52":
-        rankings = _ranked(items, "low52", "change_rate", False, rank_limit)
+        rankings = _ranked(items, "low52", "change_rate", False, limit)
     elif category == "high52":
-        rankings = _ranked(items, "high52", "change_rate", True, rank_limit)
+        rankings = _ranked(items, "high52", "change_rate", True, limit)
     elif category == "per":
-        rankings = _ranked(items, "per", "per", False, rank_limit)
+        rankings = _ranked(items, "per", "per", False, limit)
     elif category == "momentum":
         for item in items:
             one_month = item.get("one_month_return")
             three_month = item.get("three_month_return")
             if one_month is not None and three_month is not None:
                 item["momentum_score"] = _round_decimal(Decimal(str(one_month)) * Decimal("0.55") + Decimal(str(three_month)) * Decimal("0.45"))
-        rankings = _ranked(items, "momentum", "momentum_score", True, rank_limit)
+        rankings = _ranked(items, "momentum", "momentum_score", True, limit)
     elif category == "valuation":
         rankings = _valuation_rank(items, limit, refresh_live=refresh_live)
     elif category == "sentiment":
         rankings = _news_sentiment_rank(db, items, limit)
     else:
-        rankings = _ranked(items, "surge", "change_rate", True, rank_limit)
+        rankings = _ranked(items, "surge", "change_rate", True, limit)
     if category != "surge":
         matching_count = len(rankings)
-
-    if should_refresh_live and source != "naver_market_rise" and rankings:
-        fallback_rankings = rankings[:limit]
-        try:
-            live_rankings = _enrich_live_rankings(rankings, category, limit)
-        except Exception:
-            live_rankings = []
-        if live_rankings:
-            existing_codes = {str(item["code"]) for item in live_rankings}
-            for item in fallback_rankings:
-                if str(item["code"]) not in existing_codes:
-                    live_rankings.append(item)
-                if len(live_rankings) >= limit:
-                    break
-            rankings = live_rankings[:limit]
-        else:
-            rankings = fallback_rankings
 
     if category == "surge" and source == "naver_market_rise" and rankings:
         rankings = _enrich_market_period_returns(rankings, max_items=min(100, limit))

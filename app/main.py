@@ -323,7 +323,7 @@ PORTFOLIO_INDEX = STATIC_DIR / "portfolio" / "index.html"
 CONCEPTS_INDEX = STATIC_DIR / "concepts" / "index.html"
 DASHBOARD_MANIFEST = STATIC_DIR / "dashboard" / "manifest.webmanifest"
 DASHBOARD_SERVICE_WORKER = STATIC_DIR / "dashboard" / "dashboard-sw.js"
-DASHBOARD_CLIENT_VERSION = "20261119v600"
+DASHBOARD_CLIENT_VERSION = "20261123v601"
 DASHBOARD_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 DASHBOARD_MUTABLE_ASSET_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 NASDAQ_DASHBOARD_INDEX = STATIC_DIR / "nasdaq" / "index.html"
@@ -331,7 +331,7 @@ NASDAQ_DASHBOARD_APP = STATIC_DIR / "nasdaq" / "app.js"
 NASDAQ_DASHBOARD_STYLES = STATIC_DIR / "nasdaq" / "styles.css"
 NASDAQ_MANIFEST = STATIC_DIR / "nasdaq" / "manifest.webmanifest"
 NASDAQ_SERVICE_WORKER = STATIC_DIR / "nasdaq" / "dashboard-sw.js"
-US_DASHBOARD_CLIENT_VERSION = "20261114us170"
+US_DASHBOARD_CLIENT_VERSION = "20261123us171"
 api_cache = TTLCache(maxsize=1024)
 stock_research_refresh_cache = TTLCache(maxsize=2048)
 stock_investor_flow_refresh_cache = TTLCache(maxsize=2048)
@@ -9262,17 +9262,17 @@ def _build_surge_ranking_snapshot_payload(
         source_values.append(str(payload.get("source") or "database"))
         all_items.extend(dict(item) for item in items)
 
+    trade_dates = {item["trade_date"] for item in all_items if item.get("trade_date")}
+    if len(trade_dates) > 1 or len(set(source_values)) > 1:
+        raise ValueError("Domestic return rankings must use one session and source")
+
     all_items.sort(key=_surge_change_rate, reverse=True)
     for rank, item in enumerate(all_items, start=1):
         item["rank"] = rank
         item["category"] = "surge"
 
     markets["ALL"] = {
-        "source": (
-            "naver_market_rise"
-            if "naver_market_rise" in source_values
-            else (source_values[0] if source_values else "database")
-        ),
+        "source": source_values[0],
         "universe_count": sum(
             int(markets[name]["universe_count"]) for name in SURGE_RANKING_MARKETS
         ),
@@ -9331,6 +9331,15 @@ def _load_surge_ranking_snapshot(
     )
     if not _surge_snapshot_has_complete_shape(snapshot):
         raise ValueError("Surge ranking builder returned an incomplete snapshot")
+    fallback_bucket = built_payload["markets"]["ALL"]
+    if fallback_bucket.get("source") == "database":
+        previous = _latest_complete_surge_ranking_snapshot(db)
+        if previous is not None and previous.expires_at >= captured_at:
+            prior_bucket = json.loads(previous.payload)["markets"]["ALL"]
+            prior_date = max((row.get("trade_date") or "" for row in prior_bucket["items"]), default="")
+            fallback_date = max((str(row.get("trade_date") or "") for row in fallback_bucket["items"]), default="")
+            if prior_bucket.get("source") == "naver_market_rise" and prior_date > fallback_date:
+                return previous
     db.add(snapshot)
     db.commit()
     try:
@@ -9363,20 +9372,21 @@ def _surge_ranking_snapshot_response(
     bucket = dict((payload.get("markets") or {}).get(normalized_market) or {})
     items = [dict(item) for item in list(bucket.get("items") or [])[:limit]]
     try:
-        as_of = datetime.fromisoformat(str(payload.get("as_of")))
+        captured_at = datetime.fromisoformat(str(payload.get("as_of")))
     except (TypeError, ValueError):
-        as_of = snapshot.captured_at.replace(tzinfo=KST)
+        captured_at = snapshot.captured_at.replace(tzinfo=timezone.utc)
+    quote_times = [row["updated_at"] for row in bucket.get("items", []) if row.get("updated_at")]
     return {
         "category": "surge",
         "mode": "daily",
         "market": None if normalized_market == "ALL" else normalized_market,
-        "as_of": as_of,
+        "as_of": max(quote_times, default=captured_at),
         "source": str(bucket.get("source") or "database"),
         "universe_count": int(bucket.get("universe_count") or 0),
         "matching_count": int(bucket.get("matching_count") or len(items)),
         "items": items,
         "snapshot_id": snapshot.snapshot_id,
-        "snapshot_captured_at": as_of,
+        "snapshot_captured_at": captured_at,
     }
 
 
