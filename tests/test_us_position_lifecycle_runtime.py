@@ -775,7 +775,7 @@ def test_sector_v10_snapshot_is_preserved_until_v11_rebuild(snapshot_db):
     assert row.payload == frozen_payload
 
 
-@pytest.mark.parametrize("source_version", ["v11", "v12", "v13"])
+@pytest.mark.parametrize("source_version", ["v11", "v12", "v13", "v14"])
 def test_older_sector_snapshots_are_preserved_until_current_rebuild(snapshot_db, source_version):
     generated_at = datetime(2026, 9, 8, 21, 0, tzinfo=UTC)
     lifecycle.save_us_position_lifecycle_snapshot(
