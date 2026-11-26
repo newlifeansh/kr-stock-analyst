@@ -1022,7 +1022,7 @@ def test_price_ohlc_repair_covers_incomplete_stocks_beyond_top_100(monkeypatch):
     ]
 
 
-def test_collect_prices_repairs_previous_session_ohlc_after_midnight(monkeypatch):
+def test_collect_prices_skips_slow_previous_session_repair_when_completed_session_is_ready(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings())
     monkeypatch.setattr(
         briefing,
@@ -1034,11 +1034,17 @@ def test_collect_prices_repairs_previous_session_ohlc_after_midnight(monkeypatch
         "latest_completed_korea_market_session_date",
         lambda _now=None: date(2026, 8, 20),
     )
-    calls = []
     monkeypatch.setattr(
         runtime,
         "_repair_signal_price_ohlc",
-        lambda _db, target: calls.append(target) or 870,
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("completed-session repair must not delay ready data")
+        ),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_latest_price_coverage",
+        lambda *_args: {"total": 100, "fresh": 95, "coverage_ratio": 0.95},
     )
 
     result = runtime._collect_prices(
@@ -1046,9 +1052,62 @@ def test_collect_prices_repairs_previous_session_ohlc_after_midnight(monkeypatch
         now=datetime(2026, 8, 21, 1, 10),
     )
 
-    assert result["source"] == "previous_session_price_ohlc_repair"
-    assert result["rows_loaded"] == 870
-    assert calls == [date(2026, 8, 20)]
+    assert result["source"] == "market_closed"
+    assert result["rows_loaded"] == 0
+
+
+def test_collect_prices_uses_batched_realtime_before_slow_preopen_repair(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
+    monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: date(2026, 8, 20),
+    )
+    coverage = iter([
+        {"total": 2_700, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 2_700, "fresh": 2_700, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda *_args: next(coverage))
+    monkeypatch.setattr(
+        briefing,
+        "collect_market_prices",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("KRX unavailable")),
+    )
+    realtime_calls = []
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda _db, target, **kwargs: realtime_calls.append((target, kwargs)) or 2_700,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_repair_signal_price_ohlc",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("slow per-stock repair must follow, not precede, realtime batches")
+        ),
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_quotes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("HTML fallback must not run after realtime recovery")
+        ),
+    )
+
+    result = runtime._collect_prices(
+        object(),
+        now=datetime(2026, 8, 21, 6, 30),
+    )
+
+    assert result["source"] == "naver_realtime_quotes"
+    assert result["rows_loaded"] == 2_700
+    assert realtime_calls == [
+        (
+            "20260820",
+            {"markets": "KOSPI,KOSDAQ", "limit": None, "max_workers": 5},
+        )
+    ]
 
 
 def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
@@ -1107,7 +1166,7 @@ def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
     assert coverage_calls == ["20260820", "20260820"]
     assert market_calls == [("20260820", "KOSPI"), ("20260820", "KOSDAQ")]
     assert naver_calls == ["20260820"]
-    assert repair_calls == [date(2026, 8, 20), date(2026, 8, 20)]
+    assert repair_calls == [date(2026, 8, 20)]
 
 
 def test_price_coverage_requires_a_complete_coherent_daily_candle():
