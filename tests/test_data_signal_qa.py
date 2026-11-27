@@ -1679,6 +1679,14 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_represen
         )
     ]
     assert readiness_source.count("allow_verified_replay_pending=True") == 2
+    replay_pending_source = source[
+        source.index("if stock.get(\"signal_replay_pending\"):") : source.index(
+            "elif (",
+            source.index("if stock.get(\"signal_replay_pending\"):"),
+        )
+    ]
+    assert "status.textContent.includes('재검증 중')" in replay_pending_source
+    assert "status.textContent.includes('확정 신호를 표시하지 않습니다')" in replay_pending_source
 
 
 def test_domestic_e2e_tracks_verified_prices_without_claiming_a_signal(monkeypatch) -> None:
