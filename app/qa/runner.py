@@ -330,6 +330,7 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
     "DATA-KRX-NAVER-002": (
         "tests.test_briefing_runtime.test_collect_prices_recovers_missing_completed_session_before_current_intraday",
         "tests.test_briefing_runtime.test_completed_session_chart_recovery_never_uses_realtime_quote_dates",
+        "tests.test_briefing_runtime.test_completed_session_recovery_expands_top100_to_full_active_market",
         "tests.test_scheduled_source_fallbacks.test_html_price_fallback_retries_market_cap_backfill",
         "tests.test_scheduled_source_fallbacks.test_completed_session_fallback_rechecks_coverage[0.94-degraded]",
         "tests.test_scheduled_source_fallbacks.test_completed_session_fallback_rechecks_coverage[0.95-naver_realtime_market_caps+naver_krx_chart]",

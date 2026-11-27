@@ -1352,6 +1352,32 @@ def test_completed_session_chart_recovery_never_uses_realtime_quote_dates(monkey
     assert calls == [(["005930"], date(2026, 8, 20), {"max_workers": 5})]
 
 
+@pytest.mark.qa_gate
+def test_completed_session_recovery_expands_top100_to_full_active_market(monkeypatch):
+    """Top100 recovery is early priority, not a substitute for full readiness."""
+    runtime = briefing.BriefingRuntime(Settings())
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 100, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda *_args: next(coverage))
+    monkeypatch.setattr(briefing, "collect_market_prices", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(runtime, "_priority_completed_session_price_codes", lambda *_args: ["005930"])
+    monkeypatch.setattr(runtime, "_completed_session_priority_ready", lambda *_args: True)
+    repair_calls = []
+    monkeypatch.setattr(
+        runtime,
+        "_repair_completed_session_from_naver",
+        lambda _db, _target, **kwargs: repair_calls.append(kwargs.get("codes")) or 100,
+    )
+
+    result = runtime._recover_missing_completed_session_prices(object(), date(2026, 8, 20))
+
+    assert result["source"] == "completed_session_naver_krx_chart"
+    assert repair_calls == [["005930"], None]
+    assert "priority_ready=True" in result["message"]
+
+
 def test_price_coverage_requires_a_complete_coherent_daily_candle():
     runtime = briefing.BriefingRuntime(Settings())
 

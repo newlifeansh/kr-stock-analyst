@@ -1003,19 +1003,16 @@ class BriefingRuntime:
                 )
             except Exception as exc:
                 market_errors["naver_krx_chart_priority"] = str(exc)
-        coverage = self._latest_price_coverage(db, target_yyyymmdd)
-        if self._completed_session_priority_ready(db, target_date, priority_codes):
-            return {
-                "source": "completed_session_naver_krx_chart_priority",
-                "rows_loaded": krx_rows + chart_rows,
-                "message": (
-                    f"date={target_yyyymmdd} priority={len(priority_codes)} "
-                    f"krx_errors={len(market_errors)} "
-                    f"fresh={coverage['fresh']}/{coverage['total']} "
-                    f"coverage={coverage['coverage_ratio']:.2%}"
-                ),
-            }
+        priority_ready = self._completed_session_priority_ready(
+            db,
+            target_date,
+            priority_codes,
+        )
 
+        # The bounded cohort makes signal-critical rows available first, but
+        # release readiness intentionally also requires complete active-market
+        # coverage. Continue with the batched chart recovery in the same
+        # collector turn rather than waiting for the next price poll.
         try:
             chart_rows += self._repair_completed_session_from_naver(db, target_date)
         except Exception as exc:
@@ -1027,6 +1024,7 @@ class BriefingRuntime:
             "rows_loaded": krx_rows + chart_rows,
             "message": (
                 f"date={target_yyyymmdd} priority={len(priority_codes)} "
+                f"priority_ready={priority_ready} "
                 f"krx_errors={len(market_errors)} "
                 f"fresh={coverage['fresh']}/{coverage['total']} "
                 f"coverage={coverage['coverage_ratio']:.2%}"
