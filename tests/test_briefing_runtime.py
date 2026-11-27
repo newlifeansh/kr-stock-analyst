@@ -1364,12 +1364,6 @@ def test_completed_session_recovery_expands_top100_to_full_active_market(monkeyp
     monkeypatch.setattr(briefing, "collect_market_prices", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr(runtime, "_priority_completed_session_price_codes", lambda *_args: ["005930"])
     monkeypatch.setattr(runtime, "_completed_session_priority_ready", lambda *_args: True)
-    evidence_calls = []
-    monkeypatch.setattr(
-        runtime,
-        "_warm_completed_session_entry_evidence",
-        lambda _db, target: evidence_calls.append(target) or 100,
-    )
     repair_calls = []
     monkeypatch.setattr(
         runtime,
@@ -1381,9 +1375,60 @@ def test_completed_session_recovery_expands_top100_to_full_active_market(monkeyp
 
     assert result["source"] == "completed_session_naver_krx_chart"
     assert repair_calls == [["005930"], None]
-    assert evidence_calls == [date(2026, 8, 20)]
     assert "priority_ready=True" in result["message"]
-    assert "entry_evidence=100" in result["message"]
+
+
+@pytest.mark.qa_gate
+def test_run_once_warms_completed_session_evidence_when_prices_are_already_ready(monkeypatch):
+    """A restored staging database must not skip immutable evidence warm-up."""
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=False,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=True,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    completed_session = date(2026, 8, 20)
+    evidence_calls = []
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(runtime, "run_freshness_once", lambda **_kwargs: False)
+    monkeypatch.setattr(
+        runtime,
+        "_collect_prices",
+        lambda _db: {"source": "existing_prices", "rows_loaded": 0, "message": "ready"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: completed_session,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_warm_completed_session_entry_evidence",
+        lambda _db, target: evidence_calls.append(target) or 100,
+    )
+
+    runtime.run_once()
+
+    assert evidence_calls == [completed_session]
+    assert runtime.last_price_message == "ready entry_evidence=100"
 
 
 def test_price_coverage_requires_a_complete_coherent_daily_candle():

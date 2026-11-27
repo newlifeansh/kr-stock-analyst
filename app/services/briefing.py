@@ -361,6 +361,22 @@ class BriefingRuntime:
                     if price_result["source"] == "degraded":
                         self.source_errors["prices"] = self.last_price_message
                     else:
+                        completed_target = latest_completed_korea_market_session_date(
+                            datetime.now(KST)
+                        )
+                        if completed_target is not None:
+                            try:
+                                evidence_rows = self._warm_completed_session_entry_evidence(
+                                    db,
+                                    completed_target,
+                                )
+                                self.last_price_message = (
+                                    f"{self.last_price_message} "
+                                    f"entry_evidence={evidence_rows}"
+                                )
+                                self.source_errors.pop("entry_evidence", None)
+                            except Exception as exc:
+                                self.source_errors["entry_evidence"] = str(exc)
                         self.source_errors.pop("prices", None)
                         self.last_price_at = datetime.utcnow()
                 except Exception as exc:
@@ -1019,19 +1035,6 @@ class BriefingRuntime:
             market_errors["naver_krx_chart_full"] = str(exc)
         coverage = self._latest_price_coverage(db, target_yyyymmdd)
         ready = bool(coverage["total"] and coverage["coverage_ratio"] >= 0.95)
-        evidence_rows = 0
-        evidence_error: Optional[str] = None
-        if ready:
-            try:
-                evidence_rows = self._warm_completed_session_entry_evidence(
-                    db,
-                    target_date,
-                )
-            except Exception as exc:
-                # A live-quote publication delay must not turn a verified
-                # completed candle into a price failure. Keep the evidence
-                # problem explicit so the data-quality contract remains P0.
-                evidence_error = str(exc)
         return {
             "source": "completed_session_naver_krx_chart" if ready else "degraded",
             "rows_loaded": krx_rows + chart_rows,
@@ -1039,8 +1042,6 @@ class BriefingRuntime:
                 f"date={target_yyyymmdd} priority={len(priority_codes)} "
                 f"priority_ready={priority_ready} "
                 f"krx_errors={len(market_errors)} "
-                f"entry_evidence={evidence_rows} "
-                f"entry_evidence_error={bool(evidence_error)} "
                 f"fresh={coverage['fresh']}/{coverage['total']} "
                 f"coverage={coverage['coverage_ratio']:.2%}"
             ),
