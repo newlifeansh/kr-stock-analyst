@@ -1019,6 +1019,19 @@ class BriefingRuntime:
             market_errors["naver_krx_chart_full"] = str(exc)
         coverage = self._latest_price_coverage(db, target_yyyymmdd)
         ready = bool(coverage["total"] and coverage["coverage_ratio"] >= 0.95)
+        evidence_rows = 0
+        evidence_error: Optional[str] = None
+        if ready:
+            try:
+                evidence_rows = self._warm_completed_session_entry_evidence(
+                    db,
+                    target_date,
+                )
+            except Exception as exc:
+                # A live-quote publication delay must not turn a verified
+                # completed candle into a price failure. Keep the evidence
+                # problem explicit so the data-quality contract remains P0.
+                evidence_error = str(exc)
         return {
             "source": "completed_session_naver_krx_chart" if ready else "degraded",
             "rows_loaded": krx_rows + chart_rows,
@@ -1026,10 +1039,88 @@ class BriefingRuntime:
                 f"date={target_yyyymmdd} priority={len(priority_codes)} "
                 f"priority_ready={priority_ready} "
                 f"krx_errors={len(market_errors)} "
+                f"entry_evidence={evidence_rows} "
+                f"entry_evidence_error={bool(evidence_error)} "
                 f"fresh={coverage['fresh']}/{coverage['total']} "
                 f"coverage={coverage['coverage_ratio']:.2%}"
             ),
         }
+
+    def _warm_completed_session_entry_evidence(
+        self,
+        db,
+        target_date: date,
+    ) -> int:
+        """Persist immutable completed-session evidence without live quotes.
+
+        The intraday publisher correctly waits for a sufficient live KIS quote
+        cohort. A cold staging instance can therefore have complete prior-day
+        candles while that publisher is deferred. The evidence snapshot is
+        derived only from the completed daily data and may be safely warmed as
+        soon as its market-cap cohort is restored.
+        """
+
+        from app.services.regular_signal_transition import (
+            REGULAR_FORWARD_ENTRY_POLICY,
+            REGULAR_FORWARD_START,
+            REGULAR_FORWARD_STRATEGY_VERSION,
+        )
+        from app.services.signal_entry_evidence import ensure_entry_evidence_snapshot
+
+        rows = db.execute(
+            select(StockMaster, DailyPrice.code)
+            .join(DailyPrice, DailyPrice.code == StockMaster.code)
+            .where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                DailyPrice.trade_date == target_date,
+                DailyPrice.market_cap.is_not(None),
+                DailyPrice.market_cap > 0,
+            )
+            .order_by(desc(DailyPrice.market_cap), StockMaster.code)
+            .limit(FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT)
+        ).all()
+        stocks = [stock for stock, _code in rows]
+        codes = [str(code) for _stock, code in rows]
+        if not stocks:
+            return 0
+        price_rows = list(
+            db.scalars(
+                select(DailyPrice)
+                .where(
+                    DailyPrice.code.in_(tuple(codes)),
+                    DailyPrice.trade_date <= target_date,
+                    DailyPrice.trade_date >= target_date - timedelta(days=400),
+                )
+                .order_by(DailyPrice.code, DailyPrice.trade_date)
+            )
+        )
+        prices_by_code: dict[str, list[DailyPrice]] = {code: [] for code in codes}
+        for row in price_rows:
+            prices_by_code.setdefault(str(row.code), []).append(row)
+        strategy_kwargs: dict[str, object] = {}
+        if target_date >= REGULAR_FORWARD_START:
+            strategy_kwargs = {
+                "strategy_version": REGULAR_FORWARD_STRATEGY_VERSION,
+                "policy_version": REGULAR_FORWARD_ENTRY_POLICY,
+            }
+        warmed = 0
+        generated_at = datetime.now(KST)
+        for stock in stocks:
+            snapshot = ensure_entry_evidence_snapshot(
+                db,
+                stock,
+                prices_by_code.get(stock.code, []),
+                signal_date=target_date,
+                now=generated_at,
+                commit_on_persist=False,
+                latest_market_date_override=target_date,
+                **strategy_kwargs,
+            )
+            if snapshot:
+                warmed += 1
+        db.commit()
+        return warmed
 
     def _priority_completed_session_price_codes(
         self,

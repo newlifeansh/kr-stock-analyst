@@ -1364,6 +1364,12 @@ def test_completed_session_recovery_expands_top100_to_full_active_market(monkeyp
     monkeypatch.setattr(briefing, "collect_market_prices", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr(runtime, "_priority_completed_session_price_codes", lambda *_args: ["005930"])
     monkeypatch.setattr(runtime, "_completed_session_priority_ready", lambda *_args: True)
+    evidence_calls = []
+    monkeypatch.setattr(
+        runtime,
+        "_warm_completed_session_entry_evidence",
+        lambda _db, target: evidence_calls.append(target) or 100,
+    )
     repair_calls = []
     monkeypatch.setattr(
         runtime,
@@ -1375,7 +1381,9 @@ def test_completed_session_recovery_expands_top100_to_full_active_market(monkeyp
 
     assert result["source"] == "completed_session_naver_krx_chart"
     assert repair_calls == [["005930"], None]
+    assert evidence_calls == [date(2026, 8, 20)]
     assert "priority_ready=True" in result["message"]
+    assert "entry_evidence=100" in result["message"]
 
 
 def test_price_coverage_requires_a_complete_coherent_daily_candle():

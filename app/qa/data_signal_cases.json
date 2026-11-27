@@ -1655,12 +1655,12 @@
       "domain": "시그널 독립 근거",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest missing source fixture + data quality/API/UI",
-      "preconditions": ["가격·지수·공시·스냅샷 누락을 각각 준비한다."],
-      "inputs": {"quality": "limited"},
-      "steps": ["확정 판단과 사용자 문구를 확인한다."],
-      "expected": ["매수 근거 확인 중으로 남고 확정 매수하지 않는다."],
-      "failure_criteria": ["누락 자료를 0점 또는 우호 근거로 간주한다."]
+      "automation": "pytest missing source fixture + 완료 세션 가격 복구 뒤 live KIS quote-floor와 독립적으로 versioned entry-evidence Top100을 warm하는 회귀 fixture + data quality/API/UI",
+      "preconditions": ["가격·지수·공시·스냅샷 누락을 각각 준비한다.", "완료 세션 OHLC는 복구됐지만 장중 KIS live quote cohort가 아직 publication floor 미달인 cold staging을 준비한다."],
+      "inputs": {"quality": "limited", "completed_session_evidence": "Top100, immutable completed OHLC, strategy/policy version"},
+      "steps": ["확정 판단과 사용자 문구를 확인한다.", "완료 세션 가격이 ready가 된 뒤 live quote publisher가 보류돼도 해당 날짜·전략 버전의 Top100 evidence snapshot을 저장하고 data-quality가 ready가 되는지 확인한다."],
+      "expected": ["매수 근거 확인 중으로 남고 확정 매수하지 않는다.", "완료 세션에만 의존하는 immutable evidence는 장중 quote-floor 대기와 분리되어 Top100에 저장되며, live quote가 없는 값을 사실처럼 보강하지 않는다."],
+      "failure_criteria": ["누락 자료를 0점 또는 우호 근거로 간주한다.", "완료 세션 가격이 이미 ready인데 장중 live quote floor 때문에 entry-evidence snapshot이 0건으로 남아 P0 readiness가 실패한다."]
     },
 
     {

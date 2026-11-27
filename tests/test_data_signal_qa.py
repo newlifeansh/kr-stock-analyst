@@ -2073,6 +2073,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
             "DATA-KR-REGULAR-KIS-REVISION-001",
             "DATA-KR-REGULAR-DELAYED-AUCTION-001",
         "SIG-KR-REGULAR-VALIDATION-CACHE-001",
+            "SIG-EVIDENCE-003",
         "SIG-KR-INTRADAY-PANIC-STRENGTH-001",
         "SIG-KR-INTRADAY-REPLAY-001",
         "SIG-KR-INTRADAY-SEAL-001",
