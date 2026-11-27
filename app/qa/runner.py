@@ -327,6 +327,13 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_hybrid_signals.test_hybrid_exact_decimal_exit_boundaries_and_adjacent_quotes",
         "tests.test_us_hybrid_signals.test_hybrid_partial_breakeven_boundary_does_not_exit_early",
     ),
+    "DATA-KRX-NAVER-002": (
+        "tests.test_briefing_runtime.test_collect_prices_recovers_missing_completed_session_before_current_intraday",
+        "tests.test_briefing_runtime.test_completed_session_chart_recovery_never_uses_realtime_quote_dates",
+        "tests.test_scheduled_source_fallbacks.test_html_price_fallback_retries_market_cap_backfill",
+        "tests.test_scheduled_source_fallbacks.test_completed_session_fallback_rechecks_coverage[0.94-degraded]",
+        "tests.test_scheduled_source_fallbacks.test_completed_session_fallback_rechecks_coverage[0.95-naver_realtime_market_caps+naver_krx_chart]",
+    ),
     "DATA-KRX-NAVER-005": (
         "tests.test_signal_entry_evidence.test_source_probe_uses_current_naver_json_endpoints",
         "tests.test_naver_flows.test_fetch_rows_prefers_new_trend_api_and_does_not_call_legacy",

@@ -427,6 +427,58 @@ def test_briefing_runtime_refreshes_priority_fundamentals_before_long_financials
     ]
 
 
+@pytest.mark.qa_gate
+def test_briefing_runtime_refreshes_macro_before_long_backfills(monkeypatch):
+    """Cold staging must expose market-index freshness before DART work ends."""
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=True,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=True,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=True,
+        )
+    )
+    events = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(runtime, "run_freshness_once", lambda **_kwargs: False)
+    monkeypatch.setattr(runtime, "_collect_macro", lambda _db: events.append("macro") or {
+        "rows_loaded": 1, "source": "fixture", "message": "ready"
+    })
+    monkeypatch.setattr(
+        briefing,
+        "collect_research_reports",
+        lambda *_args, **_kwargs: events.append("research") or 0,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_collect_financials",
+        lambda _db: events.append("financials") or {
+            "rows_loaded": 0, "source": "fixture", "message": "ready"
+        },
+    )
+    monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
+
+    runtime.run_once()
+
+    assert events == ["macro", "research", "financials"]
+
+
 def test_briefing_runtime_limits_canonical_fundamental_sync_to_signal_top100(monkeypatch):
     runtime = briefing.BriefingRuntime(
         Settings(
@@ -1231,6 +1283,73 @@ def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
     assert market_calls == [("20260820", "KOSPI"), ("20260820", "KOSDAQ")]
     assert naver_calls == ["20260820"]
     assert repair_calls == [date(2026, 8, 20)]
+
+
+@pytest.mark.qa_gate
+def test_collect_prices_recovers_missing_completed_session_before_current_intraday(monkeypatch):
+    """A live quote must not hide a missing completed signal session."""
+    runtime = briefing.BriefingRuntime(Settings())
+    monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
+    completed_session = date(2026, 8, 20)
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: completed_session,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_latest_price_coverage",
+        lambda *_args: {"total": 100, "fresh": 6, "coverage_ratio": 0.06},
+    )
+    recovery_calls = []
+    monkeypatch.setattr(
+        runtime,
+        "_recover_missing_completed_session_prices",
+        lambda db, target: recovery_calls.append((db, target))
+        or {"source": "completed_session_naver_krx_chart_priority", "rows_loaded": 195, "message": "ok"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("current realtime quotes must not be relabelled as yesterday")
+        ),
+    )
+
+    db = object()
+    result = runtime._collect_prices(db, now=datetime(2026, 8, 21, 10, 5))
+
+    assert result["source"] == "completed_session_naver_krx_chart_priority"
+    assert recovery_calls == [(db, completed_session)]
+
+
+@pytest.mark.qa_gate
+def test_completed_session_chart_recovery_never_uses_realtime_quote_dates(monkeypatch):
+    """Historical recovery gets OHLC from the dated chart and caps from FDR."""
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
+    calls = []
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_krx_price_rows_for_codes",
+        lambda _db, codes, target, **kwargs: calls.append((codes, target, kwargs)) or 95,
+    )
+    monkeypatch.setattr(briefing, "derive_market_caps_for_date", lambda _db, target: 95)
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("realtime localTradedAt cannot populate a historical session")
+        ),
+    )
+
+    repaired = runtime._repair_completed_session_from_naver(
+        object(),
+        date(2026, 8, 20),
+        codes=["005930"],
+    )
+
+    assert repaired == 190
+    assert calls == [(["005930"], date(2026, 8, 20), {"max_workers": 5})]
 
 
 def test_price_coverage_requires_a_complete_coherent_daily_candle():

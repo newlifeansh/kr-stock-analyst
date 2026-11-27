@@ -2100,6 +2100,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
     }
     expected_case_ids.update({
         "DATA-KR-CURSOR-MINUTE-001",
+        "DATA-KRX-NAVER-002",
         "DATA-KRX-NAVER-005",
         "DATA-US-ADR-HALF-CENT-001",
         "DATA-US-ADR-NULL-CLOSE-001",
