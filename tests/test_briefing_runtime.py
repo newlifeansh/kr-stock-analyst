@@ -604,12 +604,14 @@ def test_stock_news_snapshot_failure_is_degraded_and_retried(monkeypatch):
     results = [
         {"rows_loaded": 0, "failed": 1, "message": "failed=1"},
         {"rows_loaded": 1, "failed": 0, "message": "failed=0"},
+        {"rows_loaded": 1, "failed": 0, "message": "full_failed=0"},
     ]
+    calls = []
     monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
     monkeypatch.setattr(
         briefing,
         "collect_stock_news_snapshots",
-        lambda *_args, **_kwargs: results.pop(0),
+        lambda *_args, **kwargs: calls.append(kwargs) or results.pop(0),
     )
     monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
 
@@ -619,6 +621,13 @@ def test_stock_news_snapshot_failure_is_degraded_and_retried(monkeypatch):
     assert runtime.last_stock_news_snapshot_failed == 1
     assert runtime.next_stock_news_snapshot_retry_at is not None
     assert runtime._stock_news_snapshot_due() is False
+    assert calls == [
+        {
+            "limit": briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+            "max_workers": runtime.settings.stock_news_snapshot_max_workers,
+            "refresh_hours": runtime.settings.stock_news_snapshot_refresh_hours,
+        }
+    ]
 
     runtime.next_stock_news_snapshot_retry_at = datetime.utcnow() - timedelta(seconds=1)
     runtime.run_once()
@@ -627,6 +636,61 @@ def test_stock_news_snapshot_failure_is_degraded_and_retried(monkeypatch):
     assert runtime.last_stock_news_snapshot_failed == 0
     assert runtime.next_stock_news_snapshot_retry_at is None
     assert "stock_news_snapshot" not in runtime.source_errors
+    assert [call.get("limit") for call in calls] == [
+        briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+        briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+        None,
+    ]
+
+
+def test_briefing_runtime_refreshes_priority_stock_news_before_research_backfill(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=True,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=True,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+    runtime.last_research_at = datetime.utcnow()
+    events = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        briefing,
+        "collect_stock_news_snapshots",
+        lambda _db, **kwargs: events.append(("stock_news", kwargs.get("limit")))
+        or {"rows_loaded": 100, "failed": 0, "message": "ready"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_research_reports",
+        lambda *_args, **_kwargs: events.append(("research_backfill", None)),
+    )
+    monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
+
+    runtime.run_once()
+
+    assert events == [
+        ("stock_news", briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT),
+        ("research_backfill", None),
+        ("stock_news", None),
+    ]
 
 
 def test_collect_prices_uses_krx_market_before_fallback(monkeypatch):

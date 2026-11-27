@@ -368,6 +368,10 @@ class BriefingRuntime:
                 self.settings.fundamental_snapshot_enabled
                 and self._fundamental_snapshot_due()
             )
+            stock_news_snapshot_due = bool(
+                self.settings.stock_news_snapshot_enabled
+                and self._stock_news_snapshot_due()
+            )
             priority_snapshot_result = {
                 "rows_loaded": 0,
                 "failed": 0,
@@ -403,9 +407,61 @@ class BriefingRuntime:
                     )
                     self.source_errors["fundamental_snapshot"] = str(exc)
                     fundamental_snapshot_due = False
+            if stock_news_snapshot_due:
+                try:
+                    # The Top100 news coverage is a release-readiness
+                    # requirement.  It must not wait behind a full research,
+                    # financial, or full-universe stock-news backfill.
+                    priority_stock_news_result = collect_stock_news_snapshots(
+                        db,
+                        limit=FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+                        max_workers=self.settings.stock_news_snapshot_max_workers,
+                        refresh_hours=self.settings.stock_news_snapshot_refresh_hours,
+                    )
+                    if priority_stock_news_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_stock_news_snapshot_message = (
+                        f"signal_top_{FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT}="
+                        f"{priority_stock_news_result['message']}"
+                    )
+                    completed_at = datetime.utcnow()
+                    failed = int(priority_stock_news_result.get("failed") or 0)
+                    self.last_stock_news_snapshot_at = completed_at
+                    self.last_stock_news_snapshot_failed = failed
+                    if failed:
+                        self.last_stock_news_snapshot_state = "degraded"
+                        self.next_stock_news_snapshot_retry_at = completed_at + timedelta(
+                            seconds=min(
+                                STOCK_NEWS_SNAPSHOT_RETRY_SECONDS,
+                                max(1, int(self.settings.stock_news_snapshot_poll_seconds)),
+                            )
+                        )
+                        self.source_errors["stock_news_snapshot"] = (
+                            f"signal_top_failed={failed}; "
+                            f"retry_at={self.next_stock_news_snapshot_retry_at.isoformat()}"
+                        )
+                        # Do not hide an incomplete signal universe behind a
+                        # later full-universe run; retry this bounded lane.
+                        stock_news_snapshot_due = False
+                    else:
+                        self.last_stock_news_snapshot_state = "ready"
+                        self.next_stock_news_snapshot_retry_at = None
+                        self.source_errors.pop("stock_news_snapshot", None)
+                except Exception as exc:
+                    failed_at = datetime.utcnow()
+                    self.last_stock_news_snapshot_at = failed_at
+                    self.last_stock_news_snapshot_state = "error"
+                    self.next_stock_news_snapshot_retry_at = failed_at + timedelta(
+                        seconds=min(
+                            STOCK_NEWS_SNAPSHOT_RETRY_SECONDS,
+                            max(1, int(self.settings.stock_news_snapshot_poll_seconds)),
+                        )
+                    )
+                    self.source_errors["stock_news_snapshot"] = str(exc)
+                    stock_news_snapshot_due = False
             # A cold deployment can require a large 180-day research backfill.
-            # Complete the Top100 universe, price, flow, and fundamental lanes
-            # first so the signal-quality contract recovers without waiting.
+            # Complete the Top100 universe, price, flow, fundamental, and news
+            # lanes first so the signal-quality contract recovers without waiting.
             if self.settings.research_enabled and self._research_backfill_due():
                 try:
                     if self.settings.maintenance_subprocess_enabled:
@@ -488,7 +544,7 @@ class BriefingRuntime:
                         failed_at + timedelta(seconds=self._fundamental_snapshot_retry_seconds())
                     )
                     self.source_errors["fundamental_snapshot"] = str(exc)
-            if self.settings.stock_news_snapshot_enabled and self._stock_news_snapshot_due():
+            if stock_news_snapshot_due:
                 try:
                     stock_news_result = collect_stock_news_snapshots(
                         db,

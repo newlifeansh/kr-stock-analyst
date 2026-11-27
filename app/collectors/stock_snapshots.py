@@ -280,15 +280,41 @@ def collect_stock_news_snapshots(
     batch_size: int = 200,
 ) -> dict[str, object]:
     market_values = [value.strip().upper() for value in markets.split(",") if value.strip()]
-    statement = (
-        select(StockMaster.code)
-        .where(StockMaster.is_active.is_(True))
-        .order_by(StockMaster.market, StockMaster.code)
-    )
+    statement = select(StockMaster.code).where(StockMaster.is_active.is_(True))
     if market_values:
         statement = statement.where(StockMaster.market.in_(market_values))
     if limit:
-        statement = statement.limit(limit)
+        # A bounded refresh is the same point-in-time market-cap Top100 that
+        # signal_data_quality uses.  An alphabetical slice can leave the
+        # signal universe stale throughout a cold deployment.
+        latest_price_date = db.scalar(
+            select(func.max(DailyPrice.trade_date))
+            .join(StockMaster, StockMaster.code == DailyPrice.code)
+            .where(
+                StockMaster.is_active.is_(True),
+                DailyPrice.close.is_not(None),
+            )
+        )
+        if latest_price_date is not None:
+            statement = (
+                statement.join(
+                    DailyPrice,
+                    and_(
+                        DailyPrice.code == StockMaster.code,
+                        DailyPrice.trade_date == latest_price_date,
+                    ),
+                )
+                .where(
+                    DailyPrice.market_cap.is_not(None),
+                    DailyPrice.market_cap > 0,
+                )
+                .order_by(desc(DailyPrice.market_cap), DailyPrice.code)
+                .limit(limit)
+            )
+        else:
+            statement = statement.order_by(StockMaster.market, StockMaster.code).limit(limit)
+    else:
+        statement = statement.order_by(StockMaster.market, StockMaster.code)
     codes = list(db.scalars(statement))
 
     cutoff = datetime.utcnow() - timedelta(hours=max(0, refresh_hours))
