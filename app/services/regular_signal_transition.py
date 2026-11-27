@@ -458,6 +458,7 @@ def publish_forward_metadata(payload: dict[str, Any]) -> dict[str, Any]:
 
 def collect_forward_session(db: Session, provider, *, now: datetime, universe_limit: int = 150) -> dict[str, Any]:
     """Backfill the current and recently ranked signal universe."""
+    from app.config import get_settings
     from app.services import quant_signals as qs
     from app.services.regular_session_prices import collect_regular_session_prices
     from sqlalchemy import func
@@ -488,11 +489,16 @@ def collect_forward_session(db: Session, provider, *, now: datetime, universe_li
     ).distinct()))
     for days in (30, 90):
         codes.extend(qs._market_signal_retention_state(db, universe_limit=universe_limit, limit=0, recent_days=days))
+    priority_codes = get_settings().briefing_watch_code_list()
+    # Detail pages for these representative symbols must be recoverable after
+    # a cold start even when a broad Top150 history consumes the pair budget.
+    codes.extend(priority_codes)
     cohort = _load(db, f"{REGULAR_FORWARD_VERSION}:shadow-cohort:100")
     if cohort:
         codes.extend(cohort["codes"])
     return collect_regular_session_prices(db, provider, codes=sorted(set(codes)), start=REGULAR_FORWARD_START,
-                                          end=completed, observed_at=now, persist=True, max_pairs=250)
+                                          end=completed, observed_at=now, persist=True, max_pairs=250,
+                                          priority_codes=priority_codes)
 
 
 def frozen_shadow_cohort(db: Session, *, limit: int, day: date, codes: list[str]) -> dict[str, Any]:

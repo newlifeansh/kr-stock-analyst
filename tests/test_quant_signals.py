@@ -4223,6 +4223,7 @@ def test_stock_signal_detail_names_missing_regular_session_without_claiming_a_si
         response = TestClient(app).get("/stocks/005930/quant-signals")
         assert response.status_code == 503
         assert "2026-11-06" in response.json()["detail"]
+        assert "재검증 중" in response.json()["detail"]
         assert "확정 신호를 표시하지 않습니다" in response.json()["detail"]
         assert "005930" not in response.json()["detail"]
     finally:

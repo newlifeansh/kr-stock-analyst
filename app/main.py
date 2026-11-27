@@ -9161,7 +9161,7 @@ def stock_quant_signals(
                     "disclaimer": "검증된 가격만 표시하며 매매 시그널은 확정하지 않습니다.",
                 }
         detail = (
-            f"{missing_session.group(1)} 정규장 체결 자료가 검증되지 않아 AI 시그널을 보류합니다. "
+            f"{missing_session.group(1)} 정규장 체결 자료를 재검증 중이므로 AI 시그널을 보류합니다. "
             "해당 날짜의 매매 순서를 확인하기 전에는 확정 신호를 표시하지 않습니다."
             if missing_session else
             "이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다."

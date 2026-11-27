@@ -1083,6 +1083,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_domestic_signal_gap_shows_only_verified_sessions_and_hides_ready_panel",
         "tests.test_public_signal.test_public_gap_payload_keeps_verified_prices_and_date_warning_without_signals",
     ),
+    "DATA-KR-REGULAR-PRIORITY-001": (
+        "tests.test_regular_session_prices."
+        "test_regular_backfill_prioritizes_representative_symbol_history_under_pair_cap",
+        "tests.test_regular_signal_transition."
+        "test_forward_collection_keeps_recent_members_after_rank_exit",
+    ),
     "SIG-KR-REGULAR-VALIDATION-CACHE-001": (
         "tests.test_regular_session_prices."
         "test_regular_loader_reuses_only_identical_validated_content",
