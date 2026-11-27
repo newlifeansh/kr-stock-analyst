@@ -1542,7 +1542,8 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
 
     def refresh(**kwargs):
         scopes.append((
-            kwargs.get("recent_days", 30), kwargs["live_quotes"],
+            kwargs.get("universe_limit", main_module.MARKET_SIGNAL_UNIVERSE_LIMIT),
+            kwargs.get("limit", 0), kwargs.get("recent_days", 30), kwargs["live_quotes"],
             kwargs.get("reuse_regular_preflight", False),
         ))
         return {"status": "ready"}
@@ -1551,8 +1552,12 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
 
     assert main_module._refresh_market_quant_signal_views_snapshot() == {"status": "ready"}
     assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
-    assert scopes == [(30, quotes, False), (90, quotes, True)]
-    assert scopes[0][1] is scopes[1][1]
+    assert scopes == [
+        (main_module.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 30, quotes, False),
+        (100, 100, 30, quotes, True),
+        (main_module.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 90, quotes, True),
+    ]
+    assert all(scope[3] is quotes for scope in scopes)
 
     scopes.clear()
     scans.clear()
@@ -1560,7 +1565,10 @@ def test_market_quant_signal_views_share_one_live_quote_scan(monkeypatch):
         refresh_detail=False
     ) == {"status": "ready"}
     assert scans == [main_module.MARKET_SIGNAL_UNIVERSE_LIMIT]
-    assert scopes == [(30, quotes, False)]
+    assert scopes == [
+        (main_module.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 30, quotes, False),
+        (100, 100, 30, quotes, True),
+    ]
 
     quote_sink = []
     assert main_module._refresh_market_quant_signal_views_snapshot(
@@ -1918,7 +1926,22 @@ def test_market_signal_refresh_preserves_snapshot_when_live_quote_coverage_colla
     result = main_module._refresh_market_quant_signal_views_snapshot()
 
     assert (result is not None) is published
-    assert [call.get("recent_days", 30) for call in calls] == ([30, 90] if published else [])
+    assert [
+        (
+            call.get("universe_limit", main_module.MARKET_SIGNAL_UNIVERSE_LIMIT),
+            call.get("limit", 0),
+            call.get("recent_days", 30),
+        )
+        for call in calls
+    ] == (
+        [
+            (main_module.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 30),
+            (100, 100, 30),
+            (main_module.MARKET_SIGNAL_UNIVERSE_LIMIT, 0, 90),
+        ]
+        if published
+        else []
+    )
     if published:
         assert all(call["live_quotes"] is quotes for call in calls)
     else:

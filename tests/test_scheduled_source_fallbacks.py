@@ -65,6 +65,9 @@ def test_html_price_fallback_retries_market_cap_backfill(monkeypatch):
     briefing, runtime = _price_runtime(monkeypatch)
     calls = []
     coverage = iter([
+        # The prior completed session is already sound. This fixture verifies
+        # the separate current-session HTML fallback, not cold recovery.
+        {'total': 100, 'fresh': 100, 'coverage_ratio': 1.0},
         {'total': 100, 'fresh': 0, 'coverage_ratio': 0.0},
         {'total': 100, 'fresh': 100, 'coverage_ratio': 1.0},
     ])

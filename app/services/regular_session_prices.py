@@ -1487,6 +1487,7 @@ def _session_dates(start: date, end: date) -> list[date]:
 def collect_regular_session_prices(
     db: Session, provider: Any, *, codes: list[str], start: date, end: date,
     observed_at: datetime, persist: bool = False, max_pairs: int = 250,
+    priority_codes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Bounded, resumable sidecar backfill; never publishes signals or pushes.
 
@@ -1504,7 +1505,18 @@ def collect_regular_session_prices(
     if persist and not has_table:
         raise ValueError("create the additive evidence table before persisting")
     active_codes = sorted(set(codes))
-    pairs = [(code, day) for day in reversed(_session_dates(start, end)) for code in active_codes]
+    session_days = list(reversed(_session_dates(start, end)))
+    # A cold collector must not make a user-visible representative symbol wait
+    # behind every member of a growing market cohort. Process its complete
+    # regular-session history first; retry scheduling below still takes
+    # precedence for recorded failed evidence.
+    priority_set = set(priority_codes or ())
+    prioritized_codes = [code for code in active_codes if code in priority_set]
+    remaining_codes = [code for code in active_codes if code not in priority_set]
+    pairs = (
+        [(code, day) for day in session_days for code in prioritized_codes]
+        + [(code, day) for day in session_days for code in remaining_codes]
+    )
     # A fixed newest-first cap can indefinitely starve an older failed day
     # when the current cohort grows. Retry recorded failures first, while
     # spacing provider attempts so an unchanged bad session cannot monopolize

@@ -444,6 +444,7 @@ def test_forward_collection_does_not_call_sources_before_first_close(db):
 
 def test_forward_collection_keeps_recent_members_after_rank_exit(db, monkeypatch):
     from app.services import regular_session_prices
+    from app.config import get_settings
 
     previous, current = date(2026, 10, 23), date(2026, 10, 26)
     for day, first_cap, second_cap in (
@@ -465,7 +466,8 @@ def test_forward_collection_keeps_recent_members_after_rank_exit(db, monkeypatch
         db, object(), now=datetime(2026, 10, 27, 8, tzinfo=qs.KST),
         universe_limit=1,
     )
-    assert captured["codes"] == ["000001", "000002"]
+    assert captured["codes"] == sorted({"000001", "000002", *get_settings().briefing_watch_code_list()})
+    assert captured["priority_codes"] == get_settings().briefing_watch_code_list()
     assert captured["start"] == transition.REGULAR_FORWARD_START
     assert captured["end"] == current
 

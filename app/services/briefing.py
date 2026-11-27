@@ -23,6 +23,7 @@ from app.collectors.krx import (
     collect_market_prices,
     collect_prices_for_codes,
     collect_stocks,
+    derive_market_caps_for_date,
     is_supported_price_code,
 )
 from app.collectors.macro import DEFAULT_MACRO_SERIES, collect_yahoo_macro_observations
@@ -360,6 +361,22 @@ class BriefingRuntime:
                     if price_result["source"] == "degraded":
                         self.source_errors["prices"] = self.last_price_message
                     else:
+                        completed_target = latest_completed_korea_market_session_date(
+                            datetime.now(KST)
+                        )
+                        if completed_target is not None:
+                            try:
+                                evidence_rows = self._warm_completed_session_entry_evidence(
+                                    db,
+                                    completed_target,
+                                )
+                                self.last_price_message = (
+                                    f"{self.last_price_message} "
+                                    f"entry_evidence={evidence_rows}"
+                                )
+                                self.source_errors.pop("entry_evidence", None)
+                            except Exception as exc:
+                                self.source_errors["entry_evidence"] = str(exc)
                         self.source_errors.pop("prices", None)
                         self.last_price_at = datetime.utcnow()
                 except Exception as exc:
@@ -367,6 +384,10 @@ class BriefingRuntime:
             fundamental_snapshot_due = bool(
                 self.settings.fundamental_snapshot_enabled
                 and self._fundamental_snapshot_due()
+            )
+            stock_news_snapshot_due = bool(
+                self.settings.stock_news_snapshot_enabled
+                and self._stock_news_snapshot_due()
             )
             priority_snapshot_result = {
                 "rows_loaded": 0,
@@ -403,9 +424,71 @@ class BriefingRuntime:
                     )
                     self.source_errors["fundamental_snapshot"] = str(exc)
                     fundamental_snapshot_due = False
+            if stock_news_snapshot_due:
+                try:
+                    # The Top100 news coverage is a release-readiness
+                    # requirement.  It must not wait behind a full research,
+                    # financial, or full-universe stock-news backfill.
+                    priority_stock_news_result = collect_stock_news_snapshots(
+                        db,
+                        limit=FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+                        max_workers=self.settings.stock_news_snapshot_max_workers,
+                        refresh_hours=self.settings.stock_news_snapshot_refresh_hours,
+                    )
+                    if priority_stock_news_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_stock_news_snapshot_message = (
+                        f"signal_top_{FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT}="
+                        f"{priority_stock_news_result['message']}"
+                    )
+                    completed_at = datetime.utcnow()
+                    failed = int(priority_stock_news_result.get("failed") or 0)
+                    self.last_stock_news_snapshot_at = completed_at
+                    self.last_stock_news_snapshot_failed = failed
+                    if failed:
+                        self.last_stock_news_snapshot_state = "degraded"
+                        self.next_stock_news_snapshot_retry_at = completed_at + timedelta(
+                            seconds=min(
+                                STOCK_NEWS_SNAPSHOT_RETRY_SECONDS,
+                                max(1, int(self.settings.stock_news_snapshot_poll_seconds)),
+                            )
+                        )
+                        self.source_errors["stock_news_snapshot"] = (
+                            f"signal_top_failed={failed}; "
+                            f"retry_at={self.next_stock_news_snapshot_retry_at.isoformat()}"
+                        )
+                        # Do not hide an incomplete signal universe behind a
+                        # later full-universe run; retry this bounded lane.
+                        stock_news_snapshot_due = False
+                    else:
+                        self.last_stock_news_snapshot_state = "ready"
+                        self.next_stock_news_snapshot_retry_at = None
+                        self.source_errors.pop("stock_news_snapshot", None)
+                except Exception as exc:
+                    failed_at = datetime.utcnow()
+                    self.last_stock_news_snapshot_at = failed_at
+                    self.last_stock_news_snapshot_state = "error"
+                    self.next_stock_news_snapshot_retry_at = failed_at + timedelta(
+                        seconds=min(
+                            STOCK_NEWS_SNAPSHOT_RETRY_SECONDS,
+                            max(1, int(self.settings.stock_news_snapshot_poll_seconds)),
+                        )
+                    )
+                    self.source_errors["stock_news_snapshot"] = str(exc)
+                    stock_news_snapshot_due = False
             # A cold deployment can require a large 180-day research backfill.
-            # Complete the Top100 universe, price, flow, and fundamental lanes
-            # first so the signal-quality contract recovers without waiting.
+            # Complete the Top100 universe, price, flow, fundamental, and news
+            # lanes first so the signal-quality contract recovers without waiting.
+            if self.settings.macro_enabled and self._macro_due():
+                try:
+                    macro_result = self._collect_macro(db)
+                    if macro_result["rows_loaded"]:
+                        refreshed_any = True
+                    self.last_macro_source = str(macro_result["source"])
+                    self.last_macro_message = str(macro_result["message"])
+                    self.last_macro_at = datetime.utcnow()
+                except Exception as exc:
+                    self.source_errors["macro"] = str(exc)
             if self.settings.research_enabled and self._research_backfill_due():
                 try:
                     if self.settings.maintenance_subprocess_enabled:
@@ -488,7 +571,7 @@ class BriefingRuntime:
                         failed_at + timedelta(seconds=self._fundamental_snapshot_retry_seconds())
                     )
                     self.source_errors["fundamental_snapshot"] = str(exc)
-            if self.settings.stock_news_snapshot_enabled and self._stock_news_snapshot_due():
+            if stock_news_snapshot_due:
                 try:
                     stock_news_result = collect_stock_news_snapshots(
                         db,
@@ -545,16 +628,6 @@ class BriefingRuntime:
                     self.last_stock_company_snapshot_at = datetime.utcnow()
                 except Exception as exc:
                     self.source_errors["stock_company_snapshot"] = str(exc)
-            if self.settings.macro_enabled and self._macro_due():
-                try:
-                    macro_result = self._collect_macro(db)
-                    if macro_result["rows_loaded"]:
-                        refreshed_any = True
-                    self.last_macro_source = str(macro_result["source"])
-                    self.last_macro_message = str(macro_result["message"])
-                    self.last_macro_at = datetime.utcnow()
-                except Exception as exc:
-                    self.source_errors["macro"] = str(exc)
             if refreshed_any or (
                 self.settings.briefing_realtime_enabled and self._briefing_snapshot_due()
             ):
@@ -684,8 +757,24 @@ class BriefingRuntime:
         is_current_session = is_korea_market_session_date(current.date(), current)
         use_completed_session = not is_current_session or current.time() < time(9, 0)
         target_date = current.date()
+        completed_target = latest_completed_korea_market_session_date(current)
+        if not use_completed_session and completed_target is not None:
+            completed_yyyymmdd = completed_target.strftime("%Y%m%d")
+            completed_coverage = self._latest_price_coverage(db, completed_yyyymmdd)
+            if not (
+                completed_coverage["total"]
+                and completed_coverage["coverage_ratio"] >= 0.95
+            ):
+                # During a regular session the realtime feed can make today's
+                # partial quote look healthy while the previous completed
+                # session is still absent. Signal QA deliberately evaluates
+                # that completed session, so repair it before touching today's
+                # intraday rows.
+                return self._recover_missing_completed_session_prices(
+                    db,
+                    completed_target,
+                )
         if use_completed_session:
-            completed_target = latest_completed_korea_market_session_date(current)
             if completed_target is None:
                 return {
                     "source": "market_closed",
@@ -693,15 +782,6 @@ class BriefingRuntime:
                     "message": f"date={current.strftime('%Y%m%d')} skipped_non_trading_day",
                 }
             target_date = completed_target
-            if self.last_post_close_price_repair_date != completed_target:
-                repaired = self._repair_signal_price_ohlc(db, completed_target)
-                self.last_post_close_price_repair_date = completed_target
-                if repaired:
-                    return {
-                        "source": "previous_session_price_ohlc_repair",
-                        "rows_loaded": repaired,
-                        "message": f"date={completed_target.isoformat()} repaired_after_close",
-                    }
         target_yyyymmdd = target_date.strftime("%Y%m%d")
         coverage = self._latest_price_coverage(db, target_yyyymmdd)
         if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
@@ -746,17 +826,15 @@ class BriefingRuntime:
                 total_rows += collect_market_prices(db, target_yyyymmdd, market)
             except Exception as exc:
                 market_errors[market] = str(exc)
-        repair_rows = 0
         if total_rows:
-            repair_rows += self._repair_signal_price_ohlc(db, target_date)
             coverage = self._latest_price_coverage(db, target_yyyymmdd)
             if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
                 return {
-                    "source": "krx_market+naver_ohlc_repair" if repair_rows else "krx_market",
-                    "rows_loaded": total_rows + repair_rows,
+                    "source": "krx_market",
+                    "rows_loaded": total_rows,
                     "message": (
                         f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
-                        f"errors={len(market_errors)} repaired={repair_rows} "
+                        f"errors={len(market_errors)} "
                         f"fresh={coverage['fresh']}/{coverage['total']} "
                         f"coverage={coverage['coverage_ratio']:.2%}"
                     ),
@@ -778,31 +856,22 @@ class BriefingRuntime:
             market_errors["naver_realtime_quotes"] = str(exc)
 
         if realtime_rows:
-            must_finalize_close = self._post_close_price_repair_due(current)
-            repair_rows += self._repair_signal_price_ohlc(
-                db,
-                target_date,
-                force=must_finalize_close,
-            )
-            if must_finalize_close and repair_rows:
-                self.last_post_close_price_repair_date = target_date
             coverage = self._latest_price_coverage(db, target_yyyymmdd)
             if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
                 source = "krx_market+naver_realtime_quotes" if total_rows else "naver_realtime_quotes"
-                if repair_rows:
-                    source += "+naver_ohlc_repair"
                 return {
                     "source": source,
-                    "rows_loaded": total_rows + realtime_rows + repair_rows,
+                    "rows_loaded": total_rows + realtime_rows,
                     "message": (
                         f"date={target_yyyymmdd} markets=KOSPI,KOSDAQ "
                         f"krx_errors={len(market_errors)} realtime={realtime_rows} "
-                        f"repaired={repair_rows} fresh={coverage['fresh']}/{coverage['total']} "
+                        f"fresh={coverage['fresh']}/{coverage['total']} "
                         f"coverage={coverage['coverage_ratio']:.2%}"
                     ),
                 }
 
         market_cap_rows = 0
+        repair_rows = 0
         try:
             naver_rows = collect_naver_quotes(
                 db,
@@ -905,33 +974,241 @@ class BriefingRuntime:
             ),
         }
 
-    def _repair_completed_session_from_naver(self, db, target_date: date) -> int:
-        """Fill a missing completed session from Naver's KRX chart fallback."""
+    def _recover_missing_completed_session_prices(
+        self,
+        db,
+        target_date: date,
+    ) -> dict[str, object]:
+        """Restore a missing closed session before accepting live intraday data.
 
-        codes = list(
+        A regular-session Naver realtime response is deliberately never written
+        under a prior trade date: ``localTradedAt`` guards that invariant. The
+        historical recovery path therefore uses KRX first, then Naver's KRX
+        chart and the explicit FDR listed-share market-cap fallback.
+        """
+
+        target_yyyymmdd = target_date.strftime("%Y%m%d")
+        market_errors: dict[str, str] = {}
+        krx_rows = 0
+        for market in ("KOSPI", "KOSDAQ"):
+            try:
+                krx_rows += collect_market_prices(db, target_yyyymmdd, market)
+            except Exception as exc:
+                market_errors[market] = str(exc)
+        coverage = self._latest_price_coverage(db, target_yyyymmdd)
+        if coverage["total"] and coverage["coverage_ratio"] >= 0.95:
+            return {
+                "source": "completed_session_krx_market",
+                "rows_loaded": krx_rows,
+                "message": (
+                    f"date={target_yyyymmdd} recovered_completed_session "
+                    f"krx_errors={len(market_errors)} "
+                    f"fresh={coverage['fresh']}/{coverage['total']} "
+                    f"coverage={coverage['coverage_ratio']:.2%}"
+                ),
+            }
+
+        priority_codes = self._priority_completed_session_price_codes(db, target_date)
+        chart_rows = 0
+        if priority_codes:
+            try:
+                chart_rows += self._repair_completed_session_from_naver(
+                    db,
+                    target_date,
+                    codes=priority_codes,
+                )
+            except Exception as exc:
+                market_errors["naver_krx_chart_priority"] = str(exc)
+        priority_ready = self._completed_session_priority_ready(
+            db,
+            target_date,
+            priority_codes,
+        )
+
+        # The bounded cohort makes signal-critical rows available first, but
+        # release readiness intentionally also requires complete active-market
+        # coverage. Continue with the batched chart recovery in the same
+        # collector turn rather than waiting for the next price poll.
+        try:
+            chart_rows += self._repair_completed_session_from_naver(db, target_date)
+        except Exception as exc:
+            market_errors["naver_krx_chart_full"] = str(exc)
+        coverage = self._latest_price_coverage(db, target_yyyymmdd)
+        ready = bool(coverage["total"] and coverage["coverage_ratio"] >= 0.95)
+        return {
+            "source": "completed_session_naver_krx_chart" if ready else "degraded",
+            "rows_loaded": krx_rows + chart_rows,
+            "message": (
+                f"date={target_yyyymmdd} priority={len(priority_codes)} "
+                f"priority_ready={priority_ready} "
+                f"krx_errors={len(market_errors)} "
+                f"fresh={coverage['fresh']}/{coverage['total']} "
+                f"coverage={coverage['coverage_ratio']:.2%}"
+            ),
+        }
+
+    def _warm_completed_session_entry_evidence(
+        self,
+        db,
+        target_date: date,
+    ) -> int:
+        """Persist immutable completed-session evidence without live quotes.
+
+        The intraday publisher correctly waits for a sufficient live KIS quote
+        cohort. A cold staging instance can therefore have complete prior-day
+        candles while that publisher is deferred. The evidence snapshot is
+        derived only from the completed daily data and may be safely warmed as
+        soon as its market-cap cohort is restored.
+        """
+
+        from app.services.regular_signal_transition import (
+            REGULAR_FORWARD_ENTRY_POLICY,
+            REGULAR_FORWARD_START,
+            REGULAR_FORWARD_STRATEGY_VERSION,
+        )
+        from app.services.signal_entry_evidence import ensure_entry_evidence_snapshot
+
+        rows = db.execute(
+            select(StockMaster, DailyPrice.code)
+            .join(DailyPrice, DailyPrice.code == StockMaster.code)
+            .where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                DailyPrice.trade_date == target_date,
+                DailyPrice.market_cap.is_not(None),
+                DailyPrice.market_cap > 0,
+            )
+            .order_by(desc(DailyPrice.market_cap), StockMaster.code)
+            .limit(FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT)
+        ).all()
+        stocks = [stock for stock, _code in rows]
+        codes = [str(code) for _stock, code in rows]
+        if not stocks:
+            return 0
+        price_rows = list(
             db.scalars(
-                select(StockMaster.code).where(
-                    StockMaster.is_active.is_(True),
-                    StockMaster.market.in_(('KOSPI', 'KOSDAQ')),
+                select(DailyPrice)
+                .where(
+                    DailyPrice.code.in_(tuple(codes)),
+                    DailyPrice.trade_date <= target_date,
+                    DailyPrice.trade_date >= target_date - timedelta(days=400),
+                )
+                .order_by(DailyPrice.code, DailyPrice.trade_date)
+            )
+        )
+        prices_by_code: dict[str, list[DailyPrice]] = {code: [] for code in codes}
+        for row in price_rows:
+            prices_by_code.setdefault(str(row.code), []).append(row)
+        strategy_kwargs: dict[str, object] = {}
+        if target_date >= REGULAR_FORWARD_START:
+            strategy_kwargs = {
+                "strategy_version": REGULAR_FORWARD_STRATEGY_VERSION,
+                "policy_version": REGULAR_FORWARD_ENTRY_POLICY,
+            }
+        warmed = 0
+        generated_at = datetime.now(KST)
+        for stock in stocks:
+            snapshot = ensure_entry_evidence_snapshot(
+                db,
+                stock,
+                prices_by_code.get(stock.code, []),
+                signal_date=target_date,
+                now=generated_at,
+                commit_on_persist=False,
+                latest_market_date_override=target_date,
+                **strategy_kwargs,
+            )
+            if snapshot:
+                warmed += 1
+        db.commit()
+        return warmed
+
+    def _priority_completed_session_price_codes(
+        self,
+        db,
+        target_date: date,
+    ) -> list[str]:
+        """Choose the last known market-cap Top100 for bounded recovery."""
+
+        reference_date = db.scalar(
+            select(func.max(DailyPrice.trade_date)).where(
+                DailyPrice.trade_date < target_date,
+            )
+        )
+        if reference_date is None:
+            return []
+        rows = db.execute(
+            select(StockMaster.code)
+            .join(DailyPrice, DailyPrice.code == StockMaster.code)
+            .where(
+                StockMaster.is_active.is_(True),
+                StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                DailyPrice.trade_date == reference_date,
+                DailyPrice.market_cap.is_not(None),
+                DailyPrice.market_cap > 0,
+            )
+            .order_by(desc(DailyPrice.market_cap), StockMaster.code)
+            .limit(FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT)
+        ).all()
+        return [str(code) for (code,) in rows]
+
+    def _completed_session_priority_ready(
+        self,
+        db,
+        target_date: date,
+        codes: list[str],
+    ) -> bool:
+        if not codes:
+            return False
+        rows = list(
+            db.scalars(
+                select(DailyPrice).where(
+                    DailyPrice.code.in_(codes),
+                    DailyPrice.trade_date == target_date,
                 )
             )
         )
-        if not codes:
+        fresh_codes = {
+            row.code
+            for row in rows
+            if _has_complete_price_ohlc(row)
+            and row.market_cap is not None
+            and row.market_cap > 0
+        }
+        return len(fresh_codes) / len(codes) >= 0.95
+
+    def _repair_completed_session_from_naver(
+        self,
+        db,
+        target_date: date,
+        *,
+        codes: Optional[list[str]] = None,
+    ) -> int:
+        """Fill a closed session with its historical chart, never live quotes."""
+
+        target_codes = codes
+        if target_codes is None:
+            target_codes = list(
+                db.scalars(
+                    select(StockMaster.code).where(
+                        StockMaster.is_active.is_(True),
+                        StockMaster.market.in_(("KOSPI", "KOSDAQ")),
+                    )
+                )
+            )
+        if not target_codes:
             return 0
-        market_cap_rows = collect_naver_realtime_market_caps(
-            db,
-            target_date.strftime('%Y%m%d'),
-            markets='KOSPI,KOSDAQ',
-            limit=None,
-            max_workers=self.settings.price_max_workers,
-        )
         chart_rows = collect_naver_krx_price_rows_for_codes(
             db,
-            codes,
+            target_codes,
             target_date,
             max_workers=self.settings.price_max_workers,
         )
-        return market_cap_rows + chart_rows
+        # Naver's historical chart has OHLC but no historical market cap. The
+        # collector preserves any measured cap and derives only the missing
+        # values from current listed shares, with a visible ingestion record.
+        market_cap_rows = derive_market_caps_for_date(db, target_date)
+        return chart_rows + market_cap_rows
 
     def _repair_signal_price_ohlc(
         self,

@@ -1265,6 +1265,20 @@ def _refresh_market_quant_signal_views_snapshot(
     )
     if current is None:
         return None
+    # Live readiness also consumes the bounded Top100 feed.  It must be
+    # published from the exact same verified quote frame as the canonical
+    # Top150 alert feed; otherwise a cold deployment can leave that scope
+    # stale even though the canonical snapshot is ready.
+    live_scope = _refresh_market_quant_signal_snapshot(
+        universe_limit=100,
+        limit=100,
+        recent_days=30,
+        live_quotes=shared_quotes,
+        reuse_regular_preflight=True,
+    )
+    if live_scope is None:
+        logger.warning("Market quant signal Top100 live scope refresh did not complete")
+        return None
     if quote_sink is not None:
         quote_sink.append(shared_quotes or {})
     if not refresh_detail:
@@ -9147,7 +9161,7 @@ def stock_quant_signals(
                     "disclaimer": "검증된 가격만 표시하며 매매 시그널은 확정하지 않습니다.",
                 }
         detail = (
-            f"{missing_session.group(1)} 정규장 체결 자료가 검증되지 않아 AI 시그널을 보류합니다. "
+            f"{missing_session.group(1)} 정규장 체결 자료를 재검증 중이므로 AI 시그널을 보류합니다. "
             "해당 날짜의 매매 순서를 확인하기 전에는 확정 신호를 표시하지 않습니다."
             if missing_session else
             "이전 장중 매매 기록을 재검증 중입니다. 확인 전에는 다른 확정 신호를 표시하지 않습니다."

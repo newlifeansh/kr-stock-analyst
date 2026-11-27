@@ -327,6 +327,20 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_us_hybrid_signals.test_hybrid_exact_decimal_exit_boundaries_and_adjacent_quotes",
         "tests.test_us_hybrid_signals.test_hybrid_partial_breakeven_boundary_does_not_exit_early",
     ),
+    "DATA-KRX-NAVER-002": (
+        "tests.test_briefing_runtime.test_collect_prices_recovers_missing_completed_session_before_current_intraday",
+        "tests.test_briefing_runtime.test_completed_session_chart_recovery_never_uses_realtime_quote_dates",
+        "tests.test_briefing_runtime.test_completed_session_recovery_expands_top100_to_full_active_market",
+        "tests.test_briefing_runtime.test_run_once_warms_completed_session_evidence_when_prices_are_already_ready",
+        "tests.test_scheduled_source_fallbacks.test_html_price_fallback_retries_market_cap_backfill",
+        "tests.test_scheduled_source_fallbacks.test_completed_session_fallback_rechecks_coverage[0.94-degraded]",
+        "tests.test_scheduled_source_fallbacks.test_completed_session_fallback_rechecks_coverage[0.95-naver_realtime_market_caps+naver_krx_chart]",
+    ),
+    "SIG-EVIDENCE-003": (
+        "tests.test_briefing_runtime.test_completed_session_recovery_expands_top100_to_full_active_market",
+        "tests.test_briefing_runtime.test_run_once_warms_completed_session_evidence_when_prices_are_already_ready",
+        "tests.test_signal_entry_evidence.test_signal_data_quality_surfaces_latest_stock_news_failure",
+    ),
     "DATA-KRX-NAVER-005": (
         "tests.test_signal_entry_evidence.test_source_probe_uses_current_naver_json_endpoints",
         "tests.test_naver_flows.test_fetch_rows_prefers_new_trend_api_and_does_not_call_legacy",
@@ -436,6 +450,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_quote_stream_scaling.test_market_signal_refresh_publishes_healthy_codes_after_complete_isolation",
         "tests.test_app.test_fresh_market_signal_snapshot_retries_incomplete_forward_evidence",
         "tests.test_app.test_fresh_market_signal_snapshot_keeps_isolated_healthy_candidates_without_read_retry",
+    ),
+    "SIG-KR-SCOPE-001": (
+        "tests.test_app.test_market_quant_signal_views_share_one_live_quote_scan",
     ),
     "DATA-KR-QUOTE-SESSION-001": (
         "tests.test_live_stock_quote.test_kis_source_session_and_business_date_are_preserved_for_every_venue",
@@ -1065,6 +1082,12 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_domestic_signal_detail_503_reads_safe_server_reason",
         "tests.test_app.test_domestic_signal_gap_shows_only_verified_sessions_and_hides_ready_panel",
         "tests.test_public_signal.test_public_gap_payload_keeps_verified_prices_and_date_warning_without_signals",
+    ),
+    "DATA-KR-REGULAR-PRIORITY-001": (
+        "tests.test_regular_session_prices."
+        "test_regular_backfill_prioritizes_representative_symbol_history_under_pair_cap",
+        "tests.test_regular_signal_transition."
+        "test_forward_collection_keeps_recent_members_after_rank_exit",
     ),
     "SIG-KR-REGULAR-VALIDATION-CACHE-001": (
         "tests.test_regular_session_prices."

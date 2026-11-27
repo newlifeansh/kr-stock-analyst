@@ -377,6 +377,19 @@
       "failure_criteria": ["최근 대상군에서 이탈한 종목의 근거 수집을 중단해 재검증 대기를 영구화한다.", "기존 일봉 변경이 동결 준비 자료나 과거 공개 수익률을 바꾼다.", "정규장 결측을 표시용 전체 세션 일봉으로 대체한다.", "거래대금 범위 끝값을 정확한 실측 거래대금으로 표시한다.", "구버전 독립 근거를 새 버전 확인으로 재사용한다.", "동결된 기존 보유 포지션을 새 전략의 매수·보유로 승계하거나, 과거 보유 사실만으로 새 전략 상세를 503으로 차단한다.", "과거 미봉인 경로 하나로 오늘 독립 근거까지 누락시키거나, 독립 근거가 있다는 이유로 미검증 과거 체결을 확정 신호로 재생한다.", "H2/H3가 운영 신호나 알림으로 자동 승격된다.", "미검사 deferred 조합이 남았는데 부분 결과를 새 스냅샷으로 저장하거나, 반대로 검사 완료된 개별 원천 실패 하나가 건강한 전체 종목 스캔을 영구 중단한다.", "미검증 종목의 이전 예비 후보를 유지하거나 새 후보·확정·알림을 생성한다.", "fresh 격리 스냅샷을 읽을 때마다 전체 스캔을 다시 예약해 Top100 등 다른 범위 갱신을 기아시키거나, 독립 근거 수집 작업에서도 격리 종목 재검증을 시도하지 않는다."]
     },
     {
+      "id": "SIG-KR-SCOPE-001",
+      "title": "동일 시세 프레임의 canonical·live Top100 스냅샷 동시 게시",
+      "domain": "국내 시그널 API 캐시 범위",
+      "priority": "P0",
+      "modes": ["gate", "live"],
+      "automation": "pytest canonical Top150·정확한 live Top100(limit=100)·90일 상세 범위를 하나의 KIS quote fanout으로 순서대로 저장하는 회귀 fixture + staging /market/quant-signals 두 범위 ready 검사",
+      "preconditions": ["정규장 또는 staging cold start에서 canonical Top150 스냅샷과 live QA가 읽는 Top100 한정 스냅샷이 각각 캐시 키를 가진다.", "KIS 실시간 quote fanout이 publication floor를 충족한다."],
+      "inputs": {"canonical_scope": {"universe_limit": 150, "limit": 0, "recent_days": 30}, "live_scope": {"universe_limit": 100, "limit": 100, "recent_days": 30}, "detail_scope": {"universe_limit": 150, "limit": 0, "recent_days": 90}, "quote_source": "one verified KIS fanout"},
+      "steps": ["한 번의 정규 시그널 refresh를 실행한다.", "canonical Top150을 저장한 뒤 같은 quote 객체로 live Top100 한정 스냅샷을 저장하고, 선택된 경우 90일 상세도 갱신하는지 검사한다.", "staging에서 두 30일 API 범위가 모두 현재 완료 세션 기준 ready인지 확인한다."],
+      "expected": ["canonical과 live Top100 범위는 같은 검증 quote frame을 사용하면서 각자의 정확한 캐시 키에 fresh 스냅샷을 저장한다.", "Top150 canonical이 ready이면 live QA가 읽는 Top100/limit=100 범위도 stale·refreshing으로 남지 않는다.", "quote floor 미달이면 어느 범위도 부분 프레임으로 새 확정 시그널을 게시하지 않는다."],
+      "failure_criteria": ["canonical Top150만 갱신하고 live Top100 캐시를 이전 배포 시각의 stale 상태로 남긴다.", "Top100 갱신을 위해 두 번째 독립 quote fanout을 실행해 서로 다른 시각의 프레임을 섞는다.", "quote floor 미달인데 Top100 범위만 ready로 게시하거나, Top100 실패를 무시해 refresh loop가 정상 완료로 표시한다." ]
+    },
+    {
       "id": "DATA-KR-QUOTE-SESSION-001",
       "title": "KIS 실제 거래일·세션·가격시각 보존과 정규장 신호 경계",
       "domain": "국내 실시간 시세 출처",
@@ -853,12 +866,12 @@
       "domain": "국내 시세·수급 연동",
       "priority": "P0",
       "modes": ["gate", "live"],
-      "automation": "pytest candle/realtime full-OHLC·market-cap·trade-date fixture + data-quality endpoint + tests/test_scheduled_source_fallbacks.py HTML backfill and 94/95% completed-session boundary fixtures",
-      "preconditions": ["정상·불완전·목표일 누락·거래량 0 행과 장중 먼저 저장된 당일 부분 가격 행을 준비한다.", "KRX 가격·시가총액 수집과 네이버 종목별 HTML 시세가 비고 네이버 실시간 묶음 시세만 유효한 운영 수집기 상태를 준비한다."],
-      "inputs": {"ohlc": "openPriceRaw,highPriceRaw,lowPriceRaw,closePriceRaw", "scope": "all active KOSPI/KOSDAQ stocks", "quality_universe_date": "latest completed Korea market session", "market_cap_fallback": "Naver realtime quote batches", "market_cap_backfill_scope": "all collector modes including canonical sync disabled", "required_trade_date_field": "localTradedAt", "completed_session_recovery_min_coverage": 0.95, "market_calendar_history_sessions": 60},
-      "steps": ["고가·저가 범위와 거래량·거래대금을 전 활성 종목에서 검증한다.", "KRX 수집이 실패하면 느린 종목별 HTML보다 먼저 네이버 실시간 묶음 응답을 사용하고 종목별 openPriceRaw·highPriceRaw·lowPriceRaw·closePriceRaw·marketValueFullRaw를 정규화한다.", "묶음 응답의 localTradedAt 날짜가 저장 목표 거래일과 일치하고 저가≤시가·종가≤고가인 행만 완전 OHLC로 승인하며, 날짜 불일치 행은 저장하지 않고 가격 관계가 손상된 행은 부분 시세로 격하한다.", "묶음 응답도 0건이면 기존 HTML과 일봉 보정 경로를 순서대로 실행한다.", "장중 당일 부분 가격을 저장한 뒤 품질 유니버스와 가격·수급·펀더멘털·리서치 커버리지가 직전 완료 거래일에 유지되는지 확인한다.", "오전 9시 전 수집에서 당일 세션 표식이 먼저 노출돼도 직전 완료 거래일을 저장 목표로 사용하고, 완전 OHLC와 양수 시가총액을 함께 충족할 때만 가격 커버리지를 ready로 판정하는지 확인한다.", "KRX·실시간 첫 수집이 0건이고 HTML만 성공할 때 시가총액 묶음 수집을 다시 호출한다. 모두 0건이면 완료 세션 차트 복구 후 커버리지 94%는 degraded, 95%는 복구 성공으로 판정한다."],
-      "expected": ["전 활성 종목의 완전 일봉만 차트·신호에 사용되고 거래정지성 행은 캔들에서 제외된다.", "KRX와 종목별 HTML이 비어도 묶음 시세의 검증된 전체 OHLC와 시가총액으로 전 활성 종목 가격·Top100 유니버스가 복구된다.", "당일 부분 가격은 완료 거래일의 시총 Top100 품질 기준일을 선점하지 않으며 서로 다른 데이터셋의 커버리지를 동시에 0%로 만들지 않는다.", "장 시작 전 전일 종가가 당일 날짜로 잘못 저장되지 않고 전일 시총 Top100 기준이 유지되며, 시총 누락 행은 네이버 보완 수집 대상으로 남는다."],
-      "failure_criteria": ["한 종목이라도 0가격·역전 고저가·거래가 있는 불완전 캔들이 남거나 차트·신호 계산에 들어간다.", "유효한 묶음 시세가 있는데도 느린 HTML 0건 수집을 먼저 완료해 P0 가격 수집을 지연하거나 0건으로 종료한다.", "localTradedAt가 다른 거래일인 종가를 목표일 행으로 저장하거나 손상 OHLC를 완전 캔들로 승인한다.", "장중 첫 부분 가격 날짜가 품질 유니버스 기준일이 되어 저장 데이터가 정상인데도 P0 가격·수급 품질이 stale로 판정된다.", "오전 9시 전 전일 종가가 당일 행으로 저장되거나 시총이 없는 완전 OHLC를 ready로 오인해 시총 Top100 유니버스가 비워진다.", "다른 종목·0 이하 시가총액을 저장하거나 시가총액 보강이 기존 완전 OHLC를 부분 시세로 손상한다.", "HTML 성공 뒤 시가총액 재수집이 로컬 변수 오류로 건너뛰어지거나, 복구 행 수만으로 95% 미만 커버리지를 성공으로 판정한다."]
+      "automation": "pytest candle/realtime full-OHLC·market-cap·trade-date fixture + 장중 누락된 완료 세션을 KRX→Naver KRX chart+FDR 시총으로 Top100 우선 후 전 활성 종목까지 같은 회차에 복구하고 realtime 날짜를 재라벨하지 않는 회귀 fixture + data-quality endpoint + tests/test_scheduled_source_fallbacks.py HTML backfill and 94/95% completed-session boundary fixtures",
+      "preconditions": ["정상·불완전·목표일 누락·거래량 0 행과 장중 먼저 저장된 당일 부분 가격 행을 준비한다.", "KRX 가격·시가총액 수집과 네이버 종목별 HTML 시세가 비고 네이버 실시간 묶음 시세만 유효한 운영 수집기 상태를 준비한다.", "당일 실시간 시세는 있으나 직전 완료 세션 가격이 없는 cold staging DB와 마지막 시총 Top100·수천 종목의 Naver KRX chart 보정 경로를 준비한다."],
+      "inputs": {"ohlc": "openPriceRaw,highPriceRaw,lowPriceRaw,closePriceRaw", "scope": "all active KOSPI/KOSDAQ stocks", "quality_universe_date": "latest completed Korea market session", "market_cap_fallback": "current-session: Naver realtime quote batches; completed historical session: Naver KRX chart + FDR listed shares", "market_cap_backfill_scope": "all collector modes including canonical sync disabled", "required_trade_date_field": "localTradedAt", "completed_session_recovery_min_coverage": 0.95, "market_calendar_history_sessions": 60, "cold_start_priority": "during a current session repair missing completed KRX session before accepting current intraday rows"},
+      "steps": ["고가·저가 범위와 거래량·거래대금을 전 활성 종목에서 검증한다.", "완료 세션이 비어 있는 cold staging DB에서는 장중 당일 실시간 시세가 있어도 먼저 KRX 전체 수집을 시도하고, 실패 시 마지막 시총 Top100의 Naver KRX chart와 FDR 상장주식수 시총 보강을 수행한다.", "Top100이 95% 준비되어도 전 활성 종목 커버리지를 요구하는 readiness 계약을 충족하도록 같은 수집 회차에서 전종목 chart 경로까지 확대한다.", "현재 장중 묶음 응답은 localTradedAt 날짜가 저장 목표 거래일과 일치하고 저가≤시가·종가≤고가일 때만 완전 OHLC로 승인한다. 과거 완료 세션에는 현재 realtime 응답을 재라벨하지 않는다.", "묶음 응답도 0건이면 기존 HTML과 일봉 보정 경로를 순서대로 실행한다.", "장중 당일 부분 가격을 저장한 뒤 품질 유니버스와 가격·수급·펀더멘털·리서치 커버리지가 직전 완료 거래일에 유지되는지 확인한다.", "오전 9시 전 수집에서 당일 세션 표식이 먼저 노출돼도 직전 완료 거래일을 저장 목표로 사용하고, 완전 OHLC와 양수 시가총액을 함께 충족할 때만 가격 커버리지를 ready로 판정하는지 확인한다.", "KRX·실시간 첫 수집이 0건이고 HTML만 성공할 때 시가총액 묶음 수집을 다시 호출한다. 모두 0건이면 완료 세션 차트 복구 후 커버리지 94%는 degraded, 95%는 복구 성공으로 판정한다."],
+      "expected": ["전 활성 종목의 완전 일봉만 차트·신호에 사용되고 거래정지성 행은 캔들에서 제외된다.", "장중 현재 시세가 있더라도 누락된 완료 세션은 KRX 또는 날짜가 검증된 chart와 시총 보강으로 먼저 복구되고, 같은 회차에 전 활성 종목 커버리지가 readiness 기준까지 확대된다.", "당일 부분 가격은 완료 거래일의 시총 Top100 품질 기준일을 선점하지 않으며 서로 다른 데이터셋의 커버리지를 동시에 0%로 만들지 않는다.", "장 시작 전 전일 종가가 당일 날짜로 잘못 저장되지 않고 전일 시총 Top100 기준이 유지되며, 시총 누락 행은 명시적 FDR 보완 수집 대상으로 남는다.", "cold staging 기동 뒤에는 수천 건의 종목별 보정이 신호 Top100 recovery보다 먼저 DB 작업을 점유하지 않아 data-readiness 창 안에 전일 Top100 시세·시가총액을 복구한다."],
+      "failure_criteria": ["한 종목이라도 0가격·역전 고저가·거래가 있는 불완전 캔들이 남거나 차트·신호 계산에 들어간다.", "장중 당일 실시간 가격이 존재한다는 이유로 누락된 직전 완료 세션 복구를 건너뛰어 가격 품질이 stale로 남는다.", "Top100이 준비됐다는 이유로 전 활성 종목 차트 복구를 다음 poll로 미뤄 readiness 계약의 가격 품질이 stale로 남는다.", "localTradedAt가 다른 거래일인 종가를 목표일 행으로 저장하거나 현재 realtime 시세를 과거 완료 세션으로 재라벨한다.", "장중 첫 부분 가격 날짜가 품질 유니버스 기준일이 되어 저장 데이터가 정상인데도 P0 가격·수급 품질이 stale로 판정된다.", "오전 9시 전 전일 종가가 당일 행으로 저장되거나 시총이 없는 완전 OHLC를 ready로 오인해 시총 Top100 유니버스가 비워진다.", "다른 종목·0 이하 시가총액을 저장하거나 시가총액 보강이 기존 완전 OHLC를 부분 시세로 손상한다.", "HTML 성공 뒤 시가총액 재수집이 로컬 변수 오류로 건너뛰어지거나, 복구 행 수만으로 95% 미만 커버리지를 성공으로 판정한다.", "완료 세션이 비어 있을 때 수천 종목의 느린 종목별 OHLC 보정을 신호 Top100 recovery보다 먼저 실행해 staging data-readiness 한도 안에 수집이 끝나지 않는다."]
     },
     {
       "id": "DATA-KRX-NAVER-003",
@@ -1159,12 +1172,12 @@
       "domain": "캘린더·콘텐츠 연동",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest Naver mobile news JSON normalization·empty/failure·retry·fresh-skip coverage·cache-header·release readiness fixtures + live source probe and latest-published checks + Playwright market/stock news freshness; 국내 readiness는 canonical 150/0 및 live와 동일한 100/100 시그널 범위를 모두 확인한다.",
-      "preconditions": ["네이버 모바일 금융 전역·종목 뉴스 JSON의 정상, 빈 결과, HTTP 실패 픽스처를 준비한다.", "신선한 종목 뉴스 스냅샷과 만료된 스냅샷을 각각 준비한다.", "us-market 사전운영 표면에 동일한 후보 이미지를 배포하고 전종목 뉴스 재수집이 끝나기 전의 stale 품질 응답을 준비한다."],
-      "inputs": {"general_endpoint": "/front-api/news/category", "stock_endpoint": "/front-api/news/stock/list", "sample_code": "005930", "maximum_stock_snapshot_age_hours": 12, "retry_seconds": 900, "ingestion_rows_loaded": "refreshed plus already-fresh skipped snapshots", "api_cache_policy": "no-store"},
-      "steps": ["현재 모바일 JSON의 articleId·officeId·datetime·title·body를 정규화하고 HTML entity, 12/14자리 발행시각, 원문 URL, 중복을 검증한다.", "전역 뉴스 원천이 비거나 실패하면 0건 성공으로 기록하지 않는지 확인한다.", "전 종목 뉴스 새로고침이 전량 실패하면 failed, 일부 실패하면 partial로 기록하고 15분 안에 재시도하는지 확인한다.", "모든 종목 스냅샷이 이미 신선해 전체 skip되는 정상 재배포는 refreshed=0을 보존하되 rows_loaded는 유효 커버리지 전체로 기록하는지 확인한다.", "만료된 종목 뉴스 갱신이 실패할 때 예전 기사를 현재 기사처럼 다시 노출하지 않는지 검사한다.", "/news-items·/stocks/{code}/news-items·/stocks/{code}/prices의 no-store 계약과 신호 데이터 품질 API의 news·stock_news 상태를 확인한다.", "배포 후 news·stock_news가 모두 ready이고 Top100 종목 뉴스 커버리지가 100%가 될 때까지 유한 대기한 뒤 live·e2e QA를 시작하는지 확인한다.", "us-market에서 실제 최신 발행시각과 종목 연결을 확인하고 피드·종목 소식 화면에서 재검증한다."],
+      "automation": "pytest Naver mobile news JSON normalization·empty/failure·retry·fresh-skip coverage·Top100 market-cap cold-start priority·cache-header·release readiness fixtures + live source probe and latest-published checks + Playwright market/stock news freshness; 국내 readiness는 canonical 150/0 및 live와 동일한 100/100 시그널 범위를 모두 확인한다.",
+      "preconditions": ["네이버 모바일 금융 전역·종목 뉴스 JSON의 정상, 빈 결과, HTTP 실패 픽스처를 준비한다.", "신선한 종목 뉴스 스냅샷과 만료된 스냅샷을 각각 준비한다.", "냉간 국내 스테이징에서 긴 연구·재무 백필과 동일한 최신 완료 세션의 시가총액 Top100을 준비한다.", "us-market 사전운영 표면에 동일한 후보 이미지를 배포하고 전종목 뉴스 재수집이 끝나기 전의 stale 품질 응답을 준비한다."],
+      "inputs": {"general_endpoint": "/front-api/news/category", "stock_endpoint": "/front-api/news/stock/list", "sample_code": "005930", "maximum_stock_snapshot_age_hours": 12, "retry_seconds": 900, "ingestion_rows_loaded": "refreshed plus already-fresh skipped snapshots", "cold_start_priority": "latest completed session market-cap Top100 before research, financial, and full-universe backfills", "api_cache_policy": "no-store"},
+      "steps": ["현재 모바일 JSON의 articleId·officeId·datetime·title·body를 정규화하고 HTML entity, 12/14자리 발행시각, 원문 URL, 중복을 검증한다.", "전역 뉴스 원천이 비거나 실패하면 0건 성공으로 기록하지 않는지 확인한다.", "전 종목 뉴스 새로고침이 전량 실패하면 failed, 일부 실패하면 partial로 기록하고 15분 안에 재시도하는지 확인한다.", "냉간 기동에서는 최신 완료 세션 시가총액 Top100 종목 뉴스가 연구·재무·전종목 백필보다 먼저 수집되고, 영문·숫자순 슬라이스가 아닌지 확인한다.", "모든 종목 스냅샷이 이미 신선해 전체 skip되는 정상 재배포는 refreshed=0을 보존하되 rows_loaded는 유효 커버리지 전체로 기록하는지 확인한다.", "만료된 종목 뉴스 갱신이 실패할 때 예전 기사를 현재 기사처럼 다시 노출하지 않는지 검사한다.", "/news-items·/stocks/{code}/news-items·/stocks/{code}/prices의 no-store 계약과 신호 데이터 품질 API의 news·stock_news 상태를 확인한다.", "배포 후 news·stock_news가 모두 ready이고 Top100 종목 뉴스 커버리지가 100%가 될 때까지 유한 대기한 뒤 live·e2e QA를 시작하는지 확인한다.", "us-market에서 실제 최신 발행시각과 종목 연결을 확인하고 피드·종목 소식 화면에서 재검증한다."],
       "expected": ["전역·종목 뉴스가 현재 JSON 원천에서 수집되고 기사 시각·제목·언론사·원문 링크가 보존된다.", "원천 장애가 성공 0건으로 숨겨지지 않고 품질 상태를 degraded로 낮추며 짧은 주기로 재시도한다.", "신선한 스냅샷 재사용은 실패 0건·유효 커버리지로 기록되고 새로 다운로드한 건수와 구분된다.", "만료 스냅샷은 신선한 응답처럼 재노출되지 않고 뉴스·시세 API는 중간 캐시의 이전 응답을 재사용하지 않는다.", "us-market 검증에서 최신 기사와 품질 상태가 일치한다."],
-      "failure_criteria": ["폐기된 finance.naver.com 뉴스 HTML 경로를 호출하거나 HTTP 410을 성공·0건으로 기록한다.", "종목 뉴스 100% 실패를 success로 남기고 6시간 동안 재시도하지 않는다.", "전종목 신선 스냅샷을 skip한 정상 재배포를 rows_loaded=0으로 기록해 품질 상태를 stale로 오판한다.", "만료된 스냅샷이 신선도 경고 없이 현재 뉴스로 노출되거나 API가 stale-while-revalidate로 이전 기사를 재사용한다.", "news·stock_news 품질 상태가 stale/unavailable인데 전체를 ready로 표시하거나 us-market 화면에 예전 기사가 남는다."]
+      "failure_criteria": ["폐기된 finance.naver.com 뉴스 HTML 경로를 호출하거나 HTTP 410을 성공·0건으로 기록한다.", "종목 뉴스 100% 실패를 success로 남기고 6시간 동안 재시도하지 않는다.", "냉간 기동에서 시가총액 Top100 대신 영문·숫자순 또는 전종목 백필을 먼저 실행해 readiness 시간 내 커버리지를 만들지 못한다.", "전종목 신선 스냅샷을 skip한 정상 재배포를 rows_loaded=0으로 기록해 품질 상태를 stale로 오판한다.", "만료된 스냅샷이 신선도 경고 없이 현재 뉴스로 노출되거나 API가 stale-while-revalidate로 이전 기사를 재사용한다.", "news·stock_news 품질 상태가 stale/unavailable인데 전체를 ready로 표시하거나 us-market 화면에 예전 기사가 남는다."]
     },
     {
       "id": "DATA-CALENDAR-CONTENT-006",
@@ -1655,12 +1668,12 @@
       "domain": "시그널 독립 근거",
       "priority": "P0",
       "modes": ["gate", "live", "e2e"],
-      "automation": "pytest missing source fixture + data quality/API/UI",
-      "preconditions": ["가격·지수·공시·스냅샷 누락을 각각 준비한다."],
-      "inputs": {"quality": "limited"},
-      "steps": ["확정 판단과 사용자 문구를 확인한다."],
-      "expected": ["매수 근거 확인 중으로 남고 확정 매수하지 않는다."],
-      "failure_criteria": ["누락 자료를 0점 또는 우호 근거로 간주한다."]
+      "automation": "pytest missing source fixture + 완료 세션 가격이 fallback으로 복구됐거나 이미 ready인 경우 모두 live KIS quote-floor와 독립적으로 versioned entry-evidence Top100을 warm하는 회귀 fixture + data quality/API/UI",
+      "preconditions": ["가격·지수·공시·스냅샷 누락을 각각 준비한다.", "완료 세션 OHLC는 복구됐지만 장중 KIS live quote cohort가 아직 publication floor 미달인 cold staging을 준비한다."],
+      "inputs": {"quality": "limited", "completed_session_evidence": "Top100, immutable completed OHLC, strategy/policy version"},
+      "steps": ["확정 판단과 사용자 문구를 확인한다.", "완료 세션 가격이 fallback으로 복구됐거나 기존 저장 데이터로 이미 ready인 뒤 live quote publisher가 보류돼도 해당 날짜·전략 버전의 Top100 evidence snapshot을 저장하고 data-quality가 ready가 되는지 확인한다."],
+      "expected": ["매수 근거 확인 중으로 남고 확정 매수하지 않는다.", "완료 세션에만 의존하는 immutable evidence는 장중 quote-floor 대기와 분리되어 Top100에 저장되며, live quote가 없는 값을 사실처럼 보강하지 않는다."],
+      "failure_criteria": ["누락 자료를 0점 또는 우호 근거로 간주한다.", "완료 세션 가격이 이미 ready인데 장중 live quote floor 때문에 entry-evidence snapshot이 0건으로 남아 P0 readiness가 실패한다.", "기존 저장 가격이 ready라는 이유로 fallback 분기만 warm-up을 실행해 재기동 후 evidence가 stale로 남는다."]
     },
 
     {
@@ -3558,6 +3571,19 @@
       "steps": ["과거 미검증 세션을 최신 날짜보다 먼저 제한된 재수집 대상으로 선택하고 30분 간격을 유지한다.", "KIS 날짜별 응답이 원천 간 가격·거래량 또는 누적 거래대금과 충돌하면 두 번 재조회해 각각 전체 근거를 재검증하고 동일한 검증 결과만 저장한다.", "정확히 11월 6일 근거 부재일 때만 다른 날짜의 저장 근거를 다시 검증해 날짜·OHLCV만 반환한다.", "그 밖의 날짜 또는 검증 가능한 다른 날짜가 없으면 기존 503을 유지한다.", "부분 응답에서 현재 신호·성과·매매 사건을 비우고 화면에는 검증된 날짜별 가격과 보류 이유를 표시한다."],
       "expected": ["재수집은 계속되고 검증된 다른 날짜의 가격은 200 부분 응답 및 AI 탭에서 확인할 수 있다.", "첫 원천 응답이 충돌해도 두 후속 조회가 동일하게 검증되면 append-only로 근거를 저장하고, 서로 다르면 격리를 유지한다.", "11월 6일 가격·확정 매수·매도·보유·성과는 추정하지 않으며 기존 P0는 유지된다."],
       "failure_criteria": ["미검증 날짜나 변조된 저장 근거를 검증 가격으로 표시한다.", "서로 다른 후속 응답이나 단 한 번의 정상 응답으로 격리를 해제한다.", "불완전한 분봉을 근거로 확정 신호·성과를 표시하거나 오래된 신호를 화면에 남긴다.", "다른 누락 날짜까지 예외로 통과시키거나 원본 예외·민감한 제공자 정보를 화면에 노출한다."]
+    },
+    {
+      "id": "DATA-KR-REGULAR-PRIORITY-001",
+      "title": "콜드 시작 대표 종목 정규장 근거 우선 수집",
+      "domain": "국내 정규장 가격 근거",
+      "priority": "P0",
+      "modes": ["gate", "live"],
+      "automation": "pytest 제한된 pair 예산에서 관심 종목의 완료 거래일 전체를 Top150 잔여 종목보다 먼저 조회하고, forward 수집이 현재 관심 종목을 우선 범위에 포함하는지 확인; live는 대표 종목 시그널 계약의 verified/incomplete 안전 상태를 읽기 전용으로 확인",
+      "preconditions": ["콜드 시작 또는 대규모 Top150 이력 수집으로 정규장 근거 pair 수가 max_pairs를 초과한다.", "대표 관심 종목은 상세 화면과 시그널 계약에서 사용자에게 노출되며, 과거 검증 자료는 append-only로 추가한다."],
+      "inputs": {"priority_codes": ["005930", "000660", "035420", "005380", "105560"], "representative_symbol": "005930", "regular_forward_start": "2026-10-13", "pair_cap": 250, "ordering": "recorded_retry_then_priority_history_then_remaining_market"},
+      "steps": ["완료 거래일을 최신순으로 만들고 대표 관심 종목과 일반 종목을 같은 제한 pair 목록에 넣는다.", "이미 기록된 미검증 근거의 냉각 재시도 순서를 먼저 보존한 뒤, 대표 관심 종목의 전체 완료 거래일을 일반 Top150 잔여 종목보다 먼저 수집하는지 확인한다.", "forward 수집이 관심 종목을 범위에 포함하고 priority_codes를 전달하는지 확인한다.", "검증 실패 근거는 계속 unverified로 저장하며, 확정 신호·과거 일봉·공개 이력은 수정하지 않는다."],
+      "expected": ["콜드 시작의 pair 제한 안에서도 005930 등 대표 관심 종목의 오래된 정규장 근거가 다음 스캔으로 무기한 밀리지 않는다.", "기록된 실패의 30분 재시도 정책과 append-only 증거 보존은 유지된다.", "근거가 아직 불완전하면 상세 API는 검증 완료로 가장하지 않고 재검증 중 안전 상태를 제공한다."],
+      "failure_criteria": ["신규 오래된 대표 종목 근거가 대규모 Top150의 최신 pair 뒤로 계속 밀려 상세 시그널 계약이 503으로 고착된다.", "우선 수집이 기록된 미검증 근거의 냉각·재시도 정책을 우회하거나 일반 종목의 근거를 덮어쓴다.", "미검증 근거만으로 확정 매수·매도·보유·성과를 게시한다."]
     },
     {
       "id": "SIG-KR-REGULAR-VALIDATION-CACHE-001",

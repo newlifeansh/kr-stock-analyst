@@ -427,6 +427,58 @@ def test_briefing_runtime_refreshes_priority_fundamentals_before_long_financials
     ]
 
 
+@pytest.mark.qa_gate
+def test_briefing_runtime_refreshes_macro_before_long_backfills(monkeypatch):
+    """Cold staging must expose market-index freshness before DART work ends."""
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=True,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=True,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=True,
+        )
+    )
+    events = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(runtime, "run_freshness_once", lambda **_kwargs: False)
+    monkeypatch.setattr(runtime, "_collect_macro", lambda _db: events.append("macro") or {
+        "rows_loaded": 1, "source": "fixture", "message": "ready"
+    })
+    monkeypatch.setattr(
+        briefing,
+        "collect_research_reports",
+        lambda *_args, **_kwargs: events.append("research") or 0,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_collect_financials",
+        lambda _db: events.append("financials") or {
+            "rows_loaded": 0, "source": "fixture", "message": "ready"
+        },
+    )
+    monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
+
+    runtime.run_once()
+
+    assert events == ["macro", "research", "financials"]
+
+
 def test_briefing_runtime_limits_canonical_fundamental_sync_to_signal_top100(monkeypatch):
     runtime = briefing.BriefingRuntime(
         Settings(
@@ -604,12 +656,14 @@ def test_stock_news_snapshot_failure_is_degraded_and_retried(monkeypatch):
     results = [
         {"rows_loaded": 0, "failed": 1, "message": "failed=1"},
         {"rows_loaded": 1, "failed": 0, "message": "failed=0"},
+        {"rows_loaded": 1, "failed": 0, "message": "full_failed=0"},
     ]
+    calls = []
     monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
     monkeypatch.setattr(
         briefing,
         "collect_stock_news_snapshots",
-        lambda *_args, **_kwargs: results.pop(0),
+        lambda *_args, **kwargs: calls.append(kwargs) or results.pop(0),
     )
     monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
 
@@ -619,6 +673,13 @@ def test_stock_news_snapshot_failure_is_degraded_and_retried(monkeypatch):
     assert runtime.last_stock_news_snapshot_failed == 1
     assert runtime.next_stock_news_snapshot_retry_at is not None
     assert runtime._stock_news_snapshot_due() is False
+    assert calls == [
+        {
+            "limit": briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+            "max_workers": runtime.settings.stock_news_snapshot_max_workers,
+            "refresh_hours": runtime.settings.stock_news_snapshot_refresh_hours,
+        }
+    ]
 
     runtime.next_stock_news_snapshot_retry_at = datetime.utcnow() - timedelta(seconds=1)
     runtime.run_once()
@@ -627,6 +688,61 @@ def test_stock_news_snapshot_failure_is_degraded_and_retried(monkeypatch):
     assert runtime.last_stock_news_snapshot_failed == 0
     assert runtime.next_stock_news_snapshot_retry_at is None
     assert "stock_news_snapshot" not in runtime.source_errors
+    assert [call.get("limit") for call in calls] == [
+        briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+        briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT,
+        None,
+    ]
+
+
+def test_briefing_runtime_refreshes_priority_stock_news_before_research_backfill(monkeypatch):
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=True,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=False,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=True,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+    runtime.last_research_at = datetime.utcnow()
+    events = []
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(
+        briefing,
+        "collect_stock_news_snapshots",
+        lambda _db, **kwargs: events.append(("stock_news", kwargs.get("limit")))
+        or {"rows_loaded": 100, "failed": 0, "message": "ready"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_research_reports",
+        lambda *_args, **_kwargs: events.append(("research_backfill", None)),
+    )
+    monkeypatch.setattr(briefing, "collect_home_briefing", lambda *_args, **_kwargs: None)
+
+    runtime.run_once()
+
+    assert events == [
+        ("stock_news", briefing.FUNDAMENTAL_SIGNAL_UNIVERSE_LIMIT),
+        ("research_backfill", None),
+        ("stock_news", None),
+    ]
 
 
 def test_collect_prices_uses_krx_market_before_fallback(monkeypatch):
@@ -1022,7 +1138,7 @@ def test_price_ohlc_repair_covers_incomplete_stocks_beyond_top_100(monkeypatch):
     ]
 
 
-def test_collect_prices_repairs_previous_session_ohlc_after_midnight(monkeypatch):
+def test_collect_prices_skips_slow_previous_session_repair_when_completed_session_is_ready(monkeypatch):
     runtime = briefing.BriefingRuntime(Settings())
     monkeypatch.setattr(
         briefing,
@@ -1034,11 +1150,17 @@ def test_collect_prices_repairs_previous_session_ohlc_after_midnight(monkeypatch
         "latest_completed_korea_market_session_date",
         lambda _now=None: date(2026, 8, 20),
     )
-    calls = []
     monkeypatch.setattr(
         runtime,
         "_repair_signal_price_ohlc",
-        lambda _db, target: calls.append(target) or 870,
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("completed-session repair must not delay ready data")
+        ),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_latest_price_coverage",
+        lambda *_args: {"total": 100, "fresh": 95, "coverage_ratio": 0.95},
     )
 
     result = runtime._collect_prices(
@@ -1046,9 +1168,62 @@ def test_collect_prices_repairs_previous_session_ohlc_after_midnight(monkeypatch
         now=datetime(2026, 8, 21, 1, 10),
     )
 
-    assert result["source"] == "previous_session_price_ohlc_repair"
-    assert result["rows_loaded"] == 870
-    assert calls == [date(2026, 8, 20)]
+    assert result["source"] == "market_closed"
+    assert result["rows_loaded"] == 0
+
+
+def test_collect_prices_uses_batched_realtime_before_slow_preopen_repair(monkeypatch):
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
+    monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: date(2026, 8, 20),
+    )
+    coverage = iter([
+        {"total": 2_700, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 2_700, "fresh": 2_700, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda *_args: next(coverage))
+    monkeypatch.setattr(
+        briefing,
+        "collect_market_prices",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("KRX unavailable")),
+    )
+    realtime_calls = []
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda _db, target, **kwargs: realtime_calls.append((target, kwargs)) or 2_700,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_repair_signal_price_ohlc",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("slow per-stock repair must follow, not precede, realtime batches")
+        ),
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_quotes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("HTML fallback must not run after realtime recovery")
+        ),
+    )
+
+    result = runtime._collect_prices(
+        object(),
+        now=datetime(2026, 8, 21, 6, 30),
+    )
+
+    assert result["source"] == "naver_realtime_quotes"
+    assert result["rows_loaded"] == 2_700
+    assert realtime_calls == [
+        (
+            "20260820",
+            {"markets": "KOSPI,KOSDAQ", "limit": None, "max_workers": 5},
+        )
+    ]
 
 
 def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
@@ -1107,7 +1282,153 @@ def test_collect_prices_uses_completed_session_before_market_open(monkeypatch):
     assert coverage_calls == ["20260820", "20260820"]
     assert market_calls == [("20260820", "KOSPI"), ("20260820", "KOSDAQ")]
     assert naver_calls == ["20260820"]
-    assert repair_calls == [date(2026, 8, 20), date(2026, 8, 20)]
+    assert repair_calls == [date(2026, 8, 20)]
+
+
+@pytest.mark.qa_gate
+def test_collect_prices_recovers_missing_completed_session_before_current_intraday(monkeypatch):
+    """A live quote must not hide a missing completed signal session."""
+    runtime = briefing.BriefingRuntime(Settings())
+    monkeypatch.setattr(briefing, "is_korea_market_session_date", lambda *_args: True)
+    completed_session = date(2026, 8, 20)
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: completed_session,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_latest_price_coverage",
+        lambda *_args: {"total": 100, "fresh": 6, "coverage_ratio": 0.06},
+    )
+    recovery_calls = []
+    monkeypatch.setattr(
+        runtime,
+        "_recover_missing_completed_session_prices",
+        lambda db, target: recovery_calls.append((db, target))
+        or {"source": "completed_session_naver_krx_chart_priority", "rows_loaded": 195, "message": "ok"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("current realtime quotes must not be relabelled as yesterday")
+        ),
+    )
+
+    db = object()
+    result = runtime._collect_prices(db, now=datetime(2026, 8, 21, 10, 5))
+
+    assert result["source"] == "completed_session_naver_krx_chart_priority"
+    assert recovery_calls == [(db, completed_session)]
+
+
+@pytest.mark.qa_gate
+def test_completed_session_chart_recovery_never_uses_realtime_quote_dates(monkeypatch):
+    """Historical recovery gets OHLC from the dated chart and caps from FDR."""
+    runtime = briefing.BriefingRuntime(Settings(price_max_workers=5))
+    calls = []
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_krx_price_rows_for_codes",
+        lambda _db, codes, target, **kwargs: calls.append((codes, target, kwargs)) or 95,
+    )
+    monkeypatch.setattr(briefing, "derive_market_caps_for_date", lambda _db, target: 95)
+    monkeypatch.setattr(
+        briefing,
+        "collect_naver_realtime_market_caps",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("realtime localTradedAt cannot populate a historical session")
+        ),
+    )
+
+    repaired = runtime._repair_completed_session_from_naver(
+        object(),
+        date(2026, 8, 20),
+        codes=["005930"],
+    )
+
+    assert repaired == 190
+    assert calls == [(["005930"], date(2026, 8, 20), {"max_workers": 5})]
+
+
+@pytest.mark.qa_gate
+def test_completed_session_recovery_expands_top100_to_full_active_market(monkeypatch):
+    """Top100 recovery is early priority, not a substitute for full readiness."""
+    runtime = briefing.BriefingRuntime(Settings())
+    coverage = iter([
+        {"total": 100, "fresh": 0, "coverage_ratio": 0.0},
+        {"total": 100, "fresh": 100, "coverage_ratio": 1.0},
+    ])
+    monkeypatch.setattr(runtime, "_latest_price_coverage", lambda *_args: next(coverage))
+    monkeypatch.setattr(briefing, "collect_market_prices", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(runtime, "_priority_completed_session_price_codes", lambda *_args: ["005930"])
+    monkeypatch.setattr(runtime, "_completed_session_priority_ready", lambda *_args: True)
+    repair_calls = []
+    monkeypatch.setattr(
+        runtime,
+        "_repair_completed_session_from_naver",
+        lambda _db, _target, **kwargs: repair_calls.append(kwargs.get("codes")) or 100,
+    )
+
+    result = runtime._recover_missing_completed_session_prices(object(), date(2026, 8, 20))
+
+    assert result["source"] == "completed_session_naver_krx_chart"
+    assert repair_calls == [["005930"], None]
+    assert "priority_ready=True" in result["message"]
+
+
+@pytest.mark.qa_gate
+def test_run_once_warms_completed_session_evidence_when_prices_are_already_ready(monkeypatch):
+    """A restored staging database must not skip immutable evidence warm-up."""
+    runtime = briefing.BriefingRuntime(
+        Settings(
+            briefing_realtime_enabled=False,
+            research_enabled=False,
+            disclosure_enabled=False,
+            news_enabled=False,
+            price_enabled=True,
+            stock_universe_enabled=False,
+            investor_flow_enabled=False,
+            financials_enabled=False,
+            fundamental_snapshot_enabled=False,
+            stock_news_snapshot_enabled=False,
+            stock_company_snapshot_enabled=False,
+            macro_enabled=False,
+        )
+    )
+
+    class FakeSession:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    completed_session = date(2026, 8, 20)
+    evidence_calls = []
+    monkeypatch.setattr(briefing, "SessionLocal", FakeSession)
+    monkeypatch.setattr(runtime, "run_freshness_once", lambda **_kwargs: False)
+    monkeypatch.setattr(
+        runtime,
+        "_collect_prices",
+        lambda _db: {"source": "existing_prices", "rows_loaded": 0, "message": "ready"},
+    )
+    monkeypatch.setattr(
+        briefing,
+        "latest_completed_korea_market_session_date",
+        lambda _now=None: completed_session,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_warm_completed_session_entry_evidence",
+        lambda _db, target: evidence_calls.append(target) or 100,
+    )
+
+    runtime.run_once()
+
+    assert evidence_calls == [completed_session]
+    assert runtime.last_price_message == "ready entry_evidence=100"
 
 
 def test_price_coverage_requires_a_complete_coherent_daily_candle():

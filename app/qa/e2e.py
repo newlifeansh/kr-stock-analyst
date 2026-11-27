@@ -3997,7 +3997,8 @@ def run_e2e_checks(
                               return !state.stockQuantSignals
                                 && status
                                 && !status.hidden
-                                && status.textContent.includes('불러오지 못했습니다');
+                                && status.textContent.includes('재검증 중')
+                                && status.textContent.includes('확정 신호를 표시하지 않습니다');
                             }""",
                             stage=f"{stock['code']} 검증 전 시그널 fail-close",
                             timeout_ms=int(timeout * 1000),

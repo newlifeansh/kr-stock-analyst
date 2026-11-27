@@ -873,6 +873,25 @@ def test_regular_backfill_prioritizes_old_unverified_session_under_pair_cap(db):
     assert rsp.load_regular_session_evidence(db, "005930", DAY)["state"] == "ready"
 
 
+def test_regular_backfill_prioritizes_representative_symbol_history_under_pair_cap(db):
+    from types import SimpleNamespace
+
+    calls = []
+
+    def fetch(code, day):
+        calls.append((code, day))
+        return {"rows": []}
+
+    result = rsp.collect_regular_session_prices(
+        db, SimpleNamespace(fetch_regular_session_data=fetch),
+        codes=["000660", "005930"], priority_codes=["005930"],
+        start=DAY, end=DAY + timedelta(days=1),
+        observed_at=OBSERVED + timedelta(days=2), persist=True, max_pairs=2,
+    )
+    assert calls == [("005930", DAY + timedelta(days=1)), ("005930", DAY)]
+    assert result["attempted"] == 2 and result["deferred"] == 2
+
+
 def test_regular_backfill_cools_down_unverified_source_without_hiding_failure(db):
     from types import SimpleNamespace
 

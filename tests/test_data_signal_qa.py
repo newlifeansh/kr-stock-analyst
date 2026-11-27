@@ -377,7 +377,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
 
     assert payload["strategy_version"] == "position-lifecycle-v8.1"
     assert payload["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert len(ids) == 182
+    assert len(ids) == 184
     assert len(ids) == len(set(ids))
     assert {
         "DATA-COM-001",
@@ -433,6 +433,7 @@ def test_data_signal_catalog_is_complete_and_machine_readable() -> None:
         "SIG-KR-FLAT-REPLAY-001",
         "SIG-KR-FLAT-REPLAY-002",
         "DATA-KR-REGULAR-GAP-001",
+        "DATA-KR-REGULAR-PRIORITY-001",
         "DATA-KR-REGULAR-TOSS-001",
         "DATA-KR-REGULAR-AUCTION-001",
         "DATA-KR-REGULAR-KIS-REVISION-001",
@@ -502,7 +503,7 @@ def test_catalog_markdown_is_deterministic_and_traceable() -> None:
     assert "`position-lifecycle-v8.1`" in first
     assert "SIG-CONTRACT-003" in first
     assert "`position-lifecycle-us-v3-hybrid1`" in first
-    assert "QA 항목: 182개" in first
+    assert "QA 항목: 184개" in first
     assert Path("docs/qa/data-signal-qa-matrix.md").read_text(encoding="utf-8") == first
 
 
@@ -1678,6 +1679,14 @@ def test_domestic_e2e_accepts_only_explicit_verified_replay_pending_for_represen
         )
     ]
     assert readiness_source.count("allow_verified_replay_pending=True") == 2
+    replay_pending_source = source[
+        source.index("if stock.get(\"signal_replay_pending\"):") : source.index(
+            "elif (",
+            source.index("if stock.get(\"signal_replay_pending\"):"),
+        )
+    ]
+    assert "status.textContent.includes('재검증 중')" in replay_pending_source
+    assert "status.textContent.includes('확정 신호를 표시하지 않습니다')" in replay_pending_source
 
 
 def test_domestic_e2e_tracks_verified_prices_without_claiming_a_signal(monkeypatch) -> None:
@@ -2009,7 +2018,7 @@ def test_gate_report_exercises_current_strategy_invariants(tmp_path: Path) -> No
     assert report["schema_version"] == "1.0"
     assert report["strategy_version"] == "position-lifecycle-v8.1"
     assert report["us_strategy_version"] == "position-lifecycle-us-v3-hybrid1"
-    assert report["catalog_case_count"] == 182
+    assert report["catalog_case_count"] == 184
     assert len(by_id) == len(report["checks"])
     assert by_id["SIG-ENTRY-001"]["status"] == "pass"
     assert by_id["SIG-ENTRY-002"]["status"] == "pass"
@@ -2068,16 +2077,19 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
         "SIG-KR-FLAT-REPLAY-001",
         "SIG-KR-FLAT-REPLAY-002",
         "DATA-KR-REGULAR-GAP-001",
+        "DATA-KR-REGULAR-PRIORITY-001",
             "DATA-KR-REGULAR-TOSS-001",
             "DATA-KR-REGULAR-AUCTION-001",
             "DATA-KR-REGULAR-KIS-REVISION-001",
             "DATA-KR-REGULAR-DELAYED-AUCTION-001",
         "SIG-KR-REGULAR-VALIDATION-CACHE-001",
+            "SIG-EVIDENCE-003",
         "SIG-KR-INTRADAY-PANIC-STRENGTH-001",
         "SIG-KR-INTRADAY-REPLAY-001",
         "SIG-KR-INTRADAY-SEAL-001",
         "SIG-KR-INTRADAY-CORROBORATION-001",
         "SIG-KR-FORWARD-001",
+        "SIG-KR-SCOPE-001",
         "SIG-KR-CANDIDATE-RELIABILITY-001",
         "SIG-LIFECYCLE-003",
         "SIG-EXIT-005",
@@ -2100,6 +2112,7 @@ def test_mapped_gate_cases_require_their_named_junit_testcases(tmp_path: Path) -
     }
     expected_case_ids.update({
         "DATA-KR-CURSOR-MINUTE-001",
+        "DATA-KRX-NAVER-002",
         "DATA-KRX-NAVER-005",
         "DATA-US-ADR-HALF-CENT-001",
         "DATA-US-ADR-NULL-CLOSE-001",
