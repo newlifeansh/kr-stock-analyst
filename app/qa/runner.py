@@ -451,6 +451,9 @@ PYTEST_QA_CASE_TESTS: dict[str, tuple[str, ...]] = {
         "tests.test_app.test_fresh_market_signal_snapshot_retries_incomplete_forward_evidence",
         "tests.test_app.test_fresh_market_signal_snapshot_keeps_isolated_healthy_candidates_without_read_retry",
     ),
+    "SIG-KR-SCOPE-001": (
+        "tests.test_app.test_market_quant_signal_views_share_one_live_quote_scan",
+    ),
     "DATA-KR-QUOTE-SESSION-001": (
         "tests.test_live_stock_quote.test_kis_source_session_and_business_date_are_preserved_for_every_venue",
         "tests.test_live_stock_quote.test_realtime_payload_uses_source_phase_venue_and_price_time_not_receive_clock",

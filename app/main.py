@@ -1265,6 +1265,20 @@ def _refresh_market_quant_signal_views_snapshot(
     )
     if current is None:
         return None
+    # Live readiness also consumes the bounded Top100 feed.  It must be
+    # published from the exact same verified quote frame as the canonical
+    # Top150 alert feed; otherwise a cold deployment can leave that scope
+    # stale even though the canonical snapshot is ready.
+    live_scope = _refresh_market_quant_signal_snapshot(
+        universe_limit=100,
+        limit=100,
+        recent_days=30,
+        live_quotes=shared_quotes,
+        reuse_regular_preflight=True,
+    )
+    if live_scope is None:
+        logger.warning("Market quant signal Top100 live scope refresh did not complete")
+        return None
     if quote_sink is not None:
         quote_sink.append(shared_quotes or {})
     if not refresh_detail:
